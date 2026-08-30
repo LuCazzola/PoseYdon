@@ -69,6 +69,83 @@ def _train(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sample(args: argparse.Namespace) -> int:
+    import torch
+    from hydra.utils import instantiate
+
+    from poseydon.core.batch import Cond, Masks
+    from poseydon.data.collate import collate
+    from poseydon.features import features_to_anim
+    from poseydon.io.bvh import save_bvh
+    from poseydon.training.build import build_dataset, build_model, build_process
+
+    config = _compose(args.config_dir, args.config_name, args.overrides)
+    torch.manual_seed(config.seed)
+
+    dataset = build_dataset(config)
+    skeleton = config.skeleton or dataset.records[0].skeleton
+    matching = [i for i, r in enumerate(dataset.records) if r.skeleton == skeleton]
+    if not matching:
+        print(f"no clips for skeleton `{skeleton}`", file=sys.stderr)
+        return 1
+
+    # One real item supplies the skeleton's conditioning: topology, rest pose and
+    # normalization statistics all describe the rig, not the clip.
+    template = collate([dataset[matching[0]]])
+    process = build_process(config)
+    model = build_model(config, feature_dim=template.spec.dim).eval()
+
+    if args.checkpoint:
+        state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+        model.load_state_dict(
+            {k.removeprefix("task.model."): v
+             for k, v in state.get("state_dict", state).items()
+             if k.startswith("task.model.")}
+        )
+    else:
+        print("no --checkpoint given: sampling from an untrained model", file=sys.stderr)
+
+    n, frames = config.n_samples, config.n_frames
+    joints = template.n_joints
+    cond = Cond({k: _tile(v, n) for k, v in template.cond.payloads.items()})
+    masks = Masks(
+        frames=torch.ones(n, frames, dtype=torch.bool),
+        joints=template.masks.joints[:1].repeat(n, 1),
+    )
+
+    sampler = instantiate(config.sampler)
+    operation = instantiate(config.operation)
+    with torch.no_grad():
+        out = operation.run(
+            model=model,
+            process=process,
+            sampler=sampler,
+            shape=(n, joints, template.spec.dim, frames),
+            cond=cond,
+            masks=masks,
+        )
+
+    normalizer = dataset._normalizer(skeleton, template.spec)
+    reference = dataset._anim(dataset.records[matching[0]])
+
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(n):
+        features = normalizer.denormalize(out[i].permute(2, 0, 1).cpu().numpy().astype("float64"))
+        anim = features_to_anim(features, template.spec, reference)
+        destination = out_dir / f"{skeleton}__sample_{i:03d}.bvh"
+        save_bvh(anim, destination)
+        print(f"wrote {destination}")
+    return 0
+
+
+def _tile(value, times: int):
+    """Repeat one skeleton's conditioning across a batch of samples."""
+    if isinstance(value, dict):
+        return {k: _tile(v, times) for k, v in value.items()}
+    return value[:1].repeat(times, *([1] * (value.ndim - 1)))
+
+
 def _list(args: argparse.Namespace) -> int:
     from poseydon.conditioners import CONDITIONERS
     from poseydon.data.window import WINDOWS
@@ -122,6 +199,14 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--print-config", action="store_true", help="show the config and exit")
     train.add_argument("--quiet", action="store_true")
     train.set_defaults(func=_train)
+
+    sample = sub.add_parser("sample", help="generate motion and write BVH")
+    sample.add_argument("overrides", nargs="*")
+    sample.add_argument("--config-dir", default=CONFIG_DIR)
+    sample.add_argument("--config-name", default="sample")
+    sample.add_argument("--checkpoint", default=None)
+    sample.add_argument("--out", default="samples")
+    sample.set_defaults(func=_sample)
 
     listing = sub.add_parser("list", help="show the components available by name")
     listing.add_argument("kind", nargs="?", default=None)
