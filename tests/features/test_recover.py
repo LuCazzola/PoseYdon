@@ -105,3 +105,40 @@ def test_mismatched_width_is_rejected(bvh_fixture):
     anim, array, _, _ = round_trip(bvh_fixture)
     with pytest.raises(RecoveryError, match="wide"):
         features_to_anim(array, FeatureSpec((("rot6d", 6),)), anim)
+
+
+def test_position_path_reproduces_the_pose_exactly(bvh_fixture):
+    # The representation is redundant: it carries rotations AND positions. On a
+    # real clip the two agree by construction, so both paths must be exact.
+    from poseydon.features import positions_from_features
+
+    anim, array, spec, _ = round_trip(bvh_fixture)
+    recovered = positions_from_features(array, spec)
+    truth = anim.global_positions()[: array.shape[0]]
+
+    np.testing.assert_allclose(
+        recovered - recovered[:, :1], truth - truth[:, :1], atol=1e-9
+    )
+
+
+def test_position_path_agrees_with_the_rotation_path_on_real_data(bvh_fixture):
+    from poseydon.features import positions_from_features
+
+    _, array, spec, back = round_trip(bvh_fixture)
+    from_positions = positions_from_features(array, spec)
+    from_rotations = back.global_positions()
+
+    np.testing.assert_allclose(
+        from_positions - from_positions[:, :1],
+        from_rotations - from_rotations[:, :1],
+        atol=1e-9,
+    )
+
+
+def test_position_path_needs_all_three_blocks(bvh_fixture):
+    from poseydon.features import positions_from_features
+
+    anim = load_bvh(bvh_fixture)
+    array, spec = extract_features(anim, resolved_for(bvh_fixture, anim), ["rot6d"])
+    with pytest.raises(RecoveryError, match="ric_pos"):
+        positions_from_features(array, spec)

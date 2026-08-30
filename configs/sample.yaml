@@ -20,6 +20,18 @@ sampler:
   steps: 50
 
 # Which skeleton to animate, and for how long.
+# How to turn generated features back into a skeleton. The representation
+# carries rotations AND positions, and a generated clip need not keep them
+# consistent, so this is a real choice:
+#   fk            forward kinematics from rotations. Rigid, exact, free.
+#   positions     predicted positions as-is. Closest to the prediction, but
+#                 bone lengths are not enforced. No BVH (it stores rotations).
+#   positions_ik  positions fitted back onto a rigid skeleton by IK.
+reconstruct:
+  name: fk
+  iterations: 150     # positions_ik only
+  smoothness: 0.05    # positions_ik only
+
 skeleton: null        # null takes the first in the index
 n_frames: 40
 n_samples: 2

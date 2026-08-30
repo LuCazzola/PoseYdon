@@ -70,12 +70,13 @@ def _train(args: argparse.Namespace) -> int:
 
 
 def _sample(args: argparse.Namespace) -> int:
+    import numpy as np
     import torch
     from hydra.utils import instantiate
 
     from poseydon.core.batch import Cond, Masks
     from poseydon.data.collate import collate
-    from poseydon.features import features_to_anim
+    from poseydon.features import reconstruct
     from poseydon.io.bvh import save_bvh
     from poseydon.training.build import build_dataset, build_model, build_process
 
@@ -128,14 +129,25 @@ def _sample(args: argparse.Namespace) -> int:
     normalizer = dataset._normalizer(skeleton, template.spec)
     reference = dataset._anim(dataset.records[matching[0]])
 
+    settings = dict(config.reconstruct)
+    method = str(settings.pop("name"))
+    if method != "positions_ik":
+        # These knobs only mean anything to the solver.
+        settings = {}
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     for i in range(n):
         features = normalizer.denormalize(out[i].permute(2, 0, 1).cpu().numpy().astype("float64"))
-        anim = features_to_anim(features, template.spec, reference)
-        destination = out_dir / f"{skeleton}__sample_{i:03d}.bvh"
-        save_bvh(anim, destination)
-        print(f"wrote {destination}")
+        positions, anim = reconstruct(method, features, template.spec, reference, **settings)
+
+        stem = out_dir / f"{skeleton}__sample_{i:03d}"
+        np.save(f"{stem}.positions.npy", positions)
+        if anim is None:
+            print(f"wrote {stem}.positions.npy  (`{method}` yields no rotations, so no BVH)")
+        else:
+            save_bvh(anim, f"{stem}.bvh")
+            print(f"wrote {stem}.bvh  (reconstruct={method})")
     return 0
 
 

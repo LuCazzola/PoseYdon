@@ -83,6 +83,37 @@ def root_trajectory(
     return positions
 
 
+def positions_from_features(
+    features: np.ndarray, spec: FeatureSpec
+) -> np.ndarray:
+    """Global joint positions taken from the POSITION channels.
+
+    The representation is redundant: it carries both rotations and positions,
+    and a model can predict the two inconsistently. This path reads the
+    positions; :func:`features_to_anim` reads the rotations. Comparing them
+    measures how self-consistent a generated clip actually is.
+
+    The reference renders from this path and calls the rotation path "less
+    visually appealing" -- but it needs 150 iterations of IK to get back to a
+    BVH, because a BVH stores rotations.
+    """
+    _require(spec, "ric_pos", "local_vel", "rot6d")
+    ric = features[..., spec.slice("ric_pos")]
+
+    facing = matrix_to_quat(
+        rot6d_to_matrix(features[:, 0, spec.slice("rot6d")], layout=_REFERENCE_6D_LAYOUT)
+    )
+    root = root_trajectory(features, spec, facing)
+
+    # Undo the per-frame de-rotation, then put the trajectory back underneath.
+    inverse = facing * np.array([-1.0, -1.0, -1.0, 1.0])
+    positions = quat_apply(inverse[:, None, :], ric)
+    positions[..., 0] += root[:, None, 0]
+    positions[..., 2] += root[:, None, 2]
+    positions[:, 0] = root
+    return positions
+
+
 def features_to_anim(
     features: np.ndarray, spec: FeatureSpec, template: Anim
 ) -> Anim:

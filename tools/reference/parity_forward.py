@@ -24,7 +24,7 @@ from poseydon.models.modiffae import JOINT_NAMES, TEMPORAL_VALID, Z_SEM, MoDiffA
 
 
 def main() -> int:
-    import argparse  # noqa: PLC0415
+    import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--save", default="truebones_globpool")

@@ -17,14 +17,14 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path("tools/reference").resolve()))
-from run_reference_transfer import build_model_and_diffusion, load_inputs  # noqa: E402
-from transfer_compare import ReplayNoise, to_cond, to_masks  # noqa: E402
+from run_reference_transfer import build_model_and_diffusion, load_inputs
+from transfer_compare import ReplayNoise, to_cond, to_masks
 
-from poseydon.core.batch import Cond  # noqa: E402
-from poseydon.models.base import Denoiser, Prediction  # noqa: E402
-from poseydon.models.modiffae import Z_SEM, MoDiffAE  # noqa: E402
-from poseydon.process import GaussianDiffusion  # noqa: E402
-from poseydon.sampling import DDPM  # noqa: E402
+from poseydon.core.batch import Cond
+from poseydon.models.base import Denoiser, Prediction
+from poseydon.models.modiffae import Z_SEM, MoDiffAE
+from poseydon.process import GaussianDiffusion
+from poseydon.sampling import DDPM
 
 
 class ReferenceAdapter(Denoiser):
@@ -71,7 +71,7 @@ def main() -> int:
     ours.load_state_dict(reference_model.state_dict(), strict=True)
     ours.eval()
 
-    from model.motion_diffusion_ae import ControlConfig  # noqa: PLC0415
+    from model.motion_diffusion_ae import ControlConfig
 
     control = ControlConfig(x=inputs["control_x"], y=inputs["y_source"], alpha=torch.zeros(1))
     model_kwargs = {"y": inputs["y_target"], "control": control}
