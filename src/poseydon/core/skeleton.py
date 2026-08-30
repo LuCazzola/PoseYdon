@@ -180,3 +180,59 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
             None if data.get("strip_joint_prefix") is None else str(data["strip_joint_prefix"])
         ),
     )
+
+
+def resolve_joint(name: str, names: Sequence[str], *, context: str = "") -> int:
+    """Index of ``name`` in ``names``, or a readable error naming alternatives."""
+    try:
+        return list(names).index(name)
+    except ValueError:
+        pass
+
+    where = f" ({context})" if context else ""
+    close = difflib.get_close_matches(name, list(names), n=3)
+    if close:
+        hint = ", did you mean " + " or ".join(f"`{c}`" for c in close) + "?"
+    else:
+        preview = ", ".join(list(names)[:10])
+        more = "" if len(names) <= 10 else f", ... ({len(names)} total)"
+        hint = f". Available joints: {preview}{more}"
+    raise ManifestError(f"joint `{name}`{where} is not in the skeleton{hint}")
+
+
+@dataclass(frozen=True)
+class ResolvedSkeleton:
+    """A manifest bound to a concrete joint ordering."""
+
+    manifest: SkeletonManifest
+    facing_indices: tuple[tuple[int, int], ...]
+    foot_indices: tuple[int, ...]
+
+
+def resolve(manifest: SkeletonManifest, names: Sequence[str]) -> ResolvedSkeleton:
+    """Bind every joint name in ``manifest`` to an index in ``names``."""
+    facing = tuple(
+        (
+            resolve_joint(pair.right, names, context=f"{manifest.name} facing.right"),
+            resolve_joint(pair.left, names, context=f"{manifest.name} facing.left"),
+        )
+        for pair in manifest.facing
+    )
+    feet = tuple(
+        resolve_joint(joint, names, context=f"{manifest.name} foot_joints")
+        for joint in manifest.foot_joints
+    )
+    return ResolvedSkeleton(manifest=manifest, facing_indices=facing, foot_indices=feet)
+
+
+def strip_prefix(names: Sequence[str], prefix: str | None) -> tuple[str, ...]:
+    """Drop a dataset-specific joint-name prefix, e.g. ``mixamorig:``."""
+    if not prefix:
+        return tuple(names)
+    stripped = tuple(n[len(prefix) :] if n.startswith(prefix) else n for n in names)
+    if len(set(stripped)) != len(stripped):
+        raise ManifestError(
+            f"stripping prefix `{prefix}` makes joint names collide; "
+            "remove the prefix from the manifest or rename the joints"
+        )
+    return stripped
