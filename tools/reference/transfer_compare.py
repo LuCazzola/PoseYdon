@@ -33,6 +33,36 @@ SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_conta
 STEMS = {"Flamingo": "Flamingo_Flamingo_OneLEgBEnt_353", "Scorpion": "Scorpion___SlowForward_839"}
 
 
+class ReplayNoise:
+    """Feed both samplers the identical stream of random tensors.
+
+    DDPM draws once per step, and the two loops do not consume the stream the
+    same way -- the reference draws at t=0 as well, and discards it. Seeding the
+    global generator therefore does NOT align them. Replacing the draw itself
+    with a replayed list removes the question entirely, so any remaining
+    difference is the models rather than the randomness.
+    """
+
+    def __init__(self, tensors):
+        self.tensors = tensors
+        self.index = 0
+
+    def _next(self, *_args, **_kwargs):
+        tensor = self.tensors[self.index % len(self.tensors)]
+        self.index += 1
+        return tensor.clone()
+
+    def __enter__(self):
+        self._randn, self._randn_like = torch.randn, torch.randn_like
+        torch.randn = self._next
+        torch.randn_like = self._next
+        return self
+
+    def __exit__(self, *_exc):
+        torch.randn, torch.randn_like = self._randn, self._randn_like
+        return False
+
+
 def rest_row(pair: torch.Tensor) -> torch.Tensor:
     out = pair.clone().bool()
     out[:, 0, :] = False
@@ -69,11 +99,12 @@ def main() -> int:
     parser.add_argument("--target", default="Scorpion")
     parser.add_argument("--frames", type=int, default=40)
     parser.add_argument("--steps", type=int, default=50)
+    parser.add_argument("--sampler", default="ddim", choices=["ddim", "ddpm"])
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="artifacts/transfer")
     args = parser.parse_args()
 
-    out_dir = Path(args.out) / args.save
+    out_dir = Path(args.out) / args.save / args.sampler
     out_dir.mkdir(parents=True, exist_ok=True)
 
     reference_model, diffusion, raw = build_model_and_diffusion(args.save)
@@ -95,17 +126,34 @@ def main() -> int:
     ours.eval()
 
     shape = (1, joints_pad, 13, args.frames)
-    noise = torch.randn(shape, generator=torch.Generator().manual_seed(args.seed))
 
-    # ---- reference, deterministic DDIM ----
     from model.motion_diffusion_ae import ControlConfig
 
     control = ControlConfig(x=inputs["control_x"], y=inputs["y_source"], alpha=torch.zeros(1))
+    model_kwargs = {"y": inputs["y_target"], "control": control}
+
+    # DDPM is stochastic, so the two runs are comparable only if they consume the
+    # same random numbers. Both loops draw the starting noise and then one sample
+    # per step, in that order, so seeding the global generator identically before
+    # each aligns them. DDIM draws nothing after the start and takes an explicit
+    # noise tensor instead.
+    noise = torch.randn(shape, generator=torch.Generator().manual_seed(args.seed))
+
+    generator = torch.Generator().manual_seed(args.seed)
+    stream = [torch.randn(shape, generator=generator) for _ in range(process_steps(raw) + 2)]
+
     with torch.no_grad():
-        ref_out = diffusion.ddim_sample_loop(
-            reference_model, shape, noise=noise, clip_denoised=False,
-            model_kwargs={"y": inputs["y_target"], "control": control}, progress=False,
-        )
+        if args.sampler == "ddpm":
+            with ReplayNoise(stream):
+                ref_out = diffusion.p_sample_loop(
+                    reference_model, shape, clip_denoised=False,
+                    model_kwargs=model_kwargs, progress=False,
+                )
+        else:
+            ref_out = diffusion.ddim_sample_loop(
+                reference_model, shape, noise=noise, clip_denoised=False,
+                model_kwargs=model_kwargs, progress=False,
+            )
     ref_features = ref_out[0].permute(2, 0, 1).numpy()[:, :n_target]
 
     # ---- PoseYdon, same noise, same schedule ----
@@ -115,21 +163,25 @@ def main() -> int:
     masks_target = to_masks(inputs["y_target"], joints_pad, args.frames)
 
     from poseydon.process import GaussianDiffusion
-    from poseydon.sampling import DDIM
+    from poseydon.sampling import DDIM, DDPM
 
     process = GaussianDiffusion(num_steps=100, schedule=raw["noise_schedule"], parameterization="x0")
     with torch.no_grad():
         z_sem, _ = ours.encode(inputs["control_x"][:, 0], cond_source, masks_source)
-        our_out = DDIM(steps=None).sample(
-            ours, process, shape,
-            Cond({**cond_target.payloads, Z_SEM: z_sem}),
-            masks=masks_target, start=noise,
-        )
+        target_cond = Cond({**cond_target.payloads, Z_SEM: z_sem})
+        if args.sampler == "ddpm":
+            with ReplayNoise(stream):
+                our_out = DDPM().sample(ours, process, shape, target_cond, masks=masks_target)
+        else:
+            our_out = DDIM(steps=None).sample(
+                ours, process, shape, target_cond, masks=masks_target, start=noise,
+            )
     our_features = our_out[0].permute(2, 0, 1).numpy()[:, :n_target]
 
     # ---- numerical comparison ----
     diff = np.abs(ref_features - our_features)
     scale = np.abs(ref_features).max()
+    print(f"sampler        : {args.sampler} x {process.num_steps} steps")
     print(f"features       : {ref_features.shape}")
     print(f"max abs diff   : {diff.max():.3e}   (values up to {scale:.3f})")
     print(f"mean abs diff  : {diff.mean():.3e}")
@@ -170,6 +222,10 @@ def main() -> int:
     )
     print(f"wrote source_{args.source}.bvh and .mp4")
     return 0
+
+
+def process_steps(raw) -> int:
+    return int(raw.get("diffusion_steps", 100))
 
 
 def _face_joints(name, anim):

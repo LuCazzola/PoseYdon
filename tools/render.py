@@ -28,10 +28,17 @@ def render_skeleton(
     fps: int = 24,
     title: str = "",
     elev: float = 12.0,
-    azim: float = 55.0,
+    azim: float = 70.0,
     dpi: int = 90,
 ) -> Path:
-    """Write an MP4 of a moving skeleton. ``positions`` is ``(F, J, 3)``."""
+    """Write an MP4 of a moving skeleton. ``positions`` is ``(F, J, 3)``.
+
+    Motion data is Y-up and faces +Z after alignment, but matplotlib draws its
+    THIRD axis vertically. Passing (x, y, z) straight through therefore stands
+    the character on its face: the forward axis is drawn as up. Every plotting
+    call below maps (x, y, z) -> (x, z, y) so motion-Y is vertical, and the
+    camera sits on the +Z side so the character faces it.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     positions = np.asarray(positions, dtype=np.float64)
@@ -41,7 +48,7 @@ def render_skeleton(
     # swim as the view rescales per frame.
     centre = positions.reshape(-1, 3).mean(axis=0)
     reach = float(np.abs(positions.reshape(-1, 3) - centre).max()) * 1.15 + 1e-6
-    floor = float(positions[..., 1].min())
+    floor = float(positions[..., 1].min())  # motion-Y is up
 
     frames = []
     figure = plt.figure(figsize=(5, 5), dpi=dpi)
@@ -53,23 +60,25 @@ def render_skeleton(
 
         # A ground plane, so height and contact are readable.
         grid = np.linspace(-reach, reach, 2)
-        mesh_x, mesh_z = np.meshgrid(grid + centre[0], grid + centre[2])
+        mesh_x, mesh_depth = np.meshgrid(grid + centre[0], grid + centre[2])
         axes.plot_surface(
-            mesh_x, np.full_like(mesh_x, floor), mesh_z, alpha=0.12, color="#888888"
+            mesh_x, mesh_depth, np.full_like(mesh_x, floor), alpha=0.12, color="#888888"
         )
 
         for parent, child in bones:
             axes.plot(
                 [joints[parent, 0], joints[child, 0]],
-                [joints[parent, 1], joints[child, 1]],
                 [joints[parent, 2], joints[child, 2]],
+                [joints[parent, 1], joints[child, 1]],
                 color="#1f77b4", linewidth=1.8, solid_capstyle="round",
             )
-        axes.scatter(joints[:, 0], joints[:, 1], joints[:, 2], s=5, color="#d62728", depthshade=False)
+        axes.scatter(
+            joints[:, 0], joints[:, 2], joints[:, 1], s=5, color="#d62728", depthshade=False
+        )
 
         axes.set_xlim(centre[0] - reach, centre[0] + reach)
-        axes.set_zlim(centre[2] - reach, centre[2] + reach)
-        axes.set_ylim(floor, floor + 2 * reach)
+        axes.set_ylim(centre[2] - reach, centre[2] + reach)
+        axes.set_zlim(floor, floor + 2 * reach)
         axes.set_box_aspect((1, 1, 1))
         axes.view_init(elev=elev, azim=azim)
         axes.set_axis_off()
@@ -81,4 +90,18 @@ def render_skeleton(
 
     plt.close(figure)
     imageio.mimsave(path, frames, fps=fps, macro_block_size=1)
+    return path
+
+
+def render_frame(
+    path: str | Path, parents, positions: np.ndarray, frame: int = 0, **kwargs
+) -> Path:
+    """Write a single frame as a PNG, for checking orientation quickly."""
+    single = np.asarray(positions)[frame : frame + 1]
+    path = Path(path)
+    frames_path = path.with_suffix(".mp4")
+    render_skeleton(frames_path, parents, single, fps=1, **kwargs)
+    figure_frames = imageio.mimread(frames_path)
+    imageio.imwrite(path, figure_frames[0])
+    frames_path.unlink(missing_ok=True)
     return path

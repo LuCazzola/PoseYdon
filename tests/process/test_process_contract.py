@@ -132,3 +132,16 @@ def test_schedules_are_monotone_and_bounded():
         alphas = process.alphas_cumprod
         assert torch.all(alphas[1:] <= alphas[:-1]), schedule
         assert alphas.min() > 0.0 and alphas.max() <= 1.0, schedule
+
+
+def test_schedule_is_accumulated_in_float64():
+    # A cumulative product over a hundred steps in float32 drifts enough to move
+    # DDPM sampling by ~2e-5 relative -- larger than the model's own error, so it
+    # would dominate any comparison against another implementation.
+    process = GaussianDiffusion(num_steps=100, schedule="cosine")
+    assert process.betas.dtype is torch.float64
+    assert process.alphas_cumprod.dtype is torch.float64
+
+    single = torch.cumprod((1.0 - process.betas).float(), dim=0)
+    drift = (single.double() - process.alphas_cumprod).abs().max()
+    assert drift > 1e-9, f"float32 accumulation drift unexpectedly small: {drift:.2e}"

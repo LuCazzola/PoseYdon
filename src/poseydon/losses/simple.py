@@ -12,7 +12,7 @@ from poseydon.losses.base import LOSSES, LossTerm, element_mask, masked_mean
 
 @LOSSES.register("simple")
 class SimpleLoss(LossTerm):
-    """Masked squared error over the whole feature vector."""
+    """Masked MSE over the whole feature vector."""
 
     name = "simple"
 

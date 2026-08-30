@@ -15,9 +15,7 @@ Parameterization = Literal["x0", "eps", "v"]
 def linear_betas(num_steps: int) -> torch.Tensor:
     """The DDPM schedule, rescaled so step count does not change the endpoints."""
     scale = 1000.0 / num_steps
-    return torch.linspace(
-        scale * 1e-4, scale * 0.02, num_steps, dtype=torch.float64
-    ).float()
+    return torch.linspace(scale * 1e-4, scale * 0.02, num_steps, dtype=torch.float64)
 
 
 def cosine_betas(num_steps: int, max_beta: float = 0.999) -> torch.Tensor:
@@ -30,7 +28,7 @@ def cosine_betas(num_steps: int, max_beta: float = 0.999) -> torch.Tensor:
         min(1 - alpha_bar((i + 1) / num_steps) / alpha_bar(i / num_steps), max_beta)
         for i in range(num_steps)
     ]
-    return torch.tensor(betas, dtype=torch.float32)
+    return torch.tensor(betas, dtype=torch.float64)
 
 
 _SCHEDULES = {"linear": linear_betas, "cosine": cosine_betas}
@@ -63,7 +61,12 @@ class GaussianDiffusion(Process):
         self.schedule = schedule
         self.parameterization = parameterization
 
-        betas = _SCHEDULES[schedule](num_steps)
+        # The schedule is built and accumulated in float64. A cumulative product
+        # over a hundred steps in float32 drifts enough to move sampling by ~2e-5
+        # relative -- small, but larger than the model's own error, so it would
+        # dominate any parity measurement. Coefficients are cast to the working
+        # dtype only when used.
+        betas = _SCHEDULES[schedule](num_steps).to(torch.float64)
         alphas_cumprod = torch.cumprod(1.0 - betas, dim=0)
         self.betas = betas
         self.alphas_cumprod = alphas_cumprod
