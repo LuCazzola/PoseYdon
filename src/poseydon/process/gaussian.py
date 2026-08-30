@@ -70,6 +70,17 @@ class GaussianDiffusion(Process):
         self.sqrt_alphas_cumprod = alphas_cumprod.sqrt()
         self.sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod).sqrt()
 
+        # Posterior q(z_{t-1} | z_t, z_0), needed by ancestral sampling.
+        alphas_cumprod_prev = torch.cat([torch.ones(1), alphas_cumprod[:-1]])
+        self.alphas_cumprod_prev = alphas_cumprod_prev
+        self.posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        self.posterior_mean_coef_z0 = (
+            betas * alphas_cumprod_prev.sqrt() / (1.0 - alphas_cumprod)
+        )
+        self.posterior_mean_coef_zt = (
+            (1.0 - alphas_cumprod_prev) * (1.0 - betas).sqrt() / (1.0 - alphas_cumprod)
+        )
+
     @property
     def num_steps(self) -> int:
         return self._num_steps
@@ -96,6 +107,21 @@ class GaussianDiffusion(Process):
             return noise
         signal, noise_scale = self._coefficients(t, z0)
         return signal * noise - noise_scale * z0
+
+    def to_eps(self, z0: torch.Tensor, z_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """The noise implied by a clean estimate, used by DDIM."""
+        signal, noise_scale = self._coefficients(t, z_t)
+        return (z_t - signal * z0) / noise_scale
+
+    def posterior(
+        self, z0: torch.Tensor, z_t: torch.Tensor, t: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Mean and variance of ``q(z_{t-1} | z_t, z_0)``."""
+        index = t.to(self.betas.device).long()
+        coef_z0 = expand_to(self.posterior_mean_coef_z0[index].to(z_t.device, z_t.dtype), z_t)
+        coef_zt = expand_to(self.posterior_mean_coef_zt[index].to(z_t.device, z_t.dtype), z_t)
+        variance = expand_to(self.posterior_variance[index].to(z_t.device, z_t.dtype), z_t)
+        return coef_z0 * z0 + coef_zt * z_t, variance
 
     def to_z0(self, pred: torch.Tensor, z_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         if self.parameterization == "x0":
