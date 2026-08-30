@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 import torch
 from torch import nn
 
-from poseydon.core.batch import Cond, MotionBatch
+from poseydon.core.batch import Cond, Masks, MotionBatch
 from poseydon.core.registry import Registry
 
 
@@ -54,8 +54,20 @@ class Denoiser(nn.Module, ABC):
         return batch.x
 
     @abstractmethod
-    def forward(self, z_t: torch.Tensor, t: torch.Tensor, cond: Cond) -> Prediction:
-        """Predict the process target at time ``t``."""
+    def forward(
+        self,
+        z_t: torch.Tensor,
+        t: torch.Tensor,
+        cond: Cond,
+        masks: Masks | None = None,
+    ) -> Prediction:
+        """Predict the process target at time ``t``.
+
+        ``masks`` says which joints and frames are real. It is a separate
+        argument rather than a conditioner because padding is a property of how
+        the batch was assembled, not something the user declares. ``None`` means
+        everything is valid, which is the case when sampling from noise.
+        """
 
     def restore(self, z0: torch.Tensor, batch: MotionBatch) -> torch.Tensor:
         """Map a clean sample back to feature space. Identity by default."""

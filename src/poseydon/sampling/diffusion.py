@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import torch
 
-from poseydon.core.batch import Cond
+from poseydon.core.batch import Cond, Masks
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
 from poseydon.process.gaussian import GaussianDiffusion
@@ -35,6 +35,7 @@ class DDPM(Sampler):
         controls: Sequence[Control] = (),
         device: torch.device | str = "cpu",
         generator: torch.Generator | None = None,
+        masks: Masks | None = None,
     ) -> torch.Tensor:
         gaussian = _require_gaussian(process)
         z_t = torch.randn(shape, device=device, generator=generator)
@@ -43,7 +44,7 @@ class DDPM(Sampler):
             t = torch.full((shape[0],), step, device=device, dtype=torch.long)
             z_t, cond = apply_before(controls, z_t, t, cond)
 
-            z0 = gaussian.to_z0(model(z_t, t, cond).out, z_t, t)
+            z0 = gaussian.to_z0(model(z_t, t, cond, masks).out, z_t, t)
             mean, variance = gaussian.posterior(z0, z_t, t)
             if step > 0:
                 noise = torch.randn(shape, device=device, generator=generator)
@@ -91,6 +92,7 @@ class DDIM(Sampler):
         controls: Sequence[Control] = (),
         device: torch.device | str = "cpu",
         generator: torch.Generator | None = None,
+        masks: Masks | None = None,
         start: torch.Tensor | None = None,
     ) -> torch.Tensor:
         gaussian = _require_gaussian(process)
@@ -108,7 +110,7 @@ class DDIM(Sampler):
             t = torch.full((shape[0],), step, device=device, dtype=torch.long)
             z_t, cond = apply_before(controls, z_t, t, cond)
 
-            z0 = gaussian.to_z0(model(z_t, t, cond).out, z_t, t)
+            z0 = gaussian.to_z0(model(z_t, t, cond, masks).out, z_t, t)
             eps = gaussian.to_eps(z0, z_t, t)
             alpha_prev = self._alpha_bar(gaussian, previous, device)
             z_t = alpha_prev.sqrt() * z0 + (1.0 - alpha_prev).sqrt() * eps
@@ -123,6 +125,7 @@ class DDIM(Sampler):
         z0: torch.Tensor,
         cond: Cond,
         device: torch.device | str = "cpu",
+        masks: Masks | None = None,
     ) -> torch.Tensor:
         """Run the trajectory forwards, recovering the noise behind ``z0``.
 
@@ -140,7 +143,7 @@ class DDIM(Sampler):
             leaving = schedule[position - 1] if position > 0 else 0
             t = torch.full((z0.shape[0],), leaving, device=device, dtype=torch.long)
 
-            estimate = gaussian.to_z0(model(z_t, t, cond).out, z_t, t)
+            estimate = gaussian.to_z0(model(z_t, t, cond, masks).out, z_t, t)
             eps = gaussian.to_eps(estimate, z_t, t)
             alpha_next = self._alpha_bar(gaussian, step, device)
             z_t = alpha_next.sqrt() * estimate + (1.0 - alpha_next).sqrt() * eps

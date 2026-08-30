@@ -58,7 +58,7 @@ class MotionTask(nn.Module):
             noise = torch.randn_like(z0)
 
         z_t = self.process.corrupt(z0, t, noise)
-        prediction = self.model(z_t, t, batch.cond)
+        prediction = self.model(z_t, t, batch.cond, batch.masks)
         x0_hat = self.model.restore(
             self.process.to_z0(prediction.out, z_t, t), batch
         )

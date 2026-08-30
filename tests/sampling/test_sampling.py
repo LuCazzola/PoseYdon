@@ -22,7 +22,7 @@ class ConstantDenoiser(Denoiser):
         self.value = value
         self.calls = 0
 
-    def forward(self, z_t, t, cond):
+    def forward(self, z_t, t, cond, masks=None):
         self.calls += 1
         return Prediction(out=torch.full_like(z_t, self.value))
 
@@ -34,7 +34,7 @@ class LinearDenoiser(Denoiser):
         super().__init__()
         self.scale = scale
 
-    def forward(self, z_t, t, cond):
+    def forward(self, z_t, t, cond, masks=None):
         return Prediction(out=self.scale * z_t)
 
 

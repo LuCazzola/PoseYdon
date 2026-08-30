@@ -47,7 +47,7 @@ class TinyDenoiser(Denoiser):
         super().__init__()
         self.net = nn.Conv2d(dim, dim, kernel_size=1)
 
-    def forward(self, z_t, t, cond):
+    def forward(self, z_t, t, cond, masks=None):
         return Prediction(out=self.net(z_t.transpose(1, 2)).transpose(1, 2))
 
 
@@ -67,7 +67,7 @@ class TinyLatentDenoiser(LatentDenoiser):
     def decode(self, z0, cond):
         return self.decoder(z0.transpose(1, 2)).transpose(1, 2)
 
-    def forward(self, z_t, t, cond):
+    def forward(self, z_t, t, cond, masks=None):
         out = self.net(z_t.transpose(1, 2)).transpose(1, 2)
         return Prediction(out=out, aux={"mu": out.mean(dim=(1, 3)), "logvar": torch.zeros_like(out.mean(dim=(1, 3)))})
 

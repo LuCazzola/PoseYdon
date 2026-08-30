@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 import torch
 
-from poseydon.core.batch import Cond
+from poseydon.core.batch import Cond, Masks
 from poseydon.core.registry import Registry
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
@@ -35,6 +35,7 @@ class Operation(ABC):
         cond: Cond,
         device: torch.device | str = "cpu",
         generator: torch.Generator | None = None,
+        masks: Masks | None = None,
     ) -> torch.Tensor:
         return sampler.sample(
             model=model,
@@ -44,6 +45,7 @@ class Operation(ABC):
             controls=self.build_controls(cond),
             device=device,
             generator=generator,
+            masks=masks,
         )
 
 

@@ -18,7 +18,7 @@ from collections.abc import Sequence
 
 import torch
 
-from poseydon.core.batch import Cond
+from poseydon.core.batch import Cond, Masks
 from poseydon.core.registry import Registry
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
@@ -51,6 +51,7 @@ class Sampler(ABC):
         controls: Sequence[Control] = (),
         device: torch.device | str = "cpu",
         generator: torch.Generator | None = None,
+        masks: Masks | None = None,
     ) -> torch.Tensor:
         """Draw one clean sample of ``shape``."""
 

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import torch
 
-from poseydon.core.batch import Cond
+from poseydon.core.batch import Cond, Masks
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
 from poseydon.process.flow import FlowMatching
@@ -38,6 +38,7 @@ class Euler(Sampler):
         controls: Sequence[Control] = (),
         device: torch.device | str = "cpu",
         generator: torch.Generator | None = None,
+        masks: Masks | None = None,
     ) -> torch.Tensor:
         flow = _require_flow(process)
         steps = self.steps or flow.num_steps
@@ -48,6 +49,6 @@ class Euler(Sampler):
             time = (step + 1) * dt
             t = torch.full((shape[0],), time, device=device)
             z_t, cond = apply_before(controls, z_t, t, cond)
-            z_t = z_t - dt * model(z_t, t, cond).out
+            z_t = z_t - dt * model(z_t, t, cond, masks).out
             z_t = apply_after(controls, z_t, t, cond)
         return z_t

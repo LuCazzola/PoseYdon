@@ -27,6 +27,7 @@ class ClipView:
     anim: Anim
     resolved: ResolvedSkeleton
     normalizer: Normalizer
+    rest_frame: np.ndarray  # (J, D) normalized rest pose describing this rig
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class MotionDataset:
         self._manifests: dict[str, SkeletonManifest] = {}
         self._normalizers: dict[str, Normalizer] = {}
         self._anims: dict[str, Anim] = {}
+        self._rest_frames: dict[str, np.ndarray] = {}
 
         # A clip yields more than one window under a deterministic policy, so the
         # dataset is indexed by (clip, window) rather than by clip.
@@ -124,6 +126,32 @@ class MotionDataset:
             self._normalizers[skeleton] = Normalizer.fit(arrays, spec)
         return self._normalizers[skeleton]
 
+    def _rest_frame(
+        self, record: ClipRecord, spec: FeatureSpec, normalizer: Normalizer
+    ) -> np.ndarray:
+        """One frame describing the skeleton, cached per skeleton.
+
+        From the manifest's T-pose when it names one, otherwise the first frame
+        of the skeleton's first clip -- the same fallback the reference takes.
+        """
+        skeleton = record.skeleton
+        if skeleton in self._rest_frames:
+            return self._rest_frames[skeleton]
+
+        manifest = self._manifest(skeleton)
+        if manifest.tpose is not None and manifest.tpose.is_file():
+            from poseydon.io.bvh import load_bvh
+
+            anim = load_bvh(manifest.tpose)
+            raw, _ = extract_features(anim, resolve(manifest, anim.names), self.features)
+        else:
+            first = next(r for r in self.records if r.skeleton == skeleton)
+            raw, _ = self._extract(first)
+
+        frame = normalizer.normalize(raw[:1])[0]
+        self._rest_frames[skeleton] = frame
+        return frame
+
     def __getitem__(self, index: int) -> Item:
         clip_index, window_index = self._plan[index]
         record = self.records[clip_index]
@@ -140,6 +168,7 @@ class MotionDataset:
             anim=self._anim(record),
             resolved=self._resolved(record),
             normalizer=normalizer,
+            rest_frame=self._rest_frame(record, spec, normalizer),
         )
         return Item(
             features=window,
