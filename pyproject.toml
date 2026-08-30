@@ -23,7 +23,7 @@ packages = ["src/poseydon"]
 testpaths = ["tests"]
 # Makes `import poseydon` work from the src layout without installing the
 # project, which keeps the Docker image's dependency layer independent of source.
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
 [tool.ruff]
 line-length = 100

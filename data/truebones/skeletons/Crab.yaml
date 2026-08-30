@@ -1,0 +1,9 @@
+skeleton: Crab
+facing:
+  hips:      {right: BN_Leg_R_11, left: BN_Leg_L_11}
+  shoulders: {right: BN_Arm_R_02, left: BN_Arm_L_02}
+  extra_yaw_deg: 0
+fps: null
+scale: {mean_bone_length: 0.20921428571428569}
+contact: {max_height: 0.30, max_speed: 0.0447}
+tags: [milliped]

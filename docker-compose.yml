@@ -6,4 +6,9 @@ services:
       # Source, tests and the read-only reference checkout are bind-mounted, so
       # edits take effect with no rebuild. Only pyproject.toml changes require one.
       - .:/app
+    environment:
+      # pytest gets this from `pythonpath` in pyproject.toml, but ad-hoc
+      # `python -c` / `python -m poseydon.cli` runs need it explicitly, since the
+      # image installs dependencies without installing the project itself.
+      PYTHONPATH: /app/src:/app
     command: pytest -v

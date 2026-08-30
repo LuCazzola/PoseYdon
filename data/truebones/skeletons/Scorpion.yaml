@@ -1,0 +1,9 @@
+skeleton: Scorpion
+facing:
+  hips:      {right: Bip01_R_Thigh_4, left: Bip01_L_Thigh1_4}
+  shoulders: {right: Bip01_R_Forearm, left: Bip01_L_Forearm}
+  extra_yaw_deg: 0
+fps: null
+scale: {mean_bone_length: 0.20921428571428569}
+contact: {max_height: 0.30, max_speed: 0.0447}
+tags: [milliped]

@@ -1,0 +1,9 @@
+skeleton: Goat
+facing:
+  hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
+  shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
+  extra_yaw_deg: 0
+fps: null
+scale: {mean_bone_length: 0.20921428571428569}
+contact: {max_height: 0.30, max_speed: 0.0447}
+tags: [quadruped, mammal]
