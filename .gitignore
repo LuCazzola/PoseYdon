@@ -222,3 +222,5 @@ __marimo__/
 data/*/aligned/
 data/*/index.jsonl
 runs/
+data/*/reference/
+artifacts/

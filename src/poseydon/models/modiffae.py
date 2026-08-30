@@ -1,14 +1,18 @@
 """MoDiffAE: a diffusion autoencoder over motion.
 
-A semantic encoder compresses a clean clip into a per-frame latent, and a
-stochastic decoder denoises conditioned on it. Diffusion runs in feature space;
-what is learned is a semantic code, which is what makes blending meaningful --
-interpolating two codes interpolates two motions.
+A semantic encoder compresses a clean clip into a per-frame latent; a stochastic
+decoder denoises conditioned on it. Diffusion runs in feature space -- what is
+learned is a semantic code, and that is what makes blending and cross-skeleton
+transfer meaningful: interpolating or re-targeting a code moves the motion, not
+the pixels.
 
-The reference performs that interpolation inside ``MoDiffAE.forward`` as a
-``_mix`` method. Here the model simply accepts a ``z_sem`` in its conditioning
-when one is supplied, so the ``LatentMix`` control can blend without the model
-knowing that blending exists. No parameter changes; only the signature.
+Parameter names mirror the reference implementation exactly, so its published
+checkpoints load with no remapping. The differences are structural: conditioning
+is declared rather than pulled from a fourteen-key dict, masks arrive named, and
+the model contains no blending logic. In the reference, interpolation lives
+inside ``forward`` as a ``_mix`` method, which is why in-betweening was
+unreachable there. Here the model simply accepts a ``z_sem`` when one is
+supplied, so a control can blend without the model knowing blending exists.
 """
 
 from __future__ import annotations
@@ -17,189 +21,255 @@ import torch
 from torch import nn
 
 from poseydon.core.batch import Cond, Masks
-from poseydon.core.topology import DEFAULT_MAX_PATH, EdgeType
-from poseydon.models.anytop import AnyTopLayer
+from poseydon.core.topology import DEFAULT_MAX_PATH
 from poseydon.models.base import CLEAN_MOTION, MODELS, Denoiser, Prediction
 from poseydon.models.modules.embeddings import sinusoidal_embedding
+from poseydon.models.modules.graph_backbone import (
+    GraphMotionDecoder,
+    GraphMotionDecoderLayer,
+    build_attention_masks,
+)
 
 #: Conditioning key holding a precomputed semantic latent. When present the
-#: encoder is skipped, which is how blending and latent caching work.
+#: encoder is skipped -- how blending, transfer and latent caching all work.
 Z_SEM = "z_sem"
+#: Conditioning key holding T5 embeddings of the joint names.
+JOINT_NAMES = "joint_names"
+#: Conditioning key holding an explicit (B, T+1, T+1) frame-attention mask.
+#: The reference restricts temporal attention to a sliding band, which is a
+#: dataset property rather than a model one, so it arrives as conditioning.
+TEMPORAL_VALID = "temporal_valid"
 
 
-def _extend_topology(
-    hops: torch.Tensor, edges: torch.Tensor, extra: int
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Grow the relation matrices to cover appended virtual joints.
+class InputProcess(nn.Module):
+    """Embed motion, prepend the rest pose, add names and frame positions.
 
-    Virtual joints are pooling tokens rather than bones, so they get their own
-    edge type and sit zero hops from everything -- they must see the whole
-    skeleton and be seen by it.
+    The root is projected separately from the other joints because its slot
+    holds a different quantity -- the facing rotation rather than a bone
+    rotation. The rest pose enters as an extra leading frame, telling the model
+    which skeleton it is animating.
     """
-    batch, joints, _ = hops.shape
-    total = joints + extra
-    new_hops = hops.new_zeros((batch, total, total))
-    new_edges = edges.new_full((batch, total, total), int(EdgeType.TOKEN_CONNECTION))
-    new_hops[:, :joints, :joints] = hops
-    new_edges[:, :joints, :joints] = edges
-    return new_hops, new_edges
+
+    def __init__(self, feature_dim: int, d_model: int, text_dim: int = 768) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.root_embedding = nn.Linear(feature_dim, d_model)
+        self.joint_embedding = nn.Linear(feature_dim, d_model)
+        self.tpos_root_embedding = nn.Linear(feature_dim, d_model)
+        self.tpos_joint_embedding = nn.Linear(feature_dim, d_model)
+        self.text_embedding = nn.Linear(text_dim, d_model)
+        self.joints_names_dropout = nn.Dropout(p=0.1)
+
+    def forward(self, x, tpose, name_embeddings, crop_start) -> torch.Tensor:
+        """``x`` is ``(B, J, D, T)``; returns ``(T + 1, B, J, C)``."""
+        x = x.permute(3, 0, 1, 2)  # (T, B, J, D)
+        tpose = tpose.unsqueeze(0)  # (1, B, J, D)
+
+        motion = torch.cat(
+            [self.root_embedding(x[:, :, 0:1]), self.joint_embedding(x[:, :, 1:])], dim=2
+        )
+        rest = torch.cat(
+            [
+                self.tpos_root_embedding(tpose[:, :, 0:1]),
+                self.tpos_joint_embedding(tpose[:, :, 1:]),
+            ],
+            dim=2,
+        )
+        out = torch.cat([rest, motion], dim=0)
+
+        if name_embeddings is not None:
+            names = self.text_embedding(self.joints_names_dropout(name_embeddings))
+            out = out + names[None]
+
+        # Frame index, offset so a window drawn from mid-animation encodes where
+        # it actually sits. The rest frame keeps index 0.
+        positions = torch.arange(out.shape[0], device=out.device).view(1, -1).repeat(
+            out.shape[1], 1
+        )
+        positions[:, 1:] = positions[:, 1:] + crop_start.to(out.device).view(-1, 1)
+        return out + sinusoidal_embedding(positions, self.d_model)[0][:, None, None, :]
+
+
+class OutputProcess(nn.Module):
+    """Project back to feature space and drop the rest frame."""
+
+    def __init__(self, feature_dim: int, d_model: int) -> None:
+        super().__init__()
+        self.root_dembedding = nn.Linear(d_model, feature_dim)
+        self.joint_dembedding = nn.Linear(d_model, feature_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        root = self.root_dembedding(x[:, :, 0])
+        joints = self.joint_dembedding(x[:, :, 1:])
+        out = torch.cat([root.unsqueeze(2), joints], dim=-2)
+        return out.permute(1, 2, 3, 0)[..., 1:]
+
+
+class KLBottleneck(nn.Module):
+    """Split a projection into a diagonal Gaussian and sample from it.
+
+    Optional, and absent from the published checkpoints, so enabling it adds
+    parameters they do not contain -- a strict load of one of those checkpoints
+    into a KL-enabled model correctly fails.
+    """
+
+    def forward(self, projected: torch.Tensor):
+        mu, logvar = projected.chunk(2, dim=-1)
+        z = mu + torch.randn_like(mu) * (0.5 * logvar).exp() if self.training else mu
+        return z, {"mu": mu, "logvar": logvar}
 
 
 class SemanticEncoder(nn.Module):
     """Clean motion to a per-frame semantic latent.
 
-    Learned virtual joints act as pooling tokens: they attend over the real
-    joints and are read out as the summary, so the latent has a fixed width no
-    matter how many joints the skeleton has.
+    Two pooling modes. With no virtual joints the real joints are averaged over,
+    masked so padding does not dilute the mean. With virtual joints, learned
+    pooling tokens are appended to the joint axis, attend over the skeleton, and
+    are read out -- giving the latent a fixed width whatever the joint count.
     """
 
     def __init__(
         self,
         feature_dim: int,
-        d_model: int,
-        n_layers: int,
-        n_heads: int,
-        ff_size: int,
-        dropout: float,
-        max_path: int,
-        n_virtual_joints: int,
-        kl_bottleneck: bool,
+        d_model: int = 128,
+        num_layers: int = 4,
+        num_heads: int = 4,
+        ff_size: int = 1024,
+        dropout: float = 0.1,
+        max_path_len: int = DEFAULT_MAX_PATH,
+        num_virtual_joints: int = 0,
+        projection_head_depth: int = 2,
+        text_dim: int = 768,
+        kl_bottleneck: bool = False,
     ) -> None:
         super().__init__()
-        self.n_virtual_joints = n_virtual_joints
+        self.num_heads = num_heads
+        self.max_path_len = max_path_len
+        self.num_virtual_joints = num_virtual_joints
         self.kl_bottleneck = kl_bottleneck
 
-        self.embed_root = nn.Linear(feature_dim, d_model)
-        self.embed_joint = nn.Linear(feature_dim, d_model)
-        self.virtual = nn.Parameter(torch.randn(n_virtual_joints, d_model) * 0.02)
+        if num_virtual_joints > 0:
+            self.v_joint_emb = nn.Parameter(torch.randn(num_virtual_joints, d_model))
 
-        self.layers = nn.ModuleList(
-            AnyTopLayer(d_model, n_heads, ff_size, dropout, max_path, value_bias=False)
-            for _ in range(n_layers)
+        self.input_process = InputProcess(feature_dim, d_model, text_dim)
+        self.backbone = GraphMotionDecoder(
+            lambda: GraphMotionDecoderLayer(
+                d_model=d_model,
+                num_heads=num_heads,
+                dim_feedforward=ff_size,
+                dropout=dropout,
+                max_path_len=max_path_len,
+                timestep=False,
+                cross=False,
+                virtual=num_virtual_joints > 0,
+            ),
+            num_layers,
         )
+
+        in_dim = max(num_virtual_joints, 1) * d_model
         out_dim = d_model * 2 if kl_bottleneck else d_model
-        self.projection = nn.Linear(n_virtual_joints * d_model, out_dim)
+        if projection_head_depth > 0:
+            dims = [in_dim] + [(in_dim + d_model) // 2] * (projection_head_depth - 1) + [out_dim]
+            layers: list[nn.Module] = []
+            for i in range(projection_head_depth):
+                layers.append(nn.Linear(dims[i], dims[i + 1]))
+                if i < projection_head_depth - 1:
+                    layers.extend([nn.GELU(), nn.Dropout(dropout)])
+            self.projection_head = nn.Sequential(*layers)
+        else:
+            self.projection_head = nn.Linear(in_dim, out_dim)
+        self.kl_layer = KLBottleneck() if kl_bottleneck else None
 
-    def forward(
-        self, x: torch.Tensor, hops: torch.Tensor, edges: torch.Tensor, masks: Masks | None
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """``x`` is ``(B, J, D, T)``; returns ``(B, T, C)`` plus KL terms."""
-        batch, _, _, frames = x.shape
-        tokens = x.permute(0, 3, 1, 2)
-        tokens = torch.cat(
-            [self.embed_root(tokens[:, :, :1]), self.embed_joint(tokens[:, :, 1:])], dim=2
+    def add_virtual_joints(self, x, joint_valid, hops, edges):
+        """Append pooling tokens and extend the relation matrices to cover them."""
+        if self.num_virtual_joints <= 0:
+            return x, joint_valid, hops, edges
+
+        frames, batch, real, _ = x.shape
+        extra = self.num_virtual_joints
+        total = real + extra
+
+        tokens = self.v_joint_emb[None, None].expand(frames, batch, -1, -1)
+        x = torch.cat([x, tokens], dim=2)
+
+        joint_valid = torch.cat(
+            [joint_valid, torch.ones(batch, extra, dtype=torch.bool, device=x.device)], dim=1
         )
 
-        virtual = self.virtual[None, None].expand(batch, frames, -1, -1)
-        tokens = torch.cat([tokens, virtual], dim=2)
-        hops, edges = _extend_topology(hops, edges, self.n_virtual_joints)
+        topo_rv, topo_vv = self.max_path_len + 1, self.max_path_len + 2
+        new_hops = hops.new_full((batch, total, total), topo_vv)
+        new_hops[:, :real, :real] = hops
+        new_hops[:, :real, real:] = topo_rv
+        new_hops[:, real:, :real] = topo_rv
 
-        spatial = None
-        if masks is not None:
-            valid = torch.cat(
-                [
-                    masks.joints,
-                    torch.ones(
-                        batch, self.n_virtual_joints, dtype=torch.bool, device=x.device
-                    ),
-                ],
-                dim=1,
-            )
-            spatial = (valid[:, :, None] & valid[:, None, :])[:, None]
+        new_edges = edges.new_full((batch, total, total), 7)
+        new_edges[:, :real, :real] = edges
+        new_edges[:, :real, real:] = 6
+        new_edges[:, real:, :real] = 6
 
-        timestep = torch.zeros(batch, tokens.shape[-1], device=x.device)
-        for layer in self.layers:
-            tokens = layer(tokens, timestep, hops, edges, spatial, None)
+        diagonal = torch.arange(total, device=x.device)
+        new_hops[:, diagonal, diagonal] = 0
+        new_edges[:, diagonal, diagonal] = 0
+        return x, joint_valid, new_hops, new_edges
 
-        summary = tokens[:, :, -self.n_virtual_joints :].flatten(start_dim=2)
-        projected = self.projection(summary)
+    def forward(self, x, tpose, names, crop_start, hops, edges, joint_valid, temporal_valid):
+        tokens = self.input_process(x, tpose, names, crop_start)
+        tokens, joint_valid, hops, edges = self.add_virtual_joints(
+            tokens, joint_valid, hops, edges
+        )
+        spatial, temporal = build_attention_masks(joint_valid, temporal_valid, self.num_heads)
+        tokens = self.backbone(tokens, hops, edges, None, None, spatial, temporal)
 
-        if not self.kl_bottleneck:
-            return projected, {}
+        if self.num_virtual_joints == 0:
+            weight = joint_valid[None, :, :, None].to(tokens.dtype)
+            pooled = (tokens * weight).sum(dim=2) / weight.sum(dim=2).clamp(min=1.0)
+        else:
+            pooled = tokens[:, :, -self.num_virtual_joints :].flatten(start_dim=2)
 
-        mu, logvar = projected.chunk(2, dim=-1)
-        # Reparameterize so the bottleneck is trainable through sampling.
-        z = mu + torch.randn_like(mu) * (0.5 * logvar).exp()
-        return z, {"mu": mu, "logvar": logvar}
+        projected = self.projection_head(pooled)
+        if self.kl_layer is None:
+            return projected.unsqueeze(2), {}  # (T+1, B, 1, C)
+        latent, terms = self.kl_layer(projected)
+        return latent.unsqueeze(2), terms
 
 
 class StochasticDecoder(nn.Module):
-    """Denoises conditioned on a semantic latent, by FiLM modulation."""
+    """Denoises conditioned on the semantic latent."""
 
     def __init__(
         self,
         feature_dim: int,
-        d_model: int,
-        n_layers: int,
-        n_heads: int,
-        ff_size: int,
-        dropout: float,
-        max_path: int,
+        d_model: int = 128,
+        num_layers: int = 4,
+        num_heads: int = 4,
+        ff_size: int = 1024,
+        dropout: float = 0.1,
+        max_path_len: int = DEFAULT_MAX_PATH,
+        text_dim: int = 768,
     ) -> None:
         super().__init__()
-        self.d_model = d_model
-        self.embed_root = nn.Linear(feature_dim, d_model)
-        self.embed_joint = nn.Linear(feature_dim, d_model)
-        self.embed_rest_root = nn.Linear(feature_dim, d_model)
-        self.embed_rest_joint = nn.Linear(feature_dim, d_model)
-
-        # Per-frame scale and shift, so the latent steers the whole trajectory
-        # rather than being averaged into a single global vector.
-        self.modulation = nn.Linear(d_model, 2 * d_model)
-
-        self.layers = nn.ModuleList(
-            AnyTopLayer(d_model, n_heads, ff_size, dropout, max_path, value_bias=False)
-            for _ in range(n_layers)
+        self.num_heads = num_heads
+        self.input_process = InputProcess(feature_dim, d_model, text_dim)
+        self.backbone = GraphMotionDecoder(
+            lambda: GraphMotionDecoderLayer(
+                d_model=d_model,
+                num_heads=num_heads,
+                dim_feedforward=ff_size,
+                dropout=dropout,
+                max_path_len=max_path_len,
+                timestep=True,
+                cross=True,
+                virtual=False,
+            ),
+            num_layers,
         )
-        self.project_root = nn.Linear(d_model, feature_dim)
-        self.project_joint = nn.Linear(d_model, feature_dim)
 
     def forward(
-        self,
-        z_t: torch.Tensor,
-        t: torch.Tensor,
-        z_sem: torch.Tensor,
-        rest: torch.Tensor,
-        hops: torch.Tensor,
-        edges: torch.Tensor,
-        masks: Masks | None,
-    ) -> torch.Tensor:
-        batch, _, _, frames = z_t.shape
-        x = z_t.permute(0, 3, 1, 2)
-        tokens = torch.cat(
-            [self.embed_root(x[:, :, :1]), self.embed_joint(x[:, :, 1:])], dim=2
-        )
-
-        rest_tokens = torch.cat(
-            [
-                self.embed_rest_root(rest[:, None, :1]),
-                self.embed_rest_joint(rest[:, None, 1:]),
-            ],
-            dim=2,
-        )
-        tokens = torch.cat([rest_tokens, tokens], dim=1)
-
-        # The rest frame is not part of the conditioned trajectory, so it is
-        # modulated by the first frame's code rather than one of its own.
-        code = torch.cat([z_sem[:, :1], z_sem], dim=1)
-        scale, shift = self.modulation(code).chunk(2, dim=-1)
-        tokens = tokens * (1.0 + scale[:, :, None]) + shift[:, :, None]
-
-        tokens = tokens + sinusoidal_embedding(
-            torch.arange(frames + 1, device=z_t.device)[None].expand(batch, -1), self.d_model
-        )[:, :, None, :]
-
-        timestep = sinusoidal_embedding(t.to(z_t.device), self.d_model)
-        spatial = masks.spatial().to(z_t.device) if masks is not None else None
-
-        for layer in self.layers:
-            tokens = layer(tokens, timestep, hops, edges, spatial, None)
-
-        tokens = tokens[:, 1:]
-        out = torch.cat(
-            [self.project_root(tokens[:, :, :1]), self.project_joint(tokens[:, :, 1:])], dim=2
-        )
-        return out.permute(0, 2, 3, 1)
+        self, x, tpose, names, crop_start, timestep, z_sem, hops, edges, joint_valid, temporal_valid
+    ):
+        tokens = self.input_process(x, tpose, names, crop_start)
+        spatial, temporal = build_attention_masks(joint_valid, temporal_valid, self.num_heads)
+        return self.backbone(tokens, hops, edges, timestep, z_sem, spatial, temporal)
 
 
 @MODELS.register("modiffae")
@@ -207,6 +277,7 @@ class MoDiffAE(Denoiser):
     """Diffusion autoencoder: encode a clean clip, denoise conditioned on it."""
 
     requires = ("topology", "tpose", CLEAN_MOTION)
+    optional = (JOINT_NAMES,)
 
     def __init__(
         self,
@@ -215,57 +286,92 @@ class MoDiffAE(Denoiser):
         n_layers_semantic: int = 4,
         n_layers_stochastic: int = 4,
         n_heads: int = 4,
-        ff_size: int = 512,
+        ff_size: int = 1024,
         dropout: float = 0.1,
         max_path: int = DEFAULT_MAX_PATH,
-        n_virtual_joints: int = 3,
+        n_virtual_joints: int = 0,
+        projection_head_depth: int = 2,
+        text_dim: int = 768,
         kl_bottleneck: bool = False,
     ) -> None:
         super().__init__()
         self.feature_dim = feature_dim
         self.d_model = d_model
-        self.encoder = SemanticEncoder(
-            feature_dim,
-            d_model,
-            n_layers_semantic,
-            n_heads,
-            ff_size,
-            dropout,
-            max_path,
-            n_virtual_joints,
-            kl_bottleneck,
+        self.semantic_encoder = SemanticEncoder(
+            feature_dim, d_model, n_layers_semantic, n_heads, ff_size, dropout,
+            max_path, n_virtual_joints, projection_head_depth, text_dim, kl_bottleneck,
         )
-        self.decoder = StochasticDecoder(
-            feature_dim, d_model, n_layers_stochastic, n_heads, ff_size, dropout, max_path
+        self.stochastic_decoder = StochasticDecoder(
+            feature_dim, d_model, n_layers_stochastic, n_heads, ff_size, dropout,
+            max_path, text_dim,
+        )
+        self.output_process = OutputProcess(feature_dim, d_model)
+
+    @staticmethod
+    def _valid(masks: Masks | None, batch: int, joints: int, frames: int, device):
+        """Joint validity and pairwise frame validity, including the rest frame."""
+        if masks is None:
+            joint_valid = torch.ones(batch, joints, dtype=torch.bool, device=device)
+            frame_valid = torch.ones(batch, frames, dtype=torch.bool, device=device)
+        else:
+            joint_valid = masks.joints.to(device)
+            frame_valid = masks.frames.to(device)
+
+        leading = torch.ones(batch, 1, dtype=torch.bool, device=device)
+        extended = torch.cat([leading, frame_valid], dim=1)
+        pair = extended[:, :, None] & extended[:, None, :]
+        # The rest frame conditions everything but attends only to itself, so it
+        # cannot be overwritten by the motion it is describing.
+        pair = pair.clone()
+        pair[:, 0, :] = False
+        pair[:, 0, 0] = True
+        return joint_valid, pair
+
+    def encode(self, clean, cond, masks=None, temporal_valid=None):
+        """Semantic latent for a clean clip, plus any KL terms."""
+        topology = cond["topology"]
+        batch, joints, _, frames = clean.shape
+        joint_valid, pair = self._valid(masks, batch, joints, frames, clean.device)
+        override = temporal_valid if temporal_valid is not None else cond.get(TEMPORAL_VALID)
+        if override is not None:
+            pair = override.to(clean.device)
+        return self.semantic_encoder(
+            clean,
+            cond["tpose"].to(clean.device),
+            cond.get(JOINT_NAMES),
+            cond.get("crop_start", torch.zeros(batch, dtype=torch.long)),
+            topology["hops"].to(clean.device),
+            topology["relations"].to(clean.device),
+            joint_valid,
+            pair,
         )
 
-    def encode(
-        self, clean: torch.Tensor, cond: Cond, masks: Masks | None = None
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Semantic latent for a clean clip, exposed for blending and caching."""
+    def forward(self, z_t, t, cond: Cond, masks: Masks | None = None) -> Prediction:
         topology = cond["topology"]
-        return self.encoder(
-            clean, topology["hops"].to(clean.device), topology["relations"].to(clean.device), masks
-        )
-
-    def forward(
-        self,
-        z_t: torch.Tensor,
-        t: torch.Tensor,
-        cond: Cond,
-        masks: Masks | None = None,
-    ) -> Prediction:
-        topology = cond["topology"]
-        hops = topology["hops"].to(z_t.device)
-        edges = topology["relations"].to(z_t.device)
+        batch, joints, _, frames = z_t.shape
+        device = z_t.device
+        joint_valid, pair = self._valid(masks, batch, joints, frames, device)
+        override = cond.get(TEMPORAL_VALID)
+        if override is not None:
+            pair = override.to(device)
 
         supplied = cond.get(Z_SEM)
         if supplied is not None:
-            z_sem, aux = supplied.to(z_t.device), {}
+            z_sem, aux = supplied.to(device), {}
         else:
-            z_sem, aux = self.encode(cond[CLEAN_MOTION].to(z_t.device), cond, masks)
+            z_sem, aux = self.encode(cond[CLEAN_MOTION].to(device), cond, masks)
 
-        out = self.decoder(
-            z_t, t, z_sem, cond["tpose"].to(z_t.device), hops, edges, masks
+        timestep = sinusoidal_embedding(t.to(device), self.d_model)
+        hidden = self.stochastic_decoder(
+            z_t,
+            cond["tpose"].to(device),
+            cond.get(JOINT_NAMES),
+            cond.get("crop_start", torch.zeros(batch, dtype=torch.long)),
+            timestep,
+            z_sem,
+            topology["hops"].to(device),
+            topology["relations"].to(device),
+            joint_valid,
+            pair,
         )
-        return Prediction(out=out, aux={**aux, Z_SEM: z_sem})
+        return Prediction(out=self.output_process(hidden), aux={**aux, Z_SEM: z_sem})

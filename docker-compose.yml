@@ -23,6 +23,8 @@ services:
       context: .
       dockerfile: Dockerfile.compat
     working_dir: /app
+    # Same reason as the test service: artifacts it writes must belong to you.
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - .:/app
       - hf-cache:/root/.cache/huggingface

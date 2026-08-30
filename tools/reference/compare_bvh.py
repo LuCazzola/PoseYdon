@@ -33,7 +33,7 @@ def main() -> None:
     total_motion = total_ours = 0.0
 
     for path in sorted(ASSETS.glob("*.bvh")):
-        (anim_ref, names_ref, frame_time), t_ref = timed(BVH.load, str(path))
+        (anim_ref, _names, _frame_time), t_ref = timed(BVH.load, str(path))
         anim_ours, t_ours = timed(load_bvh, path)
 
         total_motion += t_ref

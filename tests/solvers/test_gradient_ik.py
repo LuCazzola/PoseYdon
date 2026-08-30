@@ -60,7 +60,7 @@ def test_more_iterations_fit_better(rig):
 
 def test_bone_lengths_are_exact_by_construction(rig):
     # Rotation-space parameterization means no term has to defend bone lengths.
-    skeleton, targets = rig
+    skeleton, _targets = rig
     _, positions = solve(rig, iterations=50)
 
     bones = (positions[:, 1:] - positions[:, skeleton.parents[1:]]).norm(dim=-1)
@@ -94,7 +94,7 @@ def test_smoothness_reduces_frame_to_frame_change(rig):
 
 
 def test_joint_limits_reduce_swing(rig):
-    skeleton, targets = rig
+    skeleton, _targets = rig
     limited = {j: 5.0 for j in range(1, skeleton.n_joints)}
     term = IK_TERMS.get("joint_limits")(max_swing_deg=limited)
 

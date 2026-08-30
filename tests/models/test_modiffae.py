@@ -1,5 +1,7 @@
 """MoDiffAE: the semantic autoencoder, and blending without model changes."""
 
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -11,10 +13,11 @@ from poseydon.ingest.pipeline import ingest_corpus
 from poseydon.losses import LOSSES
 from poseydon.models import CLEAN_MOTION, MODELS, MoDiffAE
 from poseydon.models.modiffae import Z_SEM
-from poseydon.ops import Blend
 from poseydon.process import GaussianDiffusion
 from poseydon.training.task import MotionTask
 from tests.ingest.manifest_helper import MANIFEST_DIR
+
+REFERENCE_SAVE = Path(__file__).resolve().parents[2] / "external/neural_motion_blending/save"
 
 
 @pytest.fixture(scope="module")
@@ -63,12 +66,13 @@ def test_output_matches_input_shape(batch):
     assert out.out.shape == batch.x.shape
 
 
-def test_semantic_latent_is_per_frame_and_skeleton_agnostic(batch):
-    # Fixed width regardless of joint count: that is what the virtual joints buy.
+def test_semantic_latent_is_one_vector_per_frame(batch):
+    # Fixed width regardless of joint count: the point of pooling. The leading
+    # entry is the rest-pose frame the input process prepends.
     torch.manual_seed(0)
     model = small_model(batch)
     z_sem, _ = model.encode(batch.x, with_clean(batch), batch.masks)
-    assert z_sem.shape == (len(batch), batch.n_frames, model.d_model)
+    assert z_sem.shape == (batch.n_frames + 1, len(batch), 1, model.d_model)
 
 
 def test_latent_depends_on_the_motion(batch):
@@ -81,37 +85,31 @@ def test_latent_depends_on_the_motion(batch):
 
 
 def test_supplied_latent_bypasses_the_encoder(batch):
-    # This is what makes blending possible without touching the model: hand it a
-    # z_sem and the encoder is never consulted.
+    # What makes blending and cross-skeleton transfer possible without touching
+    # the model: hand it a z_sem and the encoder is never consulted.
     torch.manual_seed(0)
     model = small_model(batch).eval()
-    t = torch.zeros(len(batch), dtype=torch.long)
-
-    chosen = torch.zeros(len(batch), batch.n_frames, model.d_model)
+    chosen = torch.zeros(batch.n_frames + 1, len(batch), 1, model.d_model)
     cond = Cond({**with_clean(batch).payloads, Z_SEM: chosen})
     with torch.no_grad():
-        out = model(batch.x, t, cond, batch.masks)
+        out = model(batch.x, torch.zeros(len(batch), dtype=torch.long), cond, batch.masks)
     torch.testing.assert_close(out.aux[Z_SEM], chosen)
 
 
-def test_blend_control_drives_the_model_without_model_changes(batch):
+def test_latent_can_come_from_a_different_skeleton(batch):
+    # Cross-skeleton transfer in miniature: encode one item, decode onto another.
     torch.manual_seed(0)
     model = small_model(batch).eval()
-    frames, dim = batch.n_frames, model.d_model
-
-    reference = torch.zeros(len(batch), frames, dim)
-    target = torch.ones(len(batch), frames, dim)
-    control = Blend(reference, target, schedule="linear", length=frames).build_controls(
-        with_clean(batch)
-    )[0]
-
-    _, blended = control.before_step(batch.x, torch.zeros(1), with_clean(batch))
     with torch.no_grad():
-        out = model(batch.x, torch.zeros(len(batch), dtype=torch.long), blended, batch.masks)
-
-    mixed = out.aux[Z_SEM]
-    torch.testing.assert_close(mixed[:, 0], reference[:, 0])
-    torch.testing.assert_close(mixed[:, -1], target[:, -1])
+        source, _ = model.encode(batch.x, with_clean(batch), batch.masks)
+        borrowed = source[:, :1].expand(-1, len(batch), -1, -1).contiguous()
+        out = model(
+            batch.x,
+            torch.zeros(len(batch), dtype=torch.long),
+            Cond({**with_clean(batch).payloads, Z_SEM: borrowed}),
+            batch.masks,
+        )
+    assert torch.isfinite(out.out).all()
 
 
 def test_kl_bottleneck_exposes_its_posterior(batch):
@@ -123,7 +121,7 @@ def test_kl_bottleneck_exposes_its_posterior(batch):
 
 def test_without_the_bottleneck_kl_is_unavailable(batch):
     torch.manual_seed(0)
-    model = small_model(batch, kl_bottleneck=False)
+    model = small_model(batch)
     out = model(batch.x, torch.zeros(len(batch), dtype=torch.long), with_clean(batch), batch.masks)
     assert "mu" not in out.aux
 
@@ -160,3 +158,19 @@ def test_trains_and_improves_on_one_batch(batch):
     last = task.compute_losses(batch, noise=noise)["total"].item()
 
     assert last < first, f"loss did not fall: {first:.4f} -> {last:.4f}"
+
+
+def test_published_checkpoint_loads_without_remapping():
+    # The port matches the reference's parameter names exactly, so its published
+    # weights load with strict=True and no conversion step.
+    checkpoint = (
+        REFERENCE_SAVE / "truebones_globpool" / "model000449998.pt"
+    )
+    if not checkpoint.is_file():
+        pytest.skip("reference checkpoints not present")
+
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    state = state.get("model", state)
+    model = MoDiffAE(feature_dim=13, d_model=128, ff_size=1024, projection_head_depth=2)
+    model.load_state_dict(state, strict=True)
+    assert len(state) == 292

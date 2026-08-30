@@ -27,6 +27,6 @@ RUN uv sync --extra dev --no-install-project
 # PoseYdon vendors its own BVH IO instead.
 RUN uv pip install "setuptools<81" wheel \
     && uv pip install --no-build-isolation "git+https://github.com/inbar-2344/Motion.git" \
-    && uv pip install transformers matplotlib imageio imageio-ffmpeg
+    && uv pip install transformers sentencepiece num2words matplotlib imageio imageio-ffmpeg "moviepy<2" einops blobfile
 
 CMD ["python", "-c", "import Animation, BVH, Quaternions; print('Motion available')"]
