@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from poseydon.core.anim import Anim
@@ -148,3 +149,65 @@ def test_ingest_corpus_without_explicit_mapping(truebones_dir, tmp_path):
     result = ingest_corpus(sorted(truebones_dir.glob("*.bvh")), MANIFEST_DIR, tmp_path)
     assert len(result.index) == 7
     assert result.skipped == []
+
+
+def test_infer_skeleton_honours_the_double_underscore_convention(tmp_path):
+    from poseydon.ingest.pipeline import infer_skeleton
+
+    # <Skeleton>__<whatever> is PoseYdon's dataset-sample convention and wins
+    # over directory name and prefix matching.
+    clip = tmp_path / "Coyote__anything_at_all.bvh"
+    clip.touch()
+    assert infer_skeleton(clip, MANIFEST_DIR) == "Coyote"
+
+
+def test_double_underscore_convention_beats_a_longer_prefix_match(tmp_path):
+    from poseydon.ingest.pipeline import infer_skeleton
+
+    for name in ("Goat", "GoatKid"):
+        (tmp_path / f"{name}.yaml").write_text("skeleton: x\n")
+    clip = tmp_path / "Goat__kid_walk.bvh"
+    clip.touch()
+    assert infer_skeleton(clip, tmp_path) == "Goat"
+
+
+def test_corpus_shares_alignment_params_across_a_skeletons_clips(truebones_dir, tmp_path):
+    # Two clips of one skeleton must be aligned with the SAME constants, so their
+    # relative height survives. Ingesting a clip twice under different names must
+    # therefore give byte-identical geometry.
+    from poseydon.core.anim import Anim
+
+    src = truebones_dir / "Goat___HeadButt_395.bvh"
+    a = tmp_path / "Goat__one.bvh"
+    b = tmp_path / "Goat__two.bvh"
+    a.write_text(src.read_text())
+    b.write_text(src.read_text())
+
+    result = ingest_corpus([a, b], MANIFEST_DIR, tmp_path / "out")
+    assert len(result.index) == 2
+
+    first, second = (Anim.load(tmp_path / "out" / r.path) for r in result.index.records)
+    np.testing.assert_allclose(first.global_positions(), second.global_positions(), atol=0)
+
+
+def test_ingest_does_not_reground_an_already_aligned_clip(truebones_dir, tmp_path):
+    # The shipped assets are already-processed BVHs whose lowest joint is NOT at
+    # y=0, because their ground height came from a T-pose. Ingesting them with
+    # params derived from the same clip re-grounds them; that is expected. What
+    # must not happen is a change of scale beyond renormalizing the file's own
+    # rounding: BVH stores offsets to 6 decimals, so an already-scaled asset has
+    # a mean bone length off by ~8e-8, and rescaling corrects exactly that.
+    record = ingest_clip(
+        truebones_dir / "Goat___HeadButt_395.bvh",
+        manifest_for("Goat___HeadButt_395"),
+        tmp_path,
+    )
+    from poseydon.core.anim import Anim
+
+    anim = Anim.load(tmp_path / record.path)
+    source = load_bvh(truebones_dir / "Goat___HeadButt_395.bvh")
+    np.testing.assert_allclose(
+        np.linalg.norm(anim.offsets[1:], axis=-1),
+        np.linalg.norm(source.offsets[1:], axis=-1),
+        rtol=1e-6,
+    )

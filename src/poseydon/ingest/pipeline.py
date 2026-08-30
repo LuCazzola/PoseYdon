@@ -6,9 +6,11 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from poseydon.core.skeleton import SkeletonManifest, resolve
-from poseydon.ingest.align import align
+from poseydon.core.anim import Anim
+from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
+from poseydon.ingest.align import AlignmentParams, align, compute_alignment_params
 from poseydon.ingest.index import (
+    SEPARATOR,
     ClipRecord,
     CorpusIndex,
     action_slug,
@@ -37,11 +39,15 @@ def infer_skeleton(path: Path, manifest_dir: str | Path) -> str:
     convention describes ids we generate, not filenames we are given. So resolve
     against the manifests that actually exist:
 
-    1. the containing directory name, which is how raw Truebones is laid out
+    1. an explicit ``<Skeleton>__<whatever>`` filename, PoseYdon's own convention;
+    2. the containing directory name, which is how raw Truebones is laid out
        (``Truebone_Z-OO/<Species>/*.bvh``);
-    2. otherwise the longest manifest name the filename starts with.
+    3. otherwise the longest manifest name the filename starts with.
     """
     known = available_skeletons(manifest_dir)
+    declared = path.stem.split(SEPARATOR, 1)[0] if SEPARATOR in path.stem else None
+    if declared in known:
+        return declared
     if path.parent.name in known:
         return path.parent.name
     for name in known:
@@ -61,13 +67,37 @@ class IngestResult:
     skipped: list[tuple[Path, str]] = field(default_factory=list)
 
 
+def skeleton_alignment_params(
+    manifest: SkeletonManifest,
+    fallback: Anim,
+    resolved: ResolvedSkeleton,
+) -> AlignmentParams:
+    """Alignment constants for a skeleton, from its T-pose where one is named.
+
+    Falling back to a motion clip is what the reference does too when no
+    ``tpos`` file exists, but it is a fallback: the constants then depend on
+    which clip happened to come first, so a manifest should name a T-pose.
+    """
+    if manifest.tpose is not None and manifest.tpose.is_file():
+        reference = load_bvh(manifest.tpose)
+        resolved = resolve(manifest, reference.names)
+    else:
+        reference = fallback
+    return compute_alignment_params(reference, resolved)
+
+
 def ingest_clip(
     bvh_path: str | Path,
     manifest: SkeletonManifest,
     out_dir: str | Path,
     split: str = "train",
+    params: AlignmentParams | None = None,
 ) -> ClipRecord:
-    """Align one BVH and write one full-length Anim. Never chunks."""
+    """Align one BVH and write one full-length Anim. Never chunks.
+
+    ``params`` are the skeleton-level constants; when omitted they are derived
+    from this clip, which is correct only for a single-clip ingest.
+    """
     bvh_path = Path(bvh_path)
     out_dir = Path(out_dir)
 
@@ -81,7 +111,9 @@ def ingest_clip(
         )
 
     resolved = resolve(manifest, anim.names)
-    aligned, _params = align(anim, resolved)
+    if params is None:
+        params = skeleton_alignment_params(manifest, anim, resolved)
+    aligned = align(anim, resolved, params)
 
     action = strip_skeleton_prefix(action_slug(bvh_path.stem), manifest.name)
     identifier = clip_id(manifest.name, action)
@@ -114,6 +146,7 @@ def ingest_corpus(
     out_dir = Path(out_dir)
     result = IngestResult()
     cache: dict[str, SkeletonManifest] = {}
+    params_cache: dict[str, AlignmentParams] = {}
 
     for raw in bvh_paths:
         path = Path(raw)
@@ -121,7 +154,15 @@ def ingest_corpus(
             skeleton = skeleton_of(path) if skeleton_of else infer_skeleton(path, manifest_dir)
             if skeleton not in cache:
                 cache[skeleton] = SkeletonManifest.load(manifest_dir / f"{skeleton}.yaml")
-            record = ingest_clip(path, cache[skeleton], out_dir, split=split)
+            manifest = cache[skeleton]
+            if skeleton not in params_cache:
+                first = load_bvh(path)
+                params_cache[skeleton] = skeleton_alignment_params(
+                    manifest, first, resolve(manifest, first.names)
+                )
+            record = ingest_clip(
+                path, manifest, out_dir, split=split, params=params_cache[skeleton]
+            )
         except Exception as error:  # noqa: BLE001 - one bad file must not stop a corpus
             result.skipped.append((path, f"{type(error).__name__}: {error}"))
             continue

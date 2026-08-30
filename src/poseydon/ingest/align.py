@@ -20,9 +20,15 @@ _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 
 @dataclass(frozen=True)
 class AlignmentParams:
-    """What alignment did, so it can be replayed or inverted."""
+    """Skeleton-level alignment constants.
 
-    rotation: np.ndarray
+    These are derived ONCE per skeleton -- from its T-pose where the manifest
+    names one -- and reused for every clip of that character. The reference does
+    the same, and it matters: computing them per clip would ground a flying
+    creature onto the floor and destroy the height relationship between a
+    crouch and a stand. Only the facing rotation is genuinely per-clip.
+    """
+
     root_xz: np.ndarray
     scale_factor: float
     ground_height: float
@@ -134,25 +140,58 @@ def put_on_ground(anim: Anim) -> tuple[Anim, float]:
     )
 
 
+def compute_alignment_params(
+    reference: Anim,
+    resolved: ResolvedSkeleton,
+    target_bone_length: float = HML_MEAN_BONE_LENGTH,
+) -> AlignmentParams:
+    """Derive the skeleton-level constants from a reference clip (the T-pose)."""
+    rotation = facing_quat(
+        reference.global_positions(),
+        resolved.facing_indices,
+        resolved.manifest.extra_yaw_deg,
+    )
+    rotated = rotate_to_face_z(reference, rotation)
+    _centred, root_xz = move_xz_to_origin(rotated)
+    scaled, factor = scale_to_mean_bone_length(rotated, target_bone_length)
+    _grounded, ground_height = put_on_ground(
+        Anim(
+            rotations=scaled.rotations,
+            root_pos=scaled.root_pos - root_xz * factor,
+            offsets=scaled.offsets,
+            parents=scaled.parents,
+            names=scaled.names,
+            fps=scaled.fps,
+        )
+    )
+    return AlignmentParams(
+        root_xz=root_xz, scale_factor=factor, ground_height=ground_height
+    )
+
+
 def align(
     anim: Anim,
     resolved: ResolvedSkeleton,
-    target_bone_length: float = HML_MEAN_BONE_LENGTH,
-) -> tuple[Anim, AlignmentParams]:
-    """Rotate to face +Z, centre XZ, scale, then ground. Order is contractual."""
+    params: AlignmentParams,
+) -> Anim:
+    """Rotate to face +Z, then apply the skeleton-level constants.
+
+    Order is contractual: rotate, centre XZ, scale, ground. The rotation is
+    recomputed for this clip; everything else comes from ``params``.
+    """
     rotation = facing_quat(
         anim.global_positions(),
         resolved.facing_indices,
         resolved.manifest.extra_yaw_deg,
     )
-    rotated = rotate_to_face_z(anim, rotation)
-    centred, root_xz = move_xz_to_origin(rotated)
-    scaled, factor = scale_to_mean_bone_length(centred, target_bone_length)
-    grounded, ground_height = put_on_ground(scaled)
-
-    return grounded, AlignmentParams(
-        rotation=rotation,
-        root_xz=root_xz,
-        scale_factor=factor,
-        ground_height=ground_height,
+    out = rotate_to_face_z(anim, rotation)
+    out = Anim(
+        rotations=out.rotations,
+        root_pos=(out.root_pos - params.root_xz) * params.scale_factor
+        - np.array([0.0, params.ground_height, 0.0]),
+        offsets=out.offsets * params.scale_factor,
+        parents=out.parents,
+        names=out.names,
+        fps=out.fps,
     )
+    return out

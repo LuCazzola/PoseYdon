@@ -8,6 +8,7 @@ from poseydon.core.rotations import QUAT_IDENTITY, quat_apply
 from poseydon.core.skeleton import ContactParams, FacingPair, SkeletonManifest, resolve
 from poseydon.ingest.align import (
     align,
+    compute_alignment_params,
     facing_quat,
     put_on_ground,
     scale_to_mean_bone_length,
@@ -79,15 +80,41 @@ def test_put_on_ground_puts_lowest_joint_at_zero():
     assert height == pytest.approx(1.0, abs=1e-12)  # foot at 4 - 3 = 1
 
 
-def test_align_is_idempotent_on_already_aligned_anim():
-    once, _ = align(toy_anim(), toy_resolved())
-    twice, _ = align(once, toy_resolved())
+def test_align_is_idempotent_when_params_come_from_the_clip_itself():
+    anim, resolved = toy_anim(), toy_resolved()
+    once = align(anim, resolved, compute_alignment_params(anim, resolved))
+    twice = align(once, resolved, compute_alignment_params(once, resolved))
     np.testing.assert_allclose(twice.global_positions(), once.global_positions(), atol=1e-9)
+
+
+def test_shared_params_preserve_relative_height_between_clips():
+    # The whole point of skeleton-level params: a clip that never touches the
+    # ground must NOT be slammed onto it.
+    resolved = toy_resolved()
+    grounded = toy_anim()
+    params = compute_alignment_params(grounded, resolved)
+
+    airborne = Anim(
+        rotations=grounded.rotations,
+        root_pos=grounded.root_pos + np.array([0.0, 10.0, 0.0]),
+        offsets=grounded.offsets,
+        parents=grounded.parents,
+        names=grounded.names,
+        fps=grounded.fps,
+    )
+
+    a = align(grounded, resolved, params).global_positions()[..., 1].min()
+    b = align(airborne, resolved, params).global_positions()[..., 1].min()
+
+    assert a == pytest.approx(0.0, abs=1e-12)
+    assert b == pytest.approx(10.0 * params.scale_factor, abs=1e-9)
 
 
 def test_align_grounds_and_centres_real_fixture(bvh_fixture):
     anim = load_bvh(bvh_fixture)
-    aligned, params = align(anim, resolved_for(bvh_fixture, anim))
+    resolved = resolved_for(bvh_fixture, anim)
+    params = compute_alignment_params(anim, resolved)
+    aligned = align(anim, resolved, params)
 
     positions = aligned.global_positions()
     assert positions[..., 1].min() == pytest.approx(0.0, abs=1e-9)
@@ -101,7 +128,9 @@ def test_align_grounds_and_centres_real_fixture(bvh_fixture):
 
 def test_align_preserves_bone_length_ratios(bvh_fixture):
     anim = load_bvh(bvh_fixture)
-    aligned, params = align(anim, resolved_for(bvh_fixture, anim))
+    resolved = resolved_for(bvh_fixture, anim)
+    params = compute_alignment_params(anim, resolved)
+    aligned = align(anim, resolved, params)
     before = np.linalg.norm(anim.offsets[1:], axis=-1)
     after = np.linalg.norm(aligned.offsets[1:], axis=-1)
     np.testing.assert_allclose(after, before * params.scale_factor, atol=1e-9)
@@ -109,7 +138,9 @@ def test_align_preserves_bone_length_ratios(bvh_fixture):
 
 def test_rotation_is_rigid(bvh_fixture):
     anim = load_bvh(bvh_fixture)
-    aligned, params = align(anim, resolved_for(bvh_fixture, anim))
+    resolved = resolved_for(bvh_fixture, anim)
+    params = compute_alignment_params(anim, resolved)
+    aligned = align(anim, resolved, params)
     # Pairwise joint distances are preserved up to the uniform scale factor.
     a = anim.global_positions()[0]
     b = aligned.global_positions()[0]
@@ -121,7 +152,7 @@ def test_rotation_is_rigid(bvh_fixture):
 def test_align_makes_character_face_positive_z(bvh_fixture):
     anim = load_bvh(bvh_fixture)
     resolved = resolved_for(bvh_fixture, anim)
-    aligned, _ = align(anim, resolved)
+    aligned = align(anim, resolved, compute_alignment_params(anim, resolved))
     # Recomputing the facing rotation on the aligned clip must be a no-op.
     residual = facing_quat(aligned.global_positions(), resolved.facing_indices)
     np.testing.assert_allclose(
