@@ -1,0 +1,150 @@
+"""Reading a corpus into feature windows."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from poseydon.conditioners.base import CONDITIONERS, Conditioner
+from poseydon.core.anim import Anim
+from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
+from poseydon.core.spec import FeatureSpec
+from poseydon.data.normalize import Normalizer
+from poseydon.data.window import RandomCrop, Window
+from poseydon.features import DEFAULT_FEATURES, extract_features
+from poseydon.ingest.index import ClipRecord, CorpusIndex
+
+
+@dataclass(frozen=True)
+class ClipView:
+    """What a conditioner sees for one item."""
+
+    record: ClipRecord
+    anim: Anim
+    resolved: ResolvedSkeleton
+    normalizer: Normalizer
+
+
+@dataclass(frozen=True)
+class Item:
+    """One windowed sample, before collation."""
+
+    features: np.ndarray  # (T, J, D) normalized
+    spec: FeatureSpec
+    start: int
+    source_length: int
+    cond: dict[str, Any]
+
+
+class MotionDataset:
+    """Corpus index plus manifests to feature windows.
+
+    Features are extracted at read time from the canonical animation, so the
+    representation is a config choice with no re-ingest. Normalization statistics
+    are fitted per skeleton FOR THE ACTIVE SPEC and cached.
+    """
+
+    def __init__(
+        self,
+        index: CorpusIndex,
+        root: str | Path,
+        manifest_dir: str | Path,
+        features: Sequence[str] = DEFAULT_FEATURES,
+        window: Window | None = None,
+        conditioners: Sequence[str] = (),
+        split: str | None = None,
+        seed: int = 0,
+    ) -> None:
+        self.root = Path(root)
+        self.manifest_dir = Path(manifest_dir)
+        self.features = tuple(features)
+        self.window = window or RandomCrop()
+        self.conditioners: list[Conditioner] = [
+            CONDITIONERS.get(name)() for name in conditioners
+        ]
+        self.records = index.query(split=split) if split else list(index.records)
+        if not self.records:
+            raise ValueError(f"no clips in the index for split={split!r}")
+
+        self._rng = np.random.default_rng(seed)
+        self._manifests: dict[str, SkeletonManifest] = {}
+        self._normalizers: dict[str, Normalizer] = {}
+        self._anims: dict[str, Anim] = {}
+
+        # A clip yields more than one window under a deterministic policy, so the
+        # dataset is indexed by (clip, window) rather than by clip.
+        self._plan: list[tuple[int, int]] = []
+        for clip_index, record in enumerate(self.records):
+            frames = self._feature_frames(record)
+            for window_index in range(self.window.count(frames)):
+                self._plan.append((clip_index, window_index))
+
+    def __len__(self) -> int:
+        return len(self._plan)
+
+    @property
+    def spec(self) -> FeatureSpec:
+        _, spec = self._extract(self.records[0])
+        return spec
+
+    def _manifest(self, skeleton: str) -> SkeletonManifest:
+        if skeleton not in self._manifests:
+            self._manifests[skeleton] = SkeletonManifest.load(
+                self.manifest_dir / f"{skeleton}.yaml"
+            )
+        return self._manifests[skeleton]
+
+    def _anim(self, record: ClipRecord) -> Anim:
+        if record.clip_id not in self._anims:
+            self._anims[record.clip_id] = Anim.load(self.root / record.path)
+        return self._anims[record.clip_id]
+
+    def _resolved(self, record: ClipRecord) -> ResolvedSkeleton:
+        return resolve(self._manifest(record.skeleton), self._anim(record).names)
+
+    def _extract(self, record: ClipRecord) -> tuple[np.ndarray, FeatureSpec]:
+        return extract_features(
+            self._anim(record), self._resolved(record), self.features
+        )
+
+    def _feature_frames(self, record: ClipRecord) -> int:
+        return self._extract(record)[0].shape[0]
+
+    def _normalizer(self, skeleton: str, spec: FeatureSpec) -> Normalizer:
+        if skeleton not in self._normalizers:
+            arrays = [
+                self._extract(record)[0]
+                for record in self.records
+                if record.skeleton == skeleton
+            ]
+            self._normalizers[skeleton] = Normalizer.fit(arrays, spec)
+        return self._normalizers[skeleton]
+
+    def __getitem__(self, index: int) -> Item:
+        clip_index, window_index = self._plan[index]
+        record = self.records[clip_index]
+
+        raw, spec = self._extract(record)
+        normalizer = self._normalizer(record.skeleton, spec)
+        features = normalizer.normalize(raw)
+
+        start, length = self.window.bounds(features.shape[0], window_index, self._rng)
+        window = features[start : start + length]
+
+        view = ClipView(
+            record=record,
+            anim=self._anim(record),
+            resolved=self._resolved(record),
+            normalizer=normalizer,
+        )
+        return Item(
+            features=window,
+            spec=spec,
+            start=start,
+            source_length=features.shape[0],
+            cond={c.name: c.extract(view) for c in self.conditioners},
+        )
