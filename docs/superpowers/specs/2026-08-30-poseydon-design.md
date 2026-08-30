@@ -1,7 +1,7 @@
 # PoseYdon — Design
 
 Date: 2026-08-30
-Status: approved (design), pending implementation plan
+Status: implemented. See `## 18. Implementation status` at the end.
 
 ## 1. Purpose
 
@@ -544,3 +544,59 @@ Each is recorded so a numerical difference from published results has a known ca
 - Evaluation benchmarks and Blender visualization — follow-up specs, must slot in
   without core changes.
 - Licensing decision on vendoring the seven test fixtures (§14).
+
+## 18. Implementation status
+
+Recorded 2026-08-30, after implementation. 636 tests passing, ruff clean, all
+running inside Docker.
+
+| Area | State |
+|---|---|
+| BVH read/write, rotations, FK, `Anim` | done |
+| Skeleton manifests, joint-name resolution | done |
+| Alignment, corpus index, `poseydon ingest` | done |
+| Features, `FeatureSpec`, normalization | done, **golden parity passing** |
+| Feature recovery and BVH export | done, exact rather than fitted |
+| `MotionBatch`, conditioners, windowing, collate | done |
+| Gaussian diffusion, flow matching, losses, task | done |
+| AnyTop, MoDiffAE | done |
+| Samplers, controls, operations | done |
+| GPU inverse kinematics | done |
+| Hydra config, Lightning, `poseydon train` / `sample` / `list` | done |
+| Checkpoint converter and sampling-equivalence gate | **not done** -- needs the reference checkpoints, which are not in the repo |
+| Evaluation benchmarks, Blender visualization, FBX ingest | deferred by design (section 2) |
+
+### Findings added during implementation
+
+- **F18: Holden's `cont6d` is the first two COLUMNS of the rotation matrix**, the
+  transpose of PyTorch3D's row convention. Verified against the stored features,
+  where the row layout is off by up to 2.0. `matrix_to_rot6d` takes an explicit
+  layout for this reason.
+- **F19: `acos` of the trace is the wrong way to measure rotation error.** It is
+  singular at both endpoints, so clamping leaves a floor of ~4.5e-4 radians and a
+  spurious gradient at zero error. The same mistake produced NaN gradients in the
+  IK joint-limit term, since a joint at rest sits exactly at the singularity.
+  Both use `atan2` of sine and cosine instead.
+- **F20: the velocity block rotates each displacement by the facing of the frame
+  it arrives at**, not the one it leaves. Inverting with the wrong one costs three
+  orders of magnitude, 6e-2 against 5e-17.
+- **F21: absolute horizontal placement is not recoverable**, by design -- that is
+  what root-invariant means. Recovery returns a trajectory starting at the origin;
+  only its shape and its height are meaningful.
+- **F22: rotation-space IK preserves bone lengths by construction**, so the
+  `bone_length` term proposed in section 12 is unnecessary and was dropped.
+- **Export needs no IK at all.** The rotations are in the representation, so
+  recovery is exact. The reference runs 150 Jacobian iterations per clip at export
+  and discards the rotations it already had. The solver remains for the case that
+  genuinely needs one: positions without matching rotations.
+
+### Deviations from the plan as written
+
+- T-pose-relative rotations were deferred out of ingest, since the meaning of
+  Holden's `Quaternions.__neg__` cannot be verified without the `Motion` package.
+  The shipped assets are already-processed BVHs, so the golden gate never needed
+  it.
+- The `bone_length` IK term was dropped (F22).
+- `MotionTask` is a plain `nn.Module`, with Lightning wrapping it in
+  `training/lightning.py`. Everything framework-independent stays testable without
+  a Trainer.
