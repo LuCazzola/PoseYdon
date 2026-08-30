@@ -1,0 +1,28 @@
+# Compose with CLI overrides, e.g.
+#   poseydon train model=anytop process=flow features=[rot6d,local_vel]
+defaults:
+  - data: truebones
+  - model: anytop
+  - process: gaussian
+  - trainer: default
+  - _self_
+
+seed: 0
+
+# Feature blocks, in order. Changing this needs no re-ingest: ingest stores the
+# canonical animation, and features are composed when the data is read.
+features: [ric_pos, rot6d, local_vel, foot_contact]
+
+# Only declared conditioning is loaded, collated and moved to device.
+conditioners: [topology, tpose, norm_stats]
+
+# Weighted loss terms. Each declares the feature blocks it needs, checked
+# against `features` above before the first step.
+losses:
+  simple: 1.0
+  geodesic: 0.1
+  footskate: 0.5
+
+optimizer:
+  learning_rate: 1e-4
+  weight_decay: 0.0

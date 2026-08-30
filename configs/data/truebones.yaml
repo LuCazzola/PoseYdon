@@ -1,0 +1,10 @@
+root: data/truebones
+manifests: data/truebones/skeletons
+index: data/truebones/index.jsonl
+
+batch_size: 8
+num_workers: 0
+
+window:
+  _target_: poseydon.data.window.RandomCrop
+  length: 40

@@ -1,0 +1,4 @@
+_target_: poseydon.process.gaussian.GaussianDiffusion
+num_steps: 100
+schedule: cosine
+parameterization: x0

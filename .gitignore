@@ -217,3 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .scratch/
+
+# Ingest output: derived from source BVHs, regenerate with `poseydon ingest`
+data/*/aligned/
+data/*/index.jsonl
+runs/
