@@ -1,0 +1,9 @@
+services:
+  test:
+    build: .
+    working_dir: /app
+    volumes:
+      # Source, tests and the read-only reference checkout are bind-mounted, so
+      # edits take effect with no rebuild. Only pyproject.toml changes require one.
+      - .:/app
+    command: pytest -v
