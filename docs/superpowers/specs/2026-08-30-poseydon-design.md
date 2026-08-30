@@ -70,6 +70,8 @@ directly motivate design decisions below:
 | F13 | Per-skeleton hack `if object_type == "Anaconda"` inside a generic function | `get_root_quat` | Skeleton data living in code |
 | F14 | Preprocessing renders a matplotlib mp4 per chunk inline | `process_object` | Preprocessing is far slower than it needs to be |
 | F15 | Install requires conda plus `pip install --no-build-isolation git+...Motion.git` | `README`, `environment.yaml` | Fragile setup |
+| F16 | `cond.npy` pickles Holden `Quaternions` objects | `dataset/truebones/.../cond.npy` | The preprocessed artifact cannot be read at all without installing the `Motion` package from git |
+| F17 | Alignment constants come from the T-pose and are shared across a skeleton's clips, but nothing says so | `process_object` -> `process_anim(..., root_pose_init_xz, scale_factor, ground_height)` | Easy to reimplement per clip, which grounds flying creatures onto the floor |
 
 ## 4. Architecture
 
@@ -180,8 +182,22 @@ per-character files carry only `tpose:`. Truebones skeletons stay standalone.
 ### 6.2 Ingest
 
 `poseydon ingest` performs the expensive, deterministic, ambiguous work once:
-parse, resample to manifest fps, orient, centre, ground, scale, express rotations
-relative to the T-pose. It writes:
+parse, orient, centre, ground, scale. It writes:
+
+**Alignment constants are skeleton-level, not per-clip** (F17). `root_xz`,
+`scale_factor` and `ground_height` are derived once per skeleton -- from the
+T-pose when the manifest names one -- and reused for every clip of that
+character. Only the facing rotation is recomputed per clip. Computing the
+constants per clip would ground a flying creature onto the floor and destroy the
+height relationship between a crouch and a stand. Confirmed empirically: the
+reference stores `ground_height = -0.0206` for Flamingo while that clip's own
+minimum y is `-0.0285`, and the shipped assets have minimum y from `-0.121` to
+`+0.026` rather than zero.
+
+**Ingest does not resample.** The fixtures are 24 fps (`Frame Time: 0.041667`)
+while the reference hardcodes `FPS = 20` and never resamples. A manifest `fps` is
+a target that must be a no-op when it matches the source.
+
 
 - **One `Anim` per source BVH, full length, never chunked** (fixes F5). Stored as
   `.npz`: rotations (quaternion), root_pos, offsets, parents, names, fps.
