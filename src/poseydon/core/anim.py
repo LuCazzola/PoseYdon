@@ -70,7 +70,7 @@ class Anim:
         )
         return positions
 
-    def slice(self, start: int, stop: int) -> "Anim":
+    def slice(self, start: int, stop: int) -> Anim:
         """A new ``Anim`` over frames ``[start, stop)``, same skeleton."""
         return Anim(
             rotations=self.rotations[start:stop].copy(),
@@ -93,7 +93,7 @@ class Anim:
         )
 
     @classmethod
-    def load(cls, path: str | Path) -> "Anim":
+    def load(cls, path: str | Path) -> Anim:
         with np.load(Path(path), allow_pickle=True) as data:
             return cls(
                 rotations=data["rotations"],

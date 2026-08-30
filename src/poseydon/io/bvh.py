@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.anim import Anim
-from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat
+from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_to_euler
 
 CHANNEL_AXIS = {
     "Xrotation": "X",
@@ -176,3 +176,66 @@ def load_bvh(path: str | Path) -> Anim:
         names=names,
         fps=1.0 / frame_time,
     )
+
+
+def _children_of(parents: np.ndarray) -> list[list[int]]:
+    children: list[list[int]] = [[] for _ in range(parents.size)]
+    for joint in range(1, parents.size):
+        children[int(parents[joint])].append(joint)
+    return children
+
+
+def _write_joint(lines, anim, children, joint, depth, order) -> None:
+    pad = "\t" * depth
+    is_end_site = not children[joint]
+
+    if is_end_site:
+        lines.append(f"{pad}End Site #name: {anim.names[joint]}")
+    elif joint == 0:
+        lines.append(f"{pad}ROOT {anim.names[joint]}")
+    else:
+        lines.append(f"{pad}JOINT {anim.names[joint]}")
+
+    lines.append(f"{pad}{{")
+    ox, oy, oz = anim.offsets[joint]
+    lines.append(f"{pad}\tOFFSET {ox:.6f} {oy:.6f} {oz:.6f}")
+
+    if not is_end_site:
+        channel_names = " ".join(f"{axis}rotation" for axis in order)
+        if joint == 0:
+            lines.append(
+                f"{pad}\tCHANNELS 6 Xposition Yposition Zposition {channel_names}"
+            )
+        else:
+            lines.append(f"{pad}\tCHANNELS 3 {channel_names}")
+        for child in children[joint]:
+            _write_joint(lines, anim, children, child, depth + 1, order)
+
+    lines.append(f"{pad}}}")
+
+
+def save_bvh(anim: Anim, path: str | Path, order: str = "ZYX") -> None:
+    """Write an :class:`Anim` to a BVH file.
+
+    Leaf joints are written as ``End Site`` entries carrying their name in the
+    same ``#name:`` comment the reader understands, so a round trip preserves
+    joint count and naming.
+    """
+    children = _children_of(anim.parents)
+
+    lines: list[str] = ["HIERARCHY"]
+    _write_joint(lines, anim, children, 0, 0, order)
+
+    lines.append("MOTION")
+    lines.append(f"Frames: {anim.n_frames}")
+    lines.append(f"Frame Time: {1.0 / anim.fps:.6f}")
+
+    jointed = [j for j in range(anim.n_joints) if children[j]]
+    angles = quat_to_euler(anim.rotations[:, jointed], order)
+
+    for frame in range(anim.n_frames):
+        row = [f"{value:.6f}" for value in anim.root_pos[frame]]
+        row.extend(f"{value:.6f}" for value in angles[frame].reshape(-1))
+        lines.append(" ".join(row))
+
+    Path(path).write_text("\n".join(lines) + "\n")
