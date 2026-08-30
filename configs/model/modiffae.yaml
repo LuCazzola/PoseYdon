@@ -1,0 +1,9 @@
+_target_: poseydon.models.modiffae.MoDiffAE
+d_model: 128
+n_layers_semantic: 4
+n_layers_stochastic: 4
+n_heads: 4
+ff_size: 512
+dropout: 0.1
+n_virtual_joints: 3
+kl_bottleneck: false

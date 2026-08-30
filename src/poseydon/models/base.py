@@ -90,4 +90,9 @@ class LatentDenoiser(Denoiser, ABC):
         return self.decode(z0, batch.cond)
 
 
+#: Reserved conditioner name. A model that lists this in ``requires`` is asking
+#: the task for the CLEAN motion alongside the corrupted one -- an autoencoder
+#: needs its own input. The task supplies it; no dataset conditioner produces it.
+CLEAN_MOTION = "clean_motion"
+
 MODELS: Registry[Denoiser] = Registry("model")

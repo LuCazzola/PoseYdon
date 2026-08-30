@@ -41,7 +41,7 @@ def small_model(batch):
 
 
 def test_registered():
-    assert MODELS.names() == ["anytop"]
+    assert MODELS.names() == ["anytop", "modiffae"]
 
 
 def test_declares_the_conditioners_it_needs():

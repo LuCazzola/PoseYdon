@@ -58,6 +58,7 @@ class LatentMix(Control):
         target: torch.Tensor,
         alpha: np.ndarray,
         key: str = "z_sem",
+        frame_dim: int = -2,
     ) -> None:
         if reference.shape != target.shape:
             raise ValueError(
@@ -67,13 +68,23 @@ class LatentMix(Control):
         self.target = target
         self.alpha = torch.as_tensor(np.asarray(alpha), dtype=torch.float32)
         self.key = key
+        # The schedule is per FRAME, so it has to be aligned to the frame axis
+        # rather than broadcast from the left -- for a (B, T, C) latent, the
+        # leading axis is batch, and blending along it would be meaningless.
+        self.frame_dim = frame_dim
+        frames = reference.shape[frame_dim]
+        if self.alpha.shape[0] != frames:
+            raise ValueError(
+                f"schedule has {self.alpha.shape[0]} entries but the latent has "
+                f"{frames} frames on axis {frame_dim}"
+            )
 
     def before_step(
         self, z_t: torch.Tensor, t: torch.Tensor, cond: Cond
     ) -> tuple[torch.Tensor, Cond]:
-        alpha = self.alpha.to(self.reference.device)
-        while alpha.ndim < self.reference.ndim:
-            alpha = alpha.unsqueeze(-1)
+        shape = [1] * self.reference.ndim
+        shape[self.frame_dim] = self.alpha.shape[0]
+        alpha = self.alpha.to(self.reference.device).view(shape)
         mixed = torch.lerp(self.reference, self.target, alpha)
 
         payloads = dict(cond.payloads)

@@ -12,9 +12,9 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
-from poseydon.core.batch import MotionBatch
+from poseydon.core.batch import Cond, MotionBatch
 from poseydon.losses.base import LossTerm
-from poseydon.models.base import Denoiser
+from poseydon.models.base import CLEAN_MOTION, Denoiser
 from poseydon.process.base import Process
 
 
@@ -46,7 +46,8 @@ class MotionTask(nn.Module):
         """
         for _, _, term in self.losses:
             term.validate(batch.spec)
-        self.model.check_conditioners(set(batch.cond.payloads))
+        # The task itself satisfies CLEAN_MOTION, so it counts as configured.
+        self.model.check_conditioners(set(batch.cond.payloads) | {CLEAN_MOTION})
 
     def compute_losses(
         self, batch: MotionBatch, noise: torch.Tensor | None = None
@@ -58,7 +59,14 @@ class MotionTask(nn.Module):
             noise = torch.randn_like(z0)
 
         z_t = self.process.corrupt(z0, t, noise)
-        prediction = self.model(z_t, t, batch.cond, batch.masks)
+
+        cond = batch.cond
+        if CLEAN_MOTION in self.model.requires:
+            # An autoencoder is conditioned on the clean motion it is
+            # reconstructing; only the task can hand it over.
+            cond = Cond({**cond.payloads, CLEAN_MOTION: batch.x})
+
+        prediction = self.model(z_t, t, cond, batch.masks)
         x0_hat = self.model.restore(
             self.process.to_z0(prediction.out, z_t, t), batch
         )
