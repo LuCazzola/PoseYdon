@@ -10,7 +10,7 @@ maths delegates to SciPy wherever SciPy already has it, and only implements what
 lacks (6D rotation representation, quaternion-between-vectors). The BVH parser reads the
 MOTION block in one vectorized pass rather than line by line.
 
-**Tech Stack:** Python >=3.11, numpy, scipy, pytest, ruff, uv.
+**Tech Stack:** Python >=3.11, numpy, scipy, pytest, ruff, uv — all executed inside a Docker container defined by this plan. The host needs only Docker.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-poseydon-design.md` (sections 4, 5, 12
 "Dependencies", and 14)
@@ -23,6 +23,7 @@ MOTION block in one vectorized pass rather than line by line.
 - **End Sites are joints.** A BVH with `n` `ROOT`/`JOINT` entries and `m` `End Site` entries has `n + m` joints. End Sites have an offset and a name but zero channels and identity local rotation. Any code that assumes joints equal channel-groups is wrong.
 - **`external/neural_motion_blending/` is read-only.** Read it for reference; never edit, move or reformat anything under it.
 - Rotation matrices are row-vector-agnostic but stored so that `quat_to_matrix(q) @ v` rotates column vector `v`. The 6D representation uses the **first two rows** of the matrix, matching PyTorch3D, because later parity work compares against the reference's PyTorch3D-derived code.
+- **All Python runs inside Docker.** The host has no Python packaging tooling (no `uv`, no `pip`, no `ensurepip`, no numpy/scipy) and nothing may be installed on it. Every verification command is `docker compose run --rm test ...`. Never run `pytest`, `ruff` or `uv` directly on the host — it will fail.
 - Every task ends with a green `pytest` run and a commit.
 
 ---
@@ -35,6 +36,9 @@ MOTION block in one vectorized pass rather than line by line.
 - Create: `src/poseydon/core/__init__.py`
 - Create: `src/poseydon/io/__init__.py`
 - Create: `tests/conftest.py`
+- Create: `Dockerfile`
+- Create: `docker-compose.yml`
+- Create: `.dockerignore`
 - Test: `tests/test_fixtures.py`
 
 **Interfaces:**
@@ -68,6 +72,9 @@ packages = ["src/poseydon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Makes `import poseydon` work from the src layout without installing the
+# project, which keeps the Docker image's dependency layer independent of source.
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
@@ -77,7 +84,73 @@ src = ["src", "tests"]
 Create four empty files: `src/poseydon/__init__.py`, `src/poseydon/core/__init__.py`,
 `src/poseydon/io/__init__.py`, and `tests/__init__.py` is NOT needed (pytest uses rootdir).
 
-- [ ] **Step 2: Write `tests/conftest.py`**
+- [ ] **Step 2: Write the Docker environment**
+
+The host has no Python tooling and must stay that way. These three files are the
+only way anything in this plan gets executed.
+
+`Dockerfile`:
+
+```dockerfile
+# Test and development environment for PoseYdon.
+# The host needs only Docker: no Python, pip or uv installation required.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /app
+
+# UV_PROJECT_ENVIRONMENT puts the virtualenv OUTSIDE /app so the bind mount in
+# docker-compose.yml cannot shadow it. UV_LINK_MODE=copy avoids hardlink warnings
+# when the uv cache and the venv live on different layers.
+ENV UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Only pyproject.toml is copied, so editing source never invalidates this layer.
+# --no-install-project means the package itself is not built here; pytest's
+# `pythonpath = ["src"]` setting makes it importable from the bind mount instead.
+COPY pyproject.toml ./
+RUN uv sync --extra dev --no-install-project
+
+CMD ["pytest", "-v"]
+```
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  test:
+    build: .
+    working_dir: /app
+    volumes:
+      # Source, tests and the read-only reference checkout are bind-mounted, so
+      # edits take effect with no rebuild. Only pyproject.toml changes require one.
+      - .:/app
+    command: pytest -v
+```
+
+`.dockerignore` — keeps the build context small; `external/` alone is tens of MB
+with its own `.git`, and it is bind-mounted at runtime anyway:
+
+```
+.git
+.worktrees
+external
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+```
+
+- [ ] **Step 3: Build the image and verify the toolchain**
+
+Run: `docker compose build test`
+Expected: build succeeds.
+
+Run: `docker compose run --rm test python -c "import numpy, scipy; print(numpy.__version__, scipy.__version__)"`
+Expected: two version numbers printed, numpy >= 1.26 and scipy >= 1.11.
+
+- [ ] **Step 4: Write `tests/conftest.py`**
 
 The seven fixtures may live in either of two places. `tests/data/truebones/` is preferred
 (committed to this repo); `external/neural_motion_blending/assets/truebones/` is the
@@ -162,7 +235,7 @@ def fixture_stems() -> list[str]:
     return list(FIXTURE_STEMS)
 ```
 
-- [ ] **Step 3: Write the failing test**
+- [ ] **Step 5: Write the failing test**
 
 `tests/test_fixtures.py`:
 
@@ -176,18 +249,18 @@ def test_fixture_file_exists(bvh_fixture):
     assert bvh_fixture.read_text().startswith("HIERARCHY")
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 6: Run the tests**
 
-Run: `uv run pytest tests/test_fixtures.py -v`
+Run: `docker compose run --rm test pytest tests/test_fixtures.py -v`
 Expected: `test_every_stem_has_recorded_facts` PASSES; the seven parameterized
 `test_fixture_file_exists` cases PASS if the reference checkout is present, or all SKIP
 with the two-path message if not. Both outcomes are correct.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add pyproject.toml src tests
-git commit -m "chore: scaffold poseydon package and Truebones test fixtures"
+git add pyproject.toml Dockerfile docker-compose.yml .dockerignore src tests
+git commit -m "chore: scaffold poseydon package, Docker test env and fixtures"
 ```
 
 ---
@@ -307,7 +380,7 @@ def test_quat_between_handles_identical_vectors():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/core/test_rotations.py -v`
+Run: `docker compose run --rm test pytest tests/core/test_rotations.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'poseydon.core.rotations'`
 
 - [ ] **Step 3: Write the implementation**
@@ -441,7 +514,7 @@ def quat_between(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run pytest tests/core/test_rotations.py -v`
+Run: `docker compose run --rm test pytest tests/core/test_rotations.py -v`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
@@ -528,7 +601,7 @@ def test_rejects_missing_root():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/core/test_kinematics.py -v`
+Run: `docker compose run --rm test pytest tests/core/test_kinematics.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'poseydon.core.kinematics'`
 
 - [ ] **Step 3: Write the implementation**
@@ -614,7 +687,7 @@ def forward_kinematics(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run pytest tests/core/test_kinematics.py -v`
+Run: `docker compose run --rm test pytest tests/core/test_kinematics.py -v`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
@@ -728,7 +801,7 @@ def test_slice_selects_frames():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/core/test_anim.py -v`
+Run: `docker compose run --rm test pytest tests/core/test_anim.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'poseydon.core.anim'`
 
 - [ ] **Step 3: Write the implementation**
@@ -849,7 +922,7 @@ elsewhere, so this is safe here. Do not extend that assumption to user-supplied 
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run pytest tests/core/test_anim.py -v`
+Run: `docker compose run --rm test pytest tests/core/test_anim.py -v`
 Expected: all PASS.
 
 - [ ] **Step 5: Commit**
@@ -959,7 +1032,7 @@ def test_rejects_truncated_motion_block(tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/io/test_bvh_read.py -v`
+Run: `docker compose run --rm test pytest tests/io/test_bvh_read.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'poseydon.io.bvh'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1149,7 +1222,7 @@ def load_bvh(path: str | Path) -> Anim:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run pytest tests/io/test_bvh_read.py -v`
+Run: `docker compose run --rm test pytest tests/io/test_bvh_read.py -v`
 Expected: all PASS (or SKIP if fixtures are absent, except
 `test_rejects_truncated_motion_block`, which uses `tmp_path` and must PASS regardless).
 
@@ -1232,7 +1305,7 @@ def test_written_file_keeps_end_site_names(bvh_fixture, tmp_path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/io/test_bvh_write.py -v`
+Run: `docker compose run --rm test pytest tests/io/test_bvh_write.py -v`
 Expected: FAIL — `ImportError: cannot import name 'save_bvh'`
 
 - [ ] **Step 3: Append the implementation to `src/poseydon/io/bvh.py`**
@@ -1310,12 +1383,12 @@ from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_to_euler
 
 - [ ] **Step 4: Run the full suite**
 
-Run: `uv run pytest -v`
+Run: `docker compose run --rm test pytest -v`
 Expected: all PASS or SKIP. No failures.
 
 - [ ] **Step 5: Run the linter**
 
-Run: `uv run ruff check src tests`
+Run: `docker compose run --rm test ruff check src tests`
 Expected: no findings. Fix any that appear.
 
 - [ ] **Step 6: Commit**
