@@ -7,10 +7,22 @@ dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",
     "pyyaml>=6",
+    "torch>=2.4",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
+
+# The test image installs CPU-only torch: it is a fraction of the size of the
+# default CUDA wheel and nothing in the test suite needs a GPU. Real training
+# should use an image built against the appropriate CUDA wheel instead.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.scripts]
 poseydon = "poseydon.cli:main"
