@@ -24,9 +24,16 @@ from poseydon.models.modiffae import JOINT_NAMES, TEMPORAL_VALID, Z_SEM, MoDiffA
 
 
 def main() -> int:
+    import argparse  # noqa: PLC0415
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--save", default="truebones_globpool")
+    args = parser.parse_args()
+
     torch.manual_seed(0)
-    inputs = load_inputs("Flamingo", "Scorpion", frames=40)
-    reference_model, _, raw = build_model_and_diffusion("truebones_globpool")
+    reference_model, _, raw = build_model_and_diffusion(args.save)
+    inputs = load_inputs("Flamingo", "Scorpion", frames=40, window=raw["temporal_window"])
+    print(f"checkpoint: {args.save}  virtual_joints={raw['num_virtual_joints']}")
     reference_model.eval()
 
     ours = MoDiffAE(
@@ -71,7 +78,7 @@ def main() -> int:
     masks_source = _masks(y_s, inputs["n_joints_pad"], 40)
 
     with torch.no_grad():
-        z_sem = ours.encode(inputs["control_x"][:, 0], cond_source, masks_source)
+        z_sem, _ = ours.encode(inputs["control_x"][:, 0], cond_source, masks_source)
         ours_out = ours(
             x_t, t, Cond({**cond_target.payloads, Z_SEM: z_sem}), masks_target
         ).out

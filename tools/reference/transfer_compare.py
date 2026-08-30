@@ -73,7 +73,7 @@ def main() -> int:
     parser.add_argument("--out", default="artifacts/transfer")
     args = parser.parse_args()
 
-    out_dir = Path(args.out)
+    out_dir = Path(args.out) / args.save
     out_dir.mkdir(parents=True, exist_ok=True)
 
     reference_model, diffusion, raw = build_model_and_diffusion(args.save)
@@ -119,7 +119,7 @@ def main() -> int:
 
     process = GaussianDiffusion(num_steps=100, schedule=raw["noise_schedule"], parameterization="x0")
     with torch.no_grad():
-        z_sem = ours.encode(inputs["control_x"][:, 0], cond_source, masks_source)
+        z_sem, _ = ours.encode(inputs["control_x"][:, 0], cond_source, masks_source)
         our_out = DDIM(steps=None).sample(
             ours, process, shape,
             Cond({**cond_target.payloads, Z_SEM: z_sem}),
