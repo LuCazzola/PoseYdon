@@ -16,3 +16,19 @@ services:
       # image installs dependencies without installing the project itself.
       PYTHONPATH: /app/src:/app
     command: pytest -v
+
+  # Reference comparison only. Not used by the test suite.
+  compat:
+    build:
+      context: .
+      dockerfile: Dockerfile.compat
+    working_dir: /app
+    volumes:
+      - .:/app
+      - hf-cache:/root/.cache/huggingface
+    environment:
+      PYTHONPATH: /app/src:/app
+    command: python -c "import Animation, BVH, Quaternions; print('Motion available')"
+
+volumes:
+  hf-cache:

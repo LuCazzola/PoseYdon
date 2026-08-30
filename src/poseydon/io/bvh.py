@@ -123,10 +123,17 @@ def _parse_motion(text: str, n_channels: int) -> tuple[np.ndarray, float]:
 
 
 def _channels_to_local(values, channels, n_joints):
+    """Split the motion matrix into per-joint rotations and a root trajectory.
+
+    Joints are grouped by rotation order and converted in one call per order
+    rather than one per joint. A 63-joint skeleton otherwise pays 63 separate
+    SciPy round trips, which dominates parsing.
+    """
     n_frames = values.shape[0]
     rotations = np.broadcast_to(QUAT_IDENTITY, (n_frames, n_joints, 4)).copy()
     root_pos = np.zeros((n_frames, 3), dtype=np.float64)
 
+    by_order: dict[str, list[tuple[int, list[int]]]] = {}
     column = 0
     for joint, spec in enumerate(channels):
         if not spec:
@@ -134,8 +141,7 @@ def _channels_to_local(values, channels, n_joints):
         columns = {name: column + offset for offset, name in enumerate(spec)}
         column += len(spec)
 
-        position_names = [n for n in _POSITION_CHANNELS if n in columns]
-        if position_names:
+        if any(name in columns for name in _POSITION_CHANNELS):
             if joint != 0:
                 raise BvhParseError(
                     f"joint {joint} has position channels; only the root may translate"
@@ -147,8 +153,18 @@ def _channels_to_local(values, channels, n_joints):
         rotation_names = [n for n in spec if n in CHANNEL_AXIS]
         if rotation_names:
             order = "".join(CHANNEL_AXIS[n] for n in rotation_names)
-            angles = np.stack([values[:, columns[n]] for n in rotation_names], axis=-1)
-            rotations[:, joint] = euler_to_quat(angles, order)
+            by_order.setdefault(order, []).append(
+                (joint, [columns[n] for n in rotation_names])
+            )
+
+    for order, entries in by_order.items():
+        joints = [joint for joint, _ in entries]
+        picks = np.array([cols for _, cols in entries])
+        # (J_group, F, 3) -> one conversion for the whole group
+        angles = values[:, picks].transpose(1, 0, 2)
+        rotations[:, joints] = euler_to_quat(
+            angles.reshape(-1, 3), order
+        ).reshape(len(joints), n_frames, 4).transpose(1, 0, 2)
 
     return rotations, root_pos
 

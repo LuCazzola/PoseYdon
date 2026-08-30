@@ -20,15 +20,42 @@ def _as_rotation(q: np.ndarray) -> Rotation:
     return Rotation.from_quat(np.asarray(q, dtype=np.float64).reshape(-1, 4))
 
 
+_AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
+
+
+def _axis_quat(angle_rad: np.ndarray, axis: str) -> np.ndarray:
+    """Quaternion for a rotation of ``angle_rad`` about a single basis axis."""
+    half = 0.5 * angle_rad
+    out = np.zeros((*angle_rad.shape, 4), dtype=np.float64)
+    out[..., _AXIS_INDEX[axis]] = np.sin(half)
+    out[..., 3] = np.cos(half)
+    return out
+
+
 def euler_to_quat(angles_deg: np.ndarray, order: str) -> np.ndarray:
     """Intrinsic Euler angles (degrees) to quaternion.
 
     ``order`` is uppercase, e.g. ``"ZYX"``, and ``angles_deg[..., i]`` is the
     angle for ``order[i]``. Uppercase is SciPy's spelling for intrinsic
     rotations, which is what BVH means by its channel ordering.
+
+    Three-angle orders take a direct composition path. SciPy's general Euler
+    conversion goes through rotation matrices, which dominates BVH parsing: a
+    63-joint clip is thousands of rotations, and composing per-axis quaternions
+    is several times cheaper. Both paths are checked against each other in the
+    tests.
     """
     angles = np.asarray(angles_deg, dtype=np.float64)
-    flat = Rotation.from_euler(order.upper(), angles.reshape(-1, 3), degrees=True)
+    order = order.upper()
+
+    if len(order) == 3 and set(order) <= set(_AXIS_INDEX):
+        radians = np.deg2rad(angles)
+        first, second, third = (
+            _axis_quat(radians[..., i], axis) for i, axis in enumerate(order)
+        )
+        return quat_mul(quat_mul(first, second), third)
+
+    flat = Rotation.from_euler(order, angles.reshape(-1, 3), degrees=True)
     return flat.as_quat().reshape(*angles.shape[:-1], 4)
 
 

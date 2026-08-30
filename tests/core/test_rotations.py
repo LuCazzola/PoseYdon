@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from poseydon.core.rotations import (
     QUAT_IDENTITY,
@@ -84,3 +85,31 @@ def test_quat_between_handles_antiparallel_vectors():
 def test_quat_between_handles_identical_vectors():
     a = np.array([[0.0, 1.0, 0.0]])
     np.testing.assert_allclose(quat_between(a, a), [QUAT_IDENTITY], atol=1e-12)
+
+
+@pytest.mark.parametrize("order", ["ZYX", "XYZ", "ZXY", "YXZ", "XZY", "YZX"])
+def test_fast_euler_path_matches_scipy(order):
+    # The three-angle path is hand-composed rather than going through SciPy's
+    # general conversion, so it has to be pinned against it.
+    from scipy.spatial.transform import Rotation
+
+    from poseydon.core.rotations import euler_to_quat
+
+    rng = np.random.default_rng(7)
+    angles = rng.uniform(-180.0, 180.0, size=(64, 3))
+    expected = Rotation.from_euler(order, angles, degrees=True).as_quat()
+
+    np.testing.assert_allclose(
+        quat_to_matrix(euler_to_quat(angles, order)),
+        quat_to_matrix(expected),
+        atol=1e-12,
+    )
+
+
+def test_euler_falls_back_for_unusual_orders():
+    from poseydon.core.rotations import euler_to_quat
+
+    # Repeated-axis orders are legal for SciPy and must still work.
+    got = euler_to_quat(np.array([[10.0, 20.0, 30.0]]), "ZXZ")
+    assert got.shape == (1, 4)
+    np.testing.assert_allclose(np.linalg.norm(got, axis=-1), 1.0, atol=1e-12)
