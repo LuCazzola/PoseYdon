@@ -2,6 +2,10 @@ services:
   test:
     build: .
     working_dir: /app
+    # Run as the host user so files the container writes into the bind mount are
+    # owned by you, not root. Without this, anything ingest writes into the repo
+    # becomes undeletable from the host.
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       # Source, tests and the read-only reference checkout are bind-mounted, so
       # edits take effect with no rebuild. Only pyproject.toml changes require one.

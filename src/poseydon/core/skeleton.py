@@ -99,7 +99,7 @@ def _load_with_base(path: Path, seen: list[Path]) -> dict:
 
     unknown = set(data) - _KNOWN_KEYS
     if unknown:
-        key = sorted(unknown)[0]
+        key = min(unknown)
         close = difflib.get_close_matches(key, sorted(_KNOWN_KEYS), n=1)
         hint = f", did you mean `{close[0]}`?" if close else ""
         raise ManifestError(f"{path}: unknown key `{key}`{hint}")
@@ -229,7 +229,7 @@ def strip_prefix(names: Sequence[str], prefix: str | None) -> tuple[str, ...]:
     """Drop a dataset-specific joint-name prefix, e.g. ``mixamorig:``."""
     if not prefix:
         return tuple(names)
-    stripped = tuple(n[len(prefix) :] if n.startswith(prefix) else n for n in names)
+    stripped = tuple(n.removeprefix(prefix) for n in names)
     if len(set(stripped)) != len(stripped):
         raise ManifestError(
             f"stripping prefix `{prefix}` makes joint names collide; "

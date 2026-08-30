@@ -102,3 +102,19 @@ def test_skeletons_are_sorted_and_unique():
     index.add(record(clip="A__a", skeleton="Ant"))
     index.add(record(clip="A__b", skeleton="Ant", action="b"))
     assert index.skeletons() == ["Ant", "Zebra"]
+
+
+@pytest.mark.parametrize(
+    ("action", "skeleton", "expected"),
+    [
+        ("goat_headbutt_395", "Goat", "headbutt_395"),
+        ("flamingo_flamingo_onelegbent_353", "Flamingo", "onelegbent_353"),
+        ("attack3_224", "Coyote", "attack3_224"),
+        ("goat", "Goat", "goat"),
+        ("goat_", "Goat", "goat_"),
+    ],
+)
+def test_strip_skeleton_prefix(action, skeleton, expected):
+    from poseydon.ingest.index import strip_skeleton_prefix
+
+    assert strip_skeleton_prefix(action, skeleton) == expected

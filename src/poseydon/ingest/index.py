@@ -24,6 +24,20 @@ def action_slug(stem: str) -> str:
     return _NON_ALNUM.sub("_", stem.lower()).strip("_")
 
 
+def strip_skeleton_prefix(action: str, skeleton: str) -> str:
+    """Drop a leading, repeated skeleton name from an action slug.
+
+    Truebones filenames embed the species, sometimes twice
+    (``Flamingo_Flamingo_OneLEgBEnt_353``), which would otherwise produce ids
+    like ``Flamingo__flamingo_flamingo_onelegbent_353``. Never strips down to an
+    empty action.
+    """
+    prefix = f"{action_slug(skeleton)}_"
+    while action.startswith(prefix) and len(action) > len(prefix):
+        action = action[len(prefix) :]
+    return action
+
+
 def clip_id(skeleton: str, action: str) -> str:
     """Deterministic clip identity: ``{skeleton}__{action}``."""
     if SEPARATOR in skeleton:

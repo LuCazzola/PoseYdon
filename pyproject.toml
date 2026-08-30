@@ -12,6 +12,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 
+[project.scripts]
+poseydon = "poseydon.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
