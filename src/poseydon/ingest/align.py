@@ -34,43 +34,56 @@ class AlignmentParams:
     ground_height: float
 
 
+def facing_quats(
+    positions: np.ndarray,
+    facing_indices: tuple[tuple[int, int], ...],
+    extra_yaw_deg: float = 0.0,
+) -> np.ndarray:
+    """Per-frame rotation taking the character's forward axis onto +Z.
+
+    ``across`` is the normalized sum of ``(right - left)`` over the facing pairs;
+    ``forward = cross(world_up, across)``. Returns ``(F, 4)``.
+
+    Alignment uses only frame 0 (see :func:`facing_quat`); the feature layer
+    needs every frame, because the root-invariant position and local-velocity
+    blocks are expressed in each frame's own root frame.
+    """
+    positions = np.asarray(positions, dtype=np.float64)
+    across = np.zeros_like(positions[:, 0])
+    for right, left in facing_indices:
+        across = across + (positions[:, right] - positions[:, left])
+
+    norms = np.linalg.norm(across, axis=-1, keepdims=True)
+    if np.any(norms < 1e-8):
+        raise ValueError(
+            "facing joints are coincident in at least one frame, so the forward "
+            "direction is undefined; check the manifest's facing pairs"
+        )
+    across = across / norms
+
+    forward = np.cross(np.broadcast_to(_WORLD_UP, across.shape), across)
+    forward_norms = np.linalg.norm(forward, axis=-1, keepdims=True)
+    if np.any(forward_norms < 1e-8):
+        raise ValueError(
+            "the across-body axis is parallel to world up in at least one frame, "
+            "so the forward direction is undefined; check the manifest's facing pairs"
+        )
+    forward = forward / forward_norms
+
+    rotations = quat_between(forward, np.broadcast_to(_TARGET_FORWARD, forward.shape))
+    if extra_yaw_deg:
+        yaw = euler_to_quat(np.array([0.0, extra_yaw_deg, 0.0]), "ZYX")
+        rotations = quat_mul(np.broadcast_to(yaw, rotations.shape), rotations)
+    return rotations
+
+
 def facing_quat(
     positions: np.ndarray,
     facing_indices: tuple[tuple[int, int], ...],
     extra_yaw_deg: float = 0.0,
 ) -> np.ndarray:
-    """Rotation taking the character's forward axis onto +Z, from frame 0.
-
-    ``across`` is the normalized sum of ``(right - left)`` over the facing pairs;
-    ``forward = cross(world_up, across)``.
-    """
-    first = positions[0]
-    across = np.zeros(3)
-    for right, left in facing_indices:
-        across = across + (first[right] - first[left])
-
-    norm = np.linalg.norm(across)
-    if norm < 1e-8:
-        raise ValueError(
-            "facing joints are coincident in the first frame, so the forward "
-            "direction is undefined; check the manifest's facing pairs"
-        )
-    across = across / norm
-
-    forward = np.cross(_WORLD_UP, across)
-    forward_norm = np.linalg.norm(forward)
-    if forward_norm < 1e-8:
-        raise ValueError(
-            "the across-body axis is parallel to world up, so the forward "
-            "direction is undefined; check the manifest's facing pairs"
-        )
-    forward = forward / forward_norm
-
-    rotation = quat_between(forward, _TARGET_FORWARD)
-    if extra_yaw_deg:
-        yaw = euler_to_quat(np.array([0.0, extra_yaw_deg, 0.0]), "ZYX")
-        rotation = quat_mul(yaw, rotation)
-    return rotation
+    """Facing rotation from frame 0 only, as ``(4,)``. Used by alignment."""
+    return facing_quats(positions[:1], facing_indices, extra_yaw_deg)[0]
 
 
 def rotate_to_face_z(anim: Anim, rotation: np.ndarray) -> Anim:

@@ -50,21 +50,36 @@ def matrix_to_quat(m: np.ndarray) -> np.ndarray:
     return flat.as_quat().reshape(*m.shape[:-2], 4)
 
 
-def matrix_to_rot6d(m: np.ndarray) -> np.ndarray:
-    """First two rows of the rotation matrix, flattened."""
+def matrix_to_rot6d(m: np.ndarray, layout: str = "rows") -> np.ndarray:
+    """Two basis vectors of the rotation matrix, flattened.
+
+    ``layout="rows"`` takes the first two ROWS, matching PyTorch3D.
+    ``layout="columns"`` takes the first two COLUMNS, matching Holden's
+    ``Quaternions.rotation_matrix(cont6d=True)`` -- which is what the reference
+    dataset's stored features actually use. The two differ by a transpose, so
+    mixing them silently yields inverse rotations; verified empirically against
+    the shipped `.npy` files, where the row layout is off by up to 2.0.
+    """
     m = np.asarray(m, dtype=np.float64)
+    if layout == "columns":
+        m = np.swapaxes(m, -1, -2)
+    elif layout != "rows":
+        raise ValueError(f"layout must be 'rows' or 'columns', got {layout!r}")
     return m[..., :2, :].reshape(*m.shape[:-2], 6).copy()
 
 
-def rot6d_to_matrix(d6: np.ndarray) -> np.ndarray:
+def rot6d_to_matrix(d6: np.ndarray, layout: str = "rows") -> np.ndarray:
     """Gram-Schmidt the two 3-vectors back into an orthonormal matrix."""
     d6 = np.asarray(d6, dtype=np.float64)
+    if layout not in ("rows", "columns"):
+        raise ValueError(f"layout must be 'rows' or 'columns', got {layout!r}")
     a1, a2 = d6[..., :3], d6[..., 3:]
     b1 = a1 / np.linalg.norm(a1, axis=-1, keepdims=True)
     b2 = a2 - (b1 * a2).sum(axis=-1, keepdims=True) * b1
     b2 = b2 / np.linalg.norm(b2, axis=-1, keepdims=True)
     b3 = np.cross(b1, b2)
-    return np.stack([b1, b2, b3], axis=-2)
+    out = np.stack([b1, b2, b3], axis=-2)
+    return np.swapaxes(out, -1, -2) if layout == "columns" else out
 
 
 def quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
