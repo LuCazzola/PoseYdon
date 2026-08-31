@@ -15,6 +15,9 @@ services:
       # `python -c` / `python -m poseydon.cli` runs need it explicitly, since the
       # image installs dependencies without installing the project itself.
       PYTHONPATH: /app/src:/app
+      # Matplotlib wants a writable config dir, and the container runs as a user
+      # with no home.
+      MPLCONFIGDIR: /tmp/matplotlib
     command: pytest -v
 
   # Reference comparison only. Not used by the test suite.
@@ -30,6 +33,8 @@ services:
       - hf-cache:/root/.cache/huggingface
     environment:
       PYTHONPATH: /app/src:/app
+      MPLCONFIGDIR: /tmp/matplotlib
+      XDG_CACHE_HOME: /tmp/cache
     command: python -c "import Animation, BVH, Quaternions; print('Motion available')"
 
 volumes:

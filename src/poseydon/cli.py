@@ -148,6 +148,15 @@ def _sample(args: argparse.Namespace) -> int:
         else:
             save_bvh(anim, f"{stem}.bvh")
             print(f"wrote {stem}.bvh  (reconstruct={method})")
+
+        if args.render:
+            from poseydon.io.render import render_skeleton
+
+            render_skeleton(
+                f"{stem}.mp4", reference.parents, positions,
+                fps=round(reference.fps), title=f"{skeleton}  ({method})", zoom=args.zoom,
+            )
+            print(f"wrote {stem}.mp4")
     return 0
 
 
@@ -218,6 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     sample.add_argument("--config-name", default="sample")
     sample.add_argument("--checkpoint", default=None)
     sample.add_argument("--out", default="samples")
+    sample.add_argument("--render", action="store_true", help="also write an MP4 per sample")
+    sample.add_argument(
+        "--zoom", type=float, default=1.0, help="render framing; >1 moves the camera closer"
+    )
     sample.set_defaults(func=_sample)
 
     listing = sub.add_parser("list", help="show the components available by name")

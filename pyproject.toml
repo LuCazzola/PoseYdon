@@ -13,7 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "poseydon[render]"]
+# Rendering is optional: training and sampling never need it.
+render = ["matplotlib>=3.8", "imageio>=2.34", "imageio-ffmpeg>=0.5"]
 
 # The test image installs CPU-only torch: it is a fraction of the size of the
 # default CUDA wheel and nothing in the test suite needs a GPU. Real training
