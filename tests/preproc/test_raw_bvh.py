@@ -39,6 +39,17 @@ def test_loads_every_pilot_species_raw_clip():
         assert anim.parents[0] == -1, relative
 
 
+def test_merge_false_keeps_every_original_joint():
+    _skip_if_raw_dump_missing()
+    # BrownBear's root DOES have a mergeable redundant child (48 joints after
+    # merge, per PILOT_RAW_CLIPS) -- with merge=False, the ORIGINAL 49-joint
+    # hierarchy (Hips + Bip01_Pelvis both present) must come through unchanged.
+    anim = load_raw_biped_bvh(RAW_ROOT / "BrownBear/__RiseSwat.bvh", merge=False)
+    assert anim.n_joints == 49
+    assert anim.names[0] == "Hips"
+    assert anim.names[1] == "Bip01_Pelvis"
+
+
 def test_does_not_merge_when_root_has_two_children():
     _skip_if_raw_dump_missing()
     # Scorpion's root (Hips) has two children (Bip01_Neck1, Bip01_Spine), so

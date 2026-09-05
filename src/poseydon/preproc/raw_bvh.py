@@ -83,8 +83,13 @@ def _should_merge(parents: np.ndarray, offsets: np.ndarray) -> bool:
     )
 
 
-def _parse_and_merge(path: str | Path):
+def _parse_and_merge(path: str | Path, merge: bool = True):
     """Hierarchy/motion parse plus the conditional redundant-root merge.
+
+    ``merge=False`` skips the redundant-root merge entirely, preserving
+    every joint the raw file declares -- for callers that want the
+    original Truebones hierarchy kept 1:1 (see
+    :func:`load_raw_biped_bvh`'s ``merge`` parameter).
 
     Returns ``(names, parents, offsets, rotations, positions, fps)`` with
     ``positions`` still carrying every joint's raw per-frame translation --
@@ -112,7 +117,7 @@ def _parse_and_merge(path: str | Path):
         if not any(name in spec for name in _POSITION_CHANNELS):
             positions[:, joint] = offsets[joint]
 
-    if _should_merge(parents, offsets):
+    if merge and _should_merge(parents, offsets):
         names, parents, offsets, rotations, positions = merge_redundant_root(
             names, parents, offsets, rotations, positions
         )
@@ -120,14 +125,18 @@ def _parse_and_merge(path: str | Path):
     return names, parents, offsets, rotations, positions, 1.0 / frame_time
 
 
-def load_raw_biped_bvh(path: str | Path) -> Anim:
+def load_raw_biped_bvh(path: str | Path, merge: bool = True) -> Anim:
     """Read a raw multi-channel Biped BVH export into a valid ``Anim``.
 
-    Merges a redundant zero-offset root when the raw hierarchy has one, then
-    freezes every remaining non-root joint's translation to its declared
-    offset.
+    When ``merge`` (the default), merges a redundant zero-offset root when
+    the raw hierarchy has one. Pass ``merge=False`` to keep every joint the
+    raw file declares, unchanged in count -- for callers that need the
+    original Truebones hierarchy preserved 1:1 rather than cleaned up.
+    Either way, every remaining non-root joint's translation is frozen to
+    its declared offset (that part isn't optional: PoseYdon's ``Anim`` has
+    no field to carry per-joint translation at all).
     """
-    names, parents, offsets, rotations, positions, fps = _parse_and_merge(path)
+    names, parents, offsets, rotations, positions, fps = _parse_and_merge(path, merge=merge)
     root_pos = freeze_non_root_translation(positions)
 
     return Anim(
