@@ -2,7 +2,26 @@ import numpy as np
 import pytest
 
 from poseydon.core.anim import Anim
-from poseydon.io.bvh import BvhParseError, load_bvh
+from poseydon.io.bvh import BvhParseError, _channels_to_arrays, load_bvh
+
+
+def test_channels_to_arrays_returns_positions_for_every_joint():
+    # Two joints: joint 0 (root) has position+rotation channels, joint 1
+    # has position channels too (which _channels_to_local would reject, but
+    # _channels_to_arrays has no opinion about that).
+    channels = [
+        ["Xposition", "Yposition", "Zposition", "Zrotation", "Xrotation", "Yrotation"],
+        ["Xposition", "Yposition", "Zposition", "Zrotation", "Xrotation", "Yrotation"],
+    ]
+    # One frame, 12 values: joint0's 6 channels then joint1's 6 channels.
+    values = np.array([[1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 4.0, 5.0, 6.0, 0.0, 0.0, 0.0]])
+
+    rotations, positions = _channels_to_arrays(values, channels, n_joints=2)
+
+    assert rotations.shape == (1, 2, 4)
+    assert positions.shape == (1, 2, 3)
+    np.testing.assert_allclose(positions[0, 0], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(positions[0, 1], [4.0, 5.0, 6.0])
 
 
 def test_loads_expected_shape(bvh_fixture, fixture_facts):

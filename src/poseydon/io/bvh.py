@@ -122,8 +122,14 @@ def _parse_motion(text: str, n_channels: int) -> tuple[np.ndarray, float]:
     return values.reshape(n_frames, n_channels), frame_time
 
 
-def _channels_to_local(values, channels, n_joints):
-    """Split the motion matrix into per-joint rotations and a root trajectory.
+def _channels_to_arrays(values, channels, n_joints):
+    """Per-joint rotations and positions, straight from the MOTION columns.
+
+    Every joint gets a (F, 3) position slot -- zero-filled if it declared no
+    position channels. No contract enforcement: callers decide what a
+    non-root position column means. Shared by ``_channels_to_local`` (which
+    rejects non-root translation) and ``poseydon.datasets.raw_bvh`` (which
+    doesn't).
 
     Joints are grouped by rotation order and converted in one call per order
     rather than one per joint. A 63-joint skeleton otherwise pays 63 separate
@@ -131,7 +137,7 @@ def _channels_to_local(values, channels, n_joints):
     """
     n_frames = values.shape[0]
     rotations = np.broadcast_to(QUAT_IDENTITY, (n_frames, n_joints, 4)).copy()
-    root_pos = np.zeros((n_frames, 3), dtype=np.float64)
+    positions = np.zeros((n_frames, n_joints, 3), dtype=np.float64)
 
     by_order: dict[str, list[tuple[int, list[int]]]] = {}
     column = 0
@@ -141,14 +147,9 @@ def _channels_to_local(values, channels, n_joints):
         columns = {name: column + offset for offset, name in enumerate(spec)}
         column += len(spec)
 
-        if any(name in columns for name in _POSITION_CHANNELS):
-            if joint != 0:
-                raise BvhParseError(
-                    f"joint {joint} has position channels; only the root may translate"
-                )
-            for axis_index, name in enumerate(_POSITION_CHANNELS):
-                if name in columns:
-                    root_pos[:, axis_index] = values[:, columns[name]]
+        for axis_index, name in enumerate(_POSITION_CHANNELS):
+            if name in columns:
+                positions[:, joint, axis_index] = values[:, columns[name]]
 
         rotation_names = [n for n in spec if n in CHANNEL_AXIS]
         if rotation_names:
@@ -166,7 +167,18 @@ def _channels_to_local(values, channels, n_joints):
             angles.reshape(-1, 3), order
         ).reshape(len(joints), n_frames, 4).transpose(1, 0, 2)
 
-    return rotations, root_pos
+    return rotations, positions
+
+
+def _channels_to_local(values, channels, n_joints):
+    """Per-joint rotations plus a root trajectory. Only the root may translate."""
+    for joint, spec in enumerate(channels):
+        if joint != 0 and any(name in spec for name in _POSITION_CHANNELS):
+            raise BvhParseError(
+                f"joint {joint} has position channels; only the root may translate"
+            )
+    rotations, positions = _channels_to_arrays(values, channels, n_joints)
+    return rotations, positions[:, 0]
 
 
 def load_bvh(path: str | Path) -> Anim:
