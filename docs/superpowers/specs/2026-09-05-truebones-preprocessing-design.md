@@ -281,4 +281,46 @@ The user has flagged two follow-ups this design should not foreclose:
 
 ## 7. Implementation status
 
-Not started. This spec is written to hand off to `writing-plans`.
+Implemented for the 7 pilot species (`poseydon.datasets.raw_bvh`:
+`merge_redundant_root`, `freeze_non_root_translation`,
+`load_raw_biped_bvh`; `scripts/create_truebones_dataset.py`;
+`scripts/validate_truebones_cleanup.py`). Full test suite green; the pilot
+was run end to end against the real raw dump (81 clips ingested into
+`data/truebones/aligned/` + `index.jsonl`).
+
+**Addendum: bind-pose removal.** The pilot's first validation run surfaced
+a real gap this spec did not originally scope: raw Biped BVH files bake a
+large, constant, per-joint rotation into every clip (verified: one joint
+reads the identical ~90 degree rotation across every raw clip of a
+skeleton, regardless of motion -- an artifact of the exporter's axis
+convention, not real animation). `poseydon.datasets.raw_bvh.remove_bind_pose`
+was added to fix this: given a rest-pose reference (a T-pose file when the
+species has one, else the first frame of its alphabetically-first raw
+clip -- `scripts/create_truebones_dataset.py::resolve_rest_anim`, mirroring
+`MotionDataset._rest_frame`'s existing fallback), it re-expresses a clip so
+zero rotation on every joint reproduces that rest pose, recomputing offsets
+from the rest pose's own geometry so global joint positions are unchanged
+at every frame (proven algebraically and verified via tests with synthetic
+hierarchies). A further real-data wrinkle -- some raw T-pose files omit
+entire small sub-chains that action clips still declare (Crab's T-pose
+lacks 10 limb-tip bones, confirmed to read ~identity rotation in every
+clip checked) -- is handled by falling back to a clip's own frame-0
+rotation as that joint's bind, per joint, rather than failing the clip.
+
+This fix is verified correct (it provably preserves global positions,
+confirmed on real data: `ric_pos`/`local_vel`/`foot_contact` in the
+validation report are bit-for-bit unchanged by adding it) and reduced
+`rot6d` divergence against the curated fixtures meaningfully, but not to
+near-zero. The remaining `rot6d` gap (mean ~0.3-0.5, max ~1.8-2.0 across
+species) is attributed to -- and is consistent with -- the already-scoped
+`freeze_non_root_translation` simplification (§3-4): since the `rot6d`
+feature slot for joint *j* stores joint *j*'s PARENT's rotation, discarded
+non-root translation shows up across nearly every non-root slot, while the
+root's own `rot6d` slot (facing-derived, independent of any parent) matches
+the fixture exactly. This is not a new problem -- it is the §5 rigid-bone
+tradeoff already reviewed and accepted, now with a concrete measurement
+attached. Revisiting it (relaxing the fixed-bone-length assumption) remains
+future work, not a blocker for this pilot.
+
+Deferred, per §2: manifest auto-generation and raw FBX support for the
+remaining ~66 species.
