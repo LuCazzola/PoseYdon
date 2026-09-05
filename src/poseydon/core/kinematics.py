@@ -31,43 +31,50 @@ def check_topological_order(parents: np.ndarray) -> None:
 
 def forward_kinematics(
     rotations: np.ndarray,
-    root_pos: np.ndarray,
-    offsets: np.ndarray,
+    translations: np.ndarray,
     parents: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Local rotations to global joint positions and rotations.
+    """Local rotations and translations to global joint positions and rotations.
+
+    Each joint's ``(rotation, translation)`` pair is read as its own local
+    transform, which is the general case: a joint that translates is
+    carried correctly rather than being pinned to a fixed bone length.
+    Rigid motion is the special case where ``translations`` repeats each
+    joint's rest offset on every frame -- the same sweep then computes
+    exactly the rigid result, so there is one definition of forward
+    kinematics rather than a rigid one and a raw one.
 
     Args:
-        rotations: ``(F, J, 4)`` local rotations, scalar-last quaternions.
-        root_pos:  ``(F, 3)`` global translation of joint 0.
-        offsets:   ``(J, 3)`` rest-pose offset of each joint from its parent.
-        parents:   ``(J,)`` parent index per joint, ``-1`` for the root.
+        rotations:    ``(F, J, 4)`` local rotations, scalar-last quaternions.
+        translations: ``(F, J, 3)`` local translation of each joint from its
+            parent. Joint 0 has no parent, so its entry is the root's GLOBAL
+            position.
+        parents:      ``(J,)`` parent index per joint, ``-1`` for the root.
 
     Returns:
         ``(positions (F, J, 3), global_rotations (F, J, 4))``.
     """
     rotations = np.asarray(rotations, dtype=np.float64)
-    root_pos = np.asarray(root_pos, dtype=np.float64)
-    offsets = np.asarray(offsets, dtype=np.float64)
+    translations = np.asarray(translations, dtype=np.float64)
     parents = np.asarray(parents, dtype=np.int32)
 
     check_topological_order(parents)
     n_frames, n_joints = rotations.shape[:2]
-    if offsets.shape != (n_joints, 3):
-        raise ValueError(f"offsets must be ({n_joints}, 3), got {offsets.shape}")
-    if root_pos.shape != (n_frames, 3):
-        raise ValueError(f"root_pos must be ({n_frames}, 3), got {root_pos.shape}")
+    if translations.shape != (n_frames, n_joints, 3):
+        raise ValueError(
+            f"translations must be ({n_frames}, {n_joints}, 3), got {translations.shape}"
+        )
 
     positions = np.empty((n_frames, n_joints, 3), dtype=np.float64)
     global_rot = np.empty((n_frames, n_joints, 4), dtype=np.float64)
 
-    positions[:, 0] = root_pos
+    positions[:, 0] = translations[:, 0]
     global_rot[:, 0] = rotations[:, 0]
 
     for joint in range(1, n_joints):
         parent = parents[joint]
         positions[:, joint] = positions[:, parent] + quat_apply(
-            global_rot[:, parent], offsets[joint]
+            global_rot[:, parent], translations[:, joint]
         )
         global_rot[:, joint] = quat_mul(global_rot[:, parent], rotations[:, joint])
 

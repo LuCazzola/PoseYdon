@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY, matrix_to_quat, quat_apply, rot6d_to_matrix
 from poseydon.core.spec import FeatureSpec
 
@@ -115,9 +115,9 @@ def positions_from_features(
 
 
 def features_to_anim(
-    features: np.ndarray, spec: FeatureSpec, template: Anim
-) -> Anim:
-    """Rebuild an :class:`Anim` from a feature tensor.
+    features: np.ndarray, spec: FeatureSpec, template: RigidBodyAnimation
+) -> RigidBodyAnimation:
+    """Rebuild an :class:`RigidBodyAnimation` from a feature tensor.
 
     ``template`` supplies what the representation deliberately does not carry:
     the skeleton itself -- parents, offsets, joint names and frame rate.
@@ -139,7 +139,7 @@ def features_to_anim(
     )
     root_pos = root_trajectory(features, spec, facing)
 
-    return Anim(
+    return RigidBodyAnimation.from_root_motion(
         rotations=rotations,
         root_pos=root_pos,
         offsets=template.offsets,

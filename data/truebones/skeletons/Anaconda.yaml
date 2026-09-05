@@ -1,0 +1,34 @@
+base: _base.yaml
+skeleton: Anaconda
+facing:
+  hips:      {right: BN_Tail_13, left: BN_Tone_04}
+  shoulders: {right: BN_Tail_13, left: BN_Tone_04}
+foot_joints:
+  - Hips
+  - BN_Tail_01
+  - BN_Tail_02
+  - BN_Tail_03
+  - BN_Tail_04
+  - BN_Tail_05
+  - BN_Tail_06
+  - BN_Tail_07
+  - BN_Tail_08
+  - BN_Tail_09
+  - BN_Tail_10
+  - BN_Tail_11
+  - BN_Tail_12
+  - BN_Tail_13
+  - BN_Spline_01
+  - BN_Spline_02
+  - BN_Spline_03
+  - BN_Spline_04
+  - BN_Spline_05
+  - BN_Spline_06
+  - BN_Neck
+  - BN_Head
+  - BN_Jaw
+  - BN_Tone_01
+  - BN_Tone_02
+  - BN_Tone_03
+  - BN_Tone_04
+tags: [snake]

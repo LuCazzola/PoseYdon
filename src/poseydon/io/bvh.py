@@ -1,4 +1,15 @@
-"""BVH reading.
+"""BVH reading and writing.
+
+One class, :class:`BVH`, holds a parsed file and converts both ways:
+``BVH.read`` -> :class:`~poseydon.core.animation.Animation`, and
+``BVH.from_animation`` -> a file.
+
+Reading is LOSSLESS and total. BVH permits position channels on any joint,
+not just the root, and exporters use them -- so the parser records whatever
+the file declares instead of rejecting it. PoseYdon's rigid-bone assumption
+is a property of ``RigidBodyAnimation``, applied by an explicit
+:meth:`~poseydon.core.animation.Animation.as_rigid_body` call at the point
+a caller actually needs it, not a rule the parser enforces.
 
 End Sites are treated as ordinary joints with an offset, a name and no channels.
 The Truebones files carry their names in a nonstandard ``#name:`` comment; where
@@ -11,11 +22,12 @@ which is where a naive parser spends nearly all its time.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from poseydon.core.anim import Anim
+from poseydon.core.animation import Animation
 from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_to_euler
 
 CHANNEL_AXIS = {
@@ -128,7 +140,7 @@ def _channels_to_arrays(values, channels, n_joints):
     Every joint gets a (F, 3) position slot -- zero-filled if it declared no
     position channels. No contract enforcement: callers decide what a
     non-root position column means. Shared by ``_channels_to_local`` (which
-    rejects non-root translation) and ``poseydon.preproc.raw_bvh`` (which
+    rejects non-root translation) and ``poseydon.preproc.sanitize_bvh`` (which
     doesn't).
 
     Joints are grouped by rotation order and converted in one call per order
@@ -170,40 +182,139 @@ def _channels_to_arrays(values, channels, n_joints):
     return rotations, positions
 
 
-def _channels_to_local(values, channels, n_joints):
-    """Per-joint rotations plus a root trajectory. Only the root may translate."""
-    for joint, spec in enumerate(channels):
-        if joint != 0 and any(name in spec for name in _POSITION_CHANNELS):
-            raise BvhParseError(
-                f"joint {joint} has position channels; only the root may translate"
-            )
-    rotations, positions = _channels_to_arrays(values, channels, n_joints)
-    return rotations, positions[:, 0]
+@dataclass(frozen=True)
+class BVH:
+    """A parsed BVH file: exactly what the file declares, nothing dropped.
 
+    ``translations`` carries every joint's per-frame position channels. A
+    joint that declares none gets its own ``OFFSET`` repeated instead of
+    zeros -- zeros would read as "coincident with my parent" once the pair
+    is interpreted as a local transform, and it also makes the rigid case
+    fall out of the general one exactly (see
+    :func:`poseydon.core.kinematics.forward_kinematics`).
+    """
 
-def load_bvh(path: str | Path) -> Anim:
-    """Read a BVH file into an :class:`Anim`. End Sites become joints."""
-    text = Path(path).read_text()
-    head, marker, motion = text.partition("MOTION")
-    if not marker:
-        raise BvhParseError(f"{path}: no MOTION block found")
+    names: tuple[str, ...]
+    parents: np.ndarray
+    offsets: np.ndarray
+    rotations: np.ndarray
+    translations: np.ndarray
+    channels: tuple[tuple[str, ...], ...]
+    fps: float
 
-    names, parents, offsets, channels = _parse_hierarchy(head)
-    n_channels = sum(len(spec) for spec in channels)
-    values, frame_time = _parse_motion(motion, n_channels)
-    rotations, root_pos = _channels_to_local(values, channels, len(names))
+    @classmethod
+    def read(cls, path: str | Path) -> BVH:
+        """Parse a BVH file. Never rejects a legal file."""
+        text = Path(path).read_text()
+        head, marker, motion = text.partition("MOTION")
+        if not marker:
+            raise BvhParseError(f"{path}: no MOTION block found")
 
-    if frame_time <= 0.0:
-        raise BvhParseError(f"{path}: non-positive Frame Time {frame_time}")
+        names, parents, offsets, channels = _parse_hierarchy(head)
+        n_channels = sum(len(spec) for spec in channels)
+        values, frame_time = _parse_motion(motion, n_channels)
+        if frame_time <= 0.0:
+            raise BvhParseError(f"{path}: non-positive Frame Time {frame_time}")
+        rotations, translations = _channels_to_arrays(values, channels, len(names))
 
-    return Anim(
-        rotations=rotations,
-        root_pos=root_pos,
-        offsets=offsets,
-        parents=parents,
-        names=names,
-        fps=1.0 / frame_time,
-    )
+        for joint, spec in enumerate(channels):
+            if not any(name in spec for name in _POSITION_CHANNELS):
+                translations[:, joint] = offsets[joint]
+
+        return cls(
+            names=names,
+            parents=parents,
+            offsets=offsets,
+            rotations=rotations,
+            translations=translations,
+            channels=tuple(tuple(spec) for spec in channels),
+            fps=1.0 / frame_time,
+        )
+
+    def to_animation(self) -> Animation:
+        """The parsed file as an :class:`Animation`, still lossless.
+
+        Call ``.as_rigid_body()`` on the result to impose the rigid-bone
+        assumption and choose what happens to per-joint translation.
+        """
+        return Animation(
+            rotations=self.rotations,
+            translations=self.translations,
+            offsets=self.offsets,
+            parents=self.parents,
+            names=self.names,
+            fps=self.fps,
+        )
+
+    @classmethod
+    def from_animation(cls, animation: Animation) -> BVH:
+        """Prepare an animation for writing.
+
+        Joints are given position channels only where they actually
+        translate, so a rigid animation writes the ordinary
+        ``6 channels on the root, 3 elsewhere`` layout.
+        """
+        moves = ~np.all(
+            np.isclose(animation.translations, animation.offsets[np.newaxis], atol=1e-9),
+            axis=(0, 2),
+        )
+        children = _children_of(animation.parents)
+        channels = []
+        for joint in range(animation.n_joints):
+            if not children[joint]:
+                channels.append(())
+            elif joint == 0 or moves[joint]:
+                channels.append((*_POSITION_CHANNELS, "Zrotation", "Xrotation", "Yrotation"))
+            else:
+                channels.append(("Zrotation", "Xrotation", "Yrotation"))
+
+        return cls(
+            names=animation.names,
+            parents=animation.parents,
+            offsets=animation.offsets,
+            rotations=animation.rotations,
+            translations=animation.translations,
+            channels=tuple(channels),
+            fps=animation.fps,
+        )
+
+    def write(self, path: str | Path, order: str = "ZYX") -> None:
+        """Write to a BVH file.
+
+        Leaf joints become ``End Site`` entries carrying their name in the
+        same ``#name:`` comment :meth:`read` understands, so a round trip
+        preserves joint count and naming.
+        """
+        children = _children_of(self.parents)
+
+        lines: list[str] = ["HIERARCHY"]
+        _write_joint(lines, self, children, 0, 0, order)
+
+        lines.append("MOTION")
+        lines.append(f"Frames: {self.rotations.shape[0]}")
+        # 10 decimals, not the conventional 6: BVH stores the frame TIME, so a
+        # round rate becomes a repeating decimal (30 fps -> 0.0333...) and 6
+        # decimals reads back as 30.0003 -- enough to fail an fps check against
+        # a manifest. 10 keeps the round trip within 3e-8 fps.
+        lines.append(f"Frame Time: {1.0 / self.fps:.10f}")
+
+        jointed = [j for j in range(len(self.names)) if children[j]]
+        angles = quat_to_euler(self.rotations[:, jointed], order)
+        translating = [j for j in jointed if self._has_position(j)]
+
+        for frame in range(self.rotations.shape[0]):
+            row: list[str] = []
+            positions = {j: self.translations[frame, j] for j in translating}
+            for index, joint in enumerate(jointed):
+                if joint in positions:
+                    row.extend(f"{value:.6f}" for value in positions[joint])
+                row.extend(f"{value:.6f}" for value in angles[frame, index])
+            lines.append(" ".join(row))
+
+        Path(path).write_text("\n".join(lines) + "\n")
+
+    def _has_position(self, joint: int) -> bool:
+        return any(name in self.channels[joint] for name in _POSITION_CHANNELS)
 
 
 def _children_of(parents: np.ndarray) -> list[list[int]]:
@@ -213,57 +324,30 @@ def _children_of(parents: np.ndarray) -> list[list[int]]:
     return children
 
 
-def _write_joint(lines, anim, children, joint, depth, order) -> None:
+def _write_joint(lines, bvh, children, joint, depth, order) -> None:
     pad = "\t" * depth
     is_end_site = not children[joint]
 
     if is_end_site:
-        lines.append(f"{pad}End Site #name: {anim.names[joint]}")
+        lines.append(f"{pad}End Site #name: {bvh.names[joint]}")
     elif joint == 0:
-        lines.append(f"{pad}ROOT {anim.names[joint]}")
+        lines.append(f"{pad}ROOT {bvh.names[joint]}")
     else:
-        lines.append(f"{pad}JOINT {anim.names[joint]}")
+        lines.append(f"{pad}JOINT {bvh.names[joint]}")
 
     lines.append(f"{pad}{{")
-    ox, oy, oz = anim.offsets[joint]
+    ox, oy, oz = bvh.offsets[joint]
     lines.append(f"{pad}\tOFFSET {ox:.6f} {oy:.6f} {oz:.6f}")
 
     if not is_end_site:
         channel_names = " ".join(f"{axis}rotation" for axis in order)
-        if joint == 0:
+        if bvh._has_position(joint):
             lines.append(
                 f"{pad}\tCHANNELS 6 Xposition Yposition Zposition {channel_names}"
             )
         else:
             lines.append(f"{pad}\tCHANNELS 3 {channel_names}")
         for child in children[joint]:
-            _write_joint(lines, anim, children, child, depth + 1, order)
+            _write_joint(lines, bvh, children, child, depth + 1, order)
 
     lines.append(f"{pad}}}")
-
-
-def save_bvh(anim: Anim, path: str | Path, order: str = "ZYX") -> None:
-    """Write an :class:`Anim` to a BVH file.
-
-    Leaf joints are written as ``End Site`` entries carrying their name in the
-    same ``#name:`` comment the reader understands, so a round trip preserves
-    joint count and naming.
-    """
-    children = _children_of(anim.parents)
-
-    lines: list[str] = ["HIERARCHY"]
-    _write_joint(lines, anim, children, 0, 0, order)
-
-    lines.append("MOTION")
-    lines.append(f"Frames: {anim.n_frames}")
-    lines.append(f"Frame Time: {1.0 / anim.fps:.6f}")
-
-    jointed = [j for j in range(anim.n_joints) if children[j]]
-    angles = quat_to_euler(anim.rotations[:, jointed], order)
-
-    for frame in range(anim.n_frames):
-        row = [f"{value:.6f}" for value in anim.root_pos[frame]]
-        row.extend(f"{value:.6f}" for value in angles[frame].reshape(-1))
-        lines.append(" ".join(row))
-
-    Path(path).write_text("\n".join(lines) + "\n")

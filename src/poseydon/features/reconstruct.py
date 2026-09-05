@@ -31,24 +31,24 @@ from typing import ClassVar
 
 import numpy as np
 
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.registry import Registry
 from poseydon.core.spec import FeatureSpec
 from poseydon.features.recover import features_to_anim, positions_from_features
 
 
 class Reconstructor(ABC):
-    """Features plus a skeleton to joint positions, and where possible an Anim."""
+    """Features plus a skeleton to joint positions, and where possible an RigidBodyAnimation."""
 
     name: ClassVar[str]
     #: Whether this path can produce rotations, and therefore a BVH.
     produces_rotations: ClassVar[bool] = True
 
     @abstractmethod
-    def positions(self, features: np.ndarray, spec: FeatureSpec, template: Anim) -> np.ndarray:
+    def positions(self, features: np.ndarray, spec: FeatureSpec, template: RigidBodyAnimation) -> np.ndarray:
         """``(F, J, 3)`` global joint positions."""
 
-    def anim(self, features: np.ndarray, spec: FeatureSpec, template: Anim) -> Anim:
+    def anim(self, features: np.ndarray, spec: FeatureSpec, template: RigidBodyAnimation) -> RigidBodyAnimation:
         raise NotImplementedError(
             f"`{self.name}` does not produce rotations, so it cannot be written as BVH. "
             "Use `fk` or `positions_ik` if you need one."
@@ -67,7 +67,7 @@ class ForwardKinematics(Reconstructor):
     def positions(self, features, spec, template) -> np.ndarray:
         return self.anim(features, spec, template).global_positions()
 
-    def anim(self, features, spec, template) -> Anim:
+    def anim(self, features, spec, template) -> RigidBodyAnimation:
         return features_to_anim(features, spec, template)
 
 
@@ -125,9 +125,9 @@ class SolvedPositions(Reconstructor):
     def positions(self, features, spec, template) -> np.ndarray:
         return self._solve(features, spec, template)[1]
 
-    def anim(self, features, spec, template) -> Anim:
+    def anim(self, features, spec, template) -> RigidBodyAnimation:
         quaternions, _, root = self._solve(features, spec, template)
-        return Anim(
+        return RigidBodyAnimation.from_root_motion(
             rotations=quaternions,
             root_pos=root.astype(np.float64),
             offsets=template.offsets,
@@ -138,9 +138,9 @@ class SolvedPositions(Reconstructor):
 
 
 def reconstruct(
-    name: str, features: np.ndarray, spec: FeatureSpec, template: Anim, **kwargs
-) -> tuple[np.ndarray, Anim | None]:
-    """Reconstruct by name, returning positions and an Anim where one exists."""
+    name: str, features: np.ndarray, spec: FeatureSpec, template: RigidBodyAnimation, **kwargs
+) -> tuple[np.ndarray, RigidBodyAnimation | None]:
+    """Reconstruct by name, returning positions and an RigidBodyAnimation where one exists."""
     reconstructor = RECONSTRUCTORS.get(name)(**kwargs)
     positions = reconstructor.positions(features, spec, template)
     anim = reconstructor.anim(features, spec, template) if reconstructor.produces_rotations else None

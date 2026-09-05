@@ -1,16 +1,8 @@
+base: _base.yaml
 skeleton: Skunk
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
-  extra_yaw_deg: 0
-fps: null
-scale: {mean_bone_length: 0.20921428571428569}
-contact:
-  max_height: 0.30      # normalized length above the ground plane
-  max_speed: 0.044721359549995794   # normalized length per frame; sqrt of the
-                        # reference's 0.002, which it compares against a
-                        # SQUARED displacement. Must stay exact: rounding
-                        # flips borderline contact frames.
 foot_joints:
   - Bip01_R_Foot
   - Bip01_R_Toe0

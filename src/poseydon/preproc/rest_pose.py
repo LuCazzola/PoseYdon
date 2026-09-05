@@ -12,16 +12,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import torch
 
-from poseydon.core.anim import Anim
-from poseydon.core.kinematics import forward_kinematics
-from poseydon.core.rotations import matrix_to_quat, quat_apply, quat_inverse, quat_mul
-from poseydon.preproc.raw_bvh import _parse_and_merge
-from poseydon.solvers import IK_TERMS, GradientIK, SolverSkeleton
+from poseydon.core.animation import Animation, RigidBodyAnimation
+from poseydon.core.rotations import quat_apply, quat_inverse, quat_mul
+from poseydon.io.bvh import BVH
 
 
-def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
+def make_anim_rest_relative(
+    anim: Animation, rest_anim: Animation
+) -> Animation:
     """Re-express ``anim`` so zero rotation on every joint reproduces the rest pose.
 
     Ports the reference's ``compute_rots_from_tpos``, verified term-by-term
@@ -30,8 +29,27 @@ def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
     cover every joint ``anim`` does. A joint missing from ``rest_anim``
     falls back to ``anim``'s own frame-0 rotation as its bind (exact for a
     childless End Site, an approximation elsewhere).
+
+    The returned rotations read as identity, for every joint, exactly when
+    a frame equals the rest pose (proof: this function's own rotations are
+    ``old_global[j] composed with the inverse of joint j's GLOBAL rest
+    rotation``, which is identity when ``old_global == rest_global``).
+    Offsets must therefore be plain WORLD-SPACE differences of the rest
+    pose's own global positions, not offsets rotated into any joint's
+    local frame (as ``rest_anim.offsets`` -- built by
+    :func:`establish_rest_pose` to pair correctly with the T-pose file's
+    OWN, generally non-identity rotations, for alignment purposes -- is):
+    identity rotation applied to a world-space offset reproduces that
+    offset unchanged, which is exactly what makes FK using these new
+    rotations self-consistent at the rest frame. Reusing
+    ``rest_anim.offsets`` directly instead (an earlier version of this
+    function did) paired identity rotations with parent-local offsets --
+    a coordinate-frame mismatch invisible at the rest frame (both give the
+    same trivial result there) but visibly wrong everywhere else,
+    confirmed by rendering.
     """
     rest_index = {name: i for i, name in enumerate(rest_anim.names)}
+    rest_global_pos = rest_anim.global_positions()
 
     # `local_bind[j]` is joint j's own LOCAL rest rotation. `bind[j]` is the
     # GLOBAL rest rotation -- needed for the PARENT side of the formula
@@ -51,8 +69,11 @@ def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
 
     new_offsets = anim.offsets.copy()
     for joint, name in enumerate(anim.names):
-        if name in rest_index:
-            new_offsets[joint] = rest_anim.offsets[rest_index[name]]
+        if joint == 0 or name not in rest_index:
+            continue
+        rest_i = rest_index[name]
+        rest_parent_i = rest_anim.parents[rest_i]
+        new_offsets[joint] = rest_global_pos[0, rest_i] - rest_global_pos[0, rest_parent_i]
     new_rotations = anim.rotations.copy()
 
     new_rotations[:, 0] = quat_mul(anim.rotations[:, 0], quat_inverse(local_bind[0]))
@@ -62,17 +83,31 @@ def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
 
         # Sandwiched between its own LOCAL bind (undone) and its parent's
         # GLOBAL bind (removed, then reapplied) -- the reference's
-        # compute_rots_from_tpos. Offsets are untouched: they stay the
-        # skeleton-level constant from the rest pose, reused for every
-        # frame and every clip.
+        # compute_rots_from_tpos. The world-space offsets computed above
+        # are the skeleton-level constant this pairs with, reused for
+        # every frame and every clip.
         new_rotations[:, joint] = quat_mul(
             quat_mul(quat_mul(parent_bind, anim.rotations[:, joint]), quat_inverse(local_bind[joint])),
             quat_inverse(parent_bind),
         )
 
-    return Anim(
+    # Per-joint translation is expressed in the PARENT's local frame, and this
+    # function has just turned every local frame by that joint's bind rotation
+    # -- so a translation has to be carried into the new frame with it. The
+    # rigid case is the special case: a joint whose translation is a constant
+    # `offsets[j]` gets `B_parent . offsets[j]`, which is exactly the
+    # world-space rest delta stored in `new_offsets` above.
+    new_translations = anim.translations.copy()
+    for joint in range(1, anim.n_joints):
+        new_translations[:, joint] = quat_apply(
+            bind[anim.parents[joint]], anim.translations[:, joint]
+        )
+
+    # The base type, not RigidBodyAnimation: a clip that genuinely translates
+    # stays non-rigid, and pinning it here would silently discard the motion.
+    return Animation(
         rotations=new_rotations,
-        root_pos=anim.root_pos,
+        translations=new_translations,
         offsets=new_offsets,
         parents=anim.parents,
         names=anim.names,
@@ -80,84 +115,25 @@ def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
     )
 
 
-def recover_raw_global_pose(
-    rotations: np.ndarray,
-    positions: np.ndarray,
-    parents: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Global positions/rotations treating every joint's raw (rotation,
-    position) pair as its own local transform.
-
-    This is how a raw Biped export's per-joint position channel has to be
-    read to recover a T-pose file's TRUE joint positions: PoseYdon's own
-    rigid-bone-length FK (``poseydon.core.kinematics.forward_kinematics``)
-    assumes only the root translates, which is exactly the assumption a raw
-    T-pose file violates.
+def establish_rest_pose(path: str | Path) -> RigidBodyAnimation:
     """
-    n_frames, n_joints = rotations.shape[:2]
-    global_pos = np.empty((n_frames, n_joints, 3))
-    global_rot = np.empty((n_frames, n_joints, 4))
-    global_pos[:, 0] = positions[:, 0]
-    global_rot[:, 0] = rotations[:, 0]
-    for joint in range(1, n_joints):
-        parent = parents[joint]
-        global_pos[:, joint] = global_pos[:, parent] + quat_apply(
-            global_rot[:, parent], positions[:, joint]
-        )
-        global_rot[:, joint] = quat_mul(global_rot[:, parent], rotations[:, joint])
-    return global_pos, global_rot
-
-
-def establish_rest_pose(path: str | Path, iterations: int = 1000) -> Anim:
-    """Recover a raw T-pose file's true geometry and fit clean rotations to it.
-
-    Raw per-joint translation genuinely carries geometric information for
-    these files (see :func:`recover_raw_global_pose`'s docstring) -- simply
-    parsing the declared rotation channels, as
-    ``poseydon.preproc.raw_bvh.load_raw_biped_bvh`` does for ordinary clips,
-    would use the wrong (arbitrarily rotated) offsets for a REST pose
-    specifically. This recovers frame 0's TRUE global positions using both
-    raw channels together, then fits PoseYdon's rotation-only,
-    rigid-bone-length representation to those positions using
-    ``poseydon.solvers.gradient_ik.GradientIK`` with the registered
-    "position" ``IKTerm``, holding the raw (structurally merged) offsets
-    fixed. Final offsets are the fitted pose's own bone vectors -- same
-    LENGTH as the raw declared offset (rotation cannot change that), only
-    the DIRECTION is corrected; see this function's use in the
-    implementation plan (Task 5) for why that's the real scope of what this
-    buys.
+    Recover a raw T-pose file's true bone geometry, keeping its own declared rotations.
     """
-    names, parents, offsets, rotations, positions, fps = _parse_and_merge(path)
-    global_pos, _ = recover_raw_global_pose(rotations[:1], positions[:1], parents)
+    raw = BVH.read(path).to_animation().slice(0, 1)
+    global_pos, global_rot = raw.global_transforms()
 
-    skeleton = SolverSkeleton(
-        parents=torch.from_numpy(parents.astype(np.int64)),
-        offsets=torch.from_numpy(offsets).float(),
-    )
-    targets = torch.from_numpy(global_pos).float()
-    solver = GradientIK(terms=[(1.0, IK_TERMS.get("position")())], iterations=iterations)
-    fitted_matrices = solver.solve(targets, skeleton)
-    fitted_rotations = matrix_to_quat(fitted_matrices.numpy())
-
-    fitted_positions, fitted_global_rot = forward_kinematics(
-        fitted_rotations, global_pos[:, 0], offsets, parents
-    )
-
-    # FK expects an offset expressed in the PARENT's own local frame, not a
-    # bare world-space displacement, so this un-rotates by the parent's
-    # global rotation rather than subtracting positions directly.
-    final_offsets = np.zeros_like(offsets)
-    parent_of = parents[1:]
+    final_offsets = np.zeros_like(raw.offsets)
+    parent_of = raw.parents[1:]
     final_offsets[1:] = quat_apply(
-        quat_inverse(fitted_global_rot[0, parent_of]),
-        fitted_positions[0, 1:] - fitted_positions[0, parent_of],
+        quat_inverse(global_rot[0, parent_of]),
+        global_pos[0, 1:] - global_pos[0, parent_of],
     )
 
-    return Anim(
-        rotations=fitted_rotations,
+    return RigidBodyAnimation.from_root_motion(
+        rotations=raw.rotations,
         root_pos=global_pos[:, 0],
         offsets=final_offsets,
-        parents=parents,
-        names=names,
-        fps=fps,
+        parents=raw.parents,
+        names=raw.names,
+        fps=raw.fps,
     )

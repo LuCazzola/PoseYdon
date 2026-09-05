@@ -1,6 +1,6 @@
 """Feature extractors.
 
-A feature is a pure function of an aligned :class:`Anim` producing one named
+A feature is a pure function of an aligned :class:`RigidBodyAnimation` producing one named
 block of the per-joint feature vector. Extractors are registry-named so a config
 can say ``features: [rot6d, local_vel]`` rather than spelling out import paths.
 
@@ -16,7 +16,7 @@ from typing import ClassVar
 
 import numpy as np
 
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.registry import Registry
 from poseydon.core.skeleton import ResolvedSkeleton
 from poseydon.ingest.align import facing_quats
@@ -31,13 +31,13 @@ class FeatureContext:
     part of extraction.
     """
 
-    anim: Anim
+    anim: RigidBodyAnimation
     resolved: ResolvedSkeleton
     positions: np.ndarray  # (F, J, 3) global joint positions
     root_quats: np.ndarray  # (F, 4) per-frame rotation taking forward onto +Z
 
     @classmethod
-    def build(cls, anim: Anim, resolved: ResolvedSkeleton) -> FeatureContext:
+    def build(cls, anim: RigidBodyAnimation, resolved: ResolvedSkeleton) -> FeatureContext:
         positions = anim.global_positions()
         return cls(
             anim=anim,

@@ -1,12 +1,13 @@
-"""BVH corpus to aligned Anim files plus a corpus index."""
+"""BVH corpus to aligned RigidBodyAnimation files plus a corpus index."""
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
 from poseydon.ingest.align import AlignmentParams, align, compute_alignment_params
 from poseydon.ingest.index import (
@@ -17,7 +18,7 @@ from poseydon.ingest.index import (
     clip_id,
     strip_skeleton_prefix,
 )
-from poseydon.io.bvh import load_bvh
+from poseydon.io.bvh import BVH
 
 ALIGNED_DIRNAME = "aligned"
 
@@ -69,7 +70,7 @@ class IngestResult:
 
 def skeleton_alignment_params(
     manifest: SkeletonManifest,
-    fallback: Anim,
+    fallback: RigidBodyAnimation,
     resolved: ResolvedSkeleton,
 ) -> AlignmentParams:
     """Alignment constants for a skeleton, from its T-pose where one is named.
@@ -79,7 +80,7 @@ def skeleton_alignment_params(
     which clip happened to come first, so a manifest should name a T-pose.
     """
     if manifest.tpose is not None and manifest.tpose.is_file():
-        reference = load_bvh(manifest.tpose)
+        reference = BVH.read(manifest.tpose).to_animation().as_rigid_body(joint_translation="drop")
         resolved = resolve(manifest, reference.names)
     else:
         reference = fallback
@@ -93,7 +94,7 @@ def ingest_clip(
     split: str = "train",
     params: AlignmentParams | None = None,
 ) -> ClipRecord:
-    """Align one BVH and write one full-length Anim. Never chunks.
+    """Align one BVH and write one full-length RigidBodyAnimation. Never chunks.
 
     ``params`` are the skeleton-level constants; when omitted they are derived
     from this clip, which is correct only for a single-clip ingest.
@@ -101,9 +102,16 @@ def ingest_clip(
     bvh_path = Path(bvh_path)
     out_dir = Path(out_dir)
 
-    anim = load_bvh(bvh_path)
+    # Training is where bones must be rigid -- features, the IK solver and the
+    # models all assume constant bone lengths -- so the corpus keeps per-joint
+    # translation and it is dropped here, explicitly, at that boundary.
+    anim = BVH.read(bvh_path).to_animation().as_rigid_body(joint_translation="drop")
 
-    if manifest.fps is not None and abs(manifest.fps - anim.fps) > 1e-6:
+    # Relative, not absolute: BVH stores a frame TIME, so a round rate is a
+    # rounded repeating decimal on disk. Truebones writes 0.033333, which reads
+    # back as 30.00003 fps -- a real 30 fps file that an exact check rejects.
+    # 1e-3 accepts that rounding while still separating 30 from 24 or 25.
+    if manifest.fps is not None and not math.isclose(manifest.fps, anim.fps, rel_tol=1e-3):
         raise ValueError(
             f"{bvh_path.name}: manifest requests {manifest.fps} fps but the source "
             f"is {anim.fps:.4f} fps, and resampling is not implemented. Set "
@@ -156,7 +164,7 @@ def ingest_corpus(
                 cache[skeleton] = SkeletonManifest.load(manifest_dir / f"{skeleton}.yaml")
             manifest = cache[skeleton]
             if skeleton not in params_cache:
-                first = load_bvh(path)
+                first = BVH.read(path).to_animation().as_rigid_body(joint_translation="drop")
                 params_cache[skeleton] = skeleton_alignment_params(
                     manifest, first, resolve(manifest, first.names)
                 )

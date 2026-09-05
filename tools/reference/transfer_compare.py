@@ -26,7 +26,7 @@ from run_reference_transfer import (
 from poseydon.core.batch import Cond, Masks
 from poseydon.core.spec import FeatureSpec
 from poseydon.features import extract_features, features_to_anim
-from poseydon.io.bvh import load_bvh, save_bvh
+from poseydon.io.bvh import BVH
 from poseydon.models.modiffae import JOINT_NAMES, TEMPORAL_VALID, Z_SEM, MoDiffAE
 
 SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_contact", 1)))
@@ -191,8 +191,8 @@ def main() -> int:
         print(f"  {name:14s} max diff {diff[..., block].max():.3e}")
 
     # ---- export ----
-    template = load_bvh(ASSETS / f"{STEMS[args.target]}.bvh")
-    source_anim = load_bvh(ASSETS / f"{STEMS[args.source]}.bvh")
+    template = BVH.read(ASSETS / f"{STEMS[args.target]}.bvh").to_animation().as_rigid_body()
+    source_anim = BVH.read(ASSETS / f"{STEMS[args.source]}.bvh").to_animation().as_rigid_body()
     target_face = _face_joints(args.target, template)
     source_face = _face_joints(args.source, source_anim)
     mean, std = target["mean"][None], target["std"][None] + 1e-6
@@ -203,7 +203,7 @@ def main() -> int:
         np.save(out_dir / f"{label}_{args.source}_to_{args.target}.npy", raw_feats)
         anim = features_to_anim(raw_feats, SPEC, template)
         bvh = out_dir / f"{label}_{args.source}_to_{args.target}.bvh"
-        save_bvh(anim, bvh)
+        BVH.from_animation(anim).write(bvh)
         render(
             out_dir / f"{label}_{args.source}_to_{args.target}.mp4",
             template.parents, anim.global_positions(), round(template.fps),
@@ -214,7 +214,7 @@ def main() -> int:
     # Source clip, for visual reference.
     src_feats, _ = extract_features(source_anim, _resolved(args.source, source_anim))
     src_anim = features_to_anim(src_feats[: args.frames], SPEC, source_anim)
-    save_bvh(src_anim, out_dir / f"source_{args.source}.bvh")
+    BVH.from_animation(src_anim).write(out_dir / f"source_{args.source}.bvh")
     render(
         out_dir / f"source_{args.source}.mp4", source_anim.parents,
         src_anim.global_positions(), round(source_anim.fps), f"source: {args.source}",

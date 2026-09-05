@@ -1,0 +1,16 @@
+# Blender, headless, for FBX preprocessing.
+#
+# A third image alongside `test` and `compat`, for the same reason `compat`
+# exists: it needs a dependency the main image cannot carry. Blender's Python
+# API is the only mature FBX reader available here -- and `pip install bpy` is
+# not an option on arm64, which has no bpy wheels on PyPI, so this uses the
+# distro Blender driven with `blender --background --python`.
+FROM debian:bookworm-slim
+
+# Blender links against the system Python, so manifest parsing needs the
+# distro's PyYAML rather than a pip install into a bundled interpreter.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      blender python3-yaml \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app

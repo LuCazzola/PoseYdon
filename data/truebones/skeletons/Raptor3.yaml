@@ -1,0 +1,21 @@
+base: _base.yaml
+skeleton: Raptor3
+facing:
+  hips:      {right: jt_Thigh_R, left: jt_Thigh_L}
+  shoulders: {right: jt_Shoulder_R, left: jt_Shoulder_L}
+foot_joints:
+  - jt_Foot_L
+  - jt_ToeMiddle_L
+  - jt_ClawMiddle_L
+  - jt_ToeInner_L
+  - jt_ClawInner_L
+  - jt_ToeOutter_L
+  - jt_ClawOutter_L
+  - jt_Foot_R
+  - jt_ToeMiddle_R
+  - jt_ClawMiddle_R
+  - jt_ToeInner_R
+  - jt_ClawInner_R
+  - jt_ToeOutter_R
+  - jt_ClawOutter_R
+tags: [biped]

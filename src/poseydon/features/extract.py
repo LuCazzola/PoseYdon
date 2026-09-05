@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.skeleton import ResolvedSkeleton
 from poseydon.core.spec import FeatureSpec
 from poseydon.features import contact as _contact  # noqa: F401  (registers features)
@@ -17,7 +17,7 @@ DEFAULT_FEATURES: tuple[str, ...] = ("ric_pos", "rot6d", "local_vel", "foot_cont
 
 
 def extract_features(
-    anim: Anim,
+    anim: RigidBodyAnimation,
     resolved: ResolvedSkeleton,
     names: Sequence[str] = DEFAULT_FEATURES,
 ) -> tuple[np.ndarray, FeatureSpec]:

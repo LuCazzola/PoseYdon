@@ -37,5 +37,26 @@ services:
       XDG_CACHE_HOME: /tmp/cache
     command: python -c "import Animation, BVH, Quaternions; print('Motion available')"
 
+  # FBX preprocessing. Blender headless; see Dockerfile.fbx for why it is a
+  # separate image. Blender needs a writable HOME for its config, and runs the
+  # script itself rather than a bare interpreter:
+  #   docker compose run --rm fbx blender -b --python scripts/process_dataset_truebones_fbx.py
+  fbx:
+    build:
+      context: .
+      dockerfile: Dockerfile.fbx
+    working_dir: /app
+    # Same reason as the test service: artifacts it writes must belong to you.
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/app
+    environment:
+      # Same reason as the test service: the image installs no project, so
+      # `poseydon.io.fbx` is found on the path rather than by installation.
+      PYTHONPATH: /app/src:/app
+      # Blender wants a writable HOME for its config; the container has none.
+      HOME: /tmp
+    command: blender --version
+
 volumes:
   hf-cache:

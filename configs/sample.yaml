@@ -17,7 +17,7 @@ operation:
 
 sampler:
   _target_: poseydon.sampling.diffusion.DDIM
-  steps: 50
+  steps: 100
 
 # Which skeleton to animate, and for how long.
 # How to turn generated features back into a skeleton. The representation

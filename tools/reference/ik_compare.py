@@ -28,7 +28,7 @@ from InverseKinematics import animation_from_positions  # Motion
 from poseydon.core.spec import FeatureSpec
 from poseydon.core.torch_kinematics import forward_kinematics
 from poseydon.features import features_to_anim, positions_from_features
-from poseydon.io.bvh import load_bvh, save_bvh
+from poseydon.io.bvh import BVH
 from poseydon.solvers import IK_TERMS, GradientIK, SolverSkeleton
 from tools.render import render_skeleton
 
@@ -53,7 +53,7 @@ def main() -> int:
 
     root = Path("artifacts/transfer") / args.save / args.sampler
     features = np.load(root / f"{args.who}_Flamingo_to_{args.target}.npy")
-    template = load_bvh(ASSETS / "Scorpion___SlowForward_839.bvh")
+    template = BVH.read(ASSETS / "Scorpion___SlowForward_839.bvh").to_animation().as_rigid_body()
     parents, offsets = template.parents, template.offsets
 
     from_rotations = features_to_anim(features, SPEC, template).global_positions()
@@ -118,7 +118,7 @@ def main() -> int:
         ("solved_motion", ref_positions),
     ):
         render_skeleton(out / f"{label}.mp4", parents, positions, fps=fps, title=label)
-    save_bvh(features_to_anim(features, SPEC, template), out / "rotations.bvh")
+    BVH.from_animation(features_to_anim(features, SPEC, template)).write(out / "rotations.bvh")
     print(f"wrote four MP4s to {out}")
     return 0
 

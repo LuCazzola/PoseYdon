@@ -320,8 +320,7 @@ class MoDiffAE(Denoiser):
         leading = torch.ones(batch, 1, dtype=torch.bool, device=device)
         extended = torch.cat([leading, frame_valid], dim=1)
         pair = extended[:, :, None] & extended[:, None, :]
-        # The rest frame conditions everything but attends only to itself, so it
-        # cannot be overwritten by the motion it is describing.
+        # The rest frame conditions everything but attends only to itself
         pair = pair.clone()
         pair[:, 0, :] = False
         pair[:, 0, 0] = True

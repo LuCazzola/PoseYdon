@@ -1,0 +1,13 @@
+base: _base.yaml
+skeleton: Cricket
+facing:
+  hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
+  shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
+foot_joints:
+  - Bip01_R_Foot
+  - Bip01_R_Toe0
+  - Bip01_R_Toe0Nub
+  - Bip01_L_Foot
+  - Bip01_L_Toe0
+  - Bip01_L_Toe0Nub
+tags: [milliped]

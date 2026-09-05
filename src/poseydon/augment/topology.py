@@ -1,7 +1,7 @@
 """Structural augmentations: joint drop and joint duplication.
 
 Ports the reference's per-sample topology augmentation (see design spec
-section 3) as exact mutations of :class:`~poseydon.core.anim.Anim`, so every
+section 3) as exact mutations of :class:`~poseydon.core.animation.RigidBodyAnimation`, so every
 feature block -- present or future -- is recomputed from a genuinely valid
 skeleton rather than patched after extraction.
 """
@@ -15,7 +15,7 @@ import numpy as np
 
 from poseydon.augment.base import AUGMENTATIONS, Augmentation
 from poseydon.augment.joint_edit import JointEdit
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import ResolvedSkeleton
 
@@ -52,8 +52,8 @@ def _reindex_resolved(
 
 
 def drop_joints(
-    anim: Anim, resolved: ResolvedSkeleton, joints: set[int]
-) -> tuple[Anim, ResolvedSkeleton, JointEdit]:
+    anim: RigidBodyAnimation, resolved: ResolvedSkeleton, joints: set[int]
+) -> tuple[RigidBodyAnimation, ResolvedSkeleton, JointEdit]:
     """Remove ``joints`` (must all be leaves) from ``anim``.
 
     Every surviving joint's forward-kinematics position is unchanged: a leaf
@@ -66,7 +66,7 @@ def drop_joints(
         [-1 if anim.parents[j] == -1 else old_to_new[int(anim.parents[j])] for j in keep],
         dtype=np.int32,
     )
-    new_anim = Anim(
+    new_anim = RigidBodyAnimation.from_root_motion(
         rotations=anim.rotations[:, keep, :].copy(),
         root_pos=anim.root_pos.copy(),
         offsets=anim.offsets[keep].copy(),
@@ -91,7 +91,7 @@ class DropEndEffector(Augmentation):
 
     rate: tuple[float, ...] = field(default_factory=lambda: (0.1, 0.2, 0.3))
 
-    def apply_structural(self, anim: Anim, resolved: ResolvedSkeleton, rng: np.random.Generator):
+    def apply_structural(self, anim: RigidBodyAnimation, resolved: ResolvedSkeleton, rng: np.random.Generator):
         excluded = _excluded_joints(resolved)
         candidates = sorted(j for j in leaves(anim.parents) if j not in excluded and j != 0)
         if not candidates:
@@ -107,8 +107,8 @@ class DropEndEffector(Augmentation):
 
 
 def duplicate_joint(
-    anim: Anim, resolved: ResolvedSkeleton, joint: int
-) -> tuple[Anim, ResolvedSkeleton, JointEdit]:
+    anim: RigidBodyAnimation, resolved: ResolvedSkeleton, joint: int
+) -> tuple[RigidBodyAnimation, ResolvedSkeleton, JointEdit]:
     """Insert a midpoint joint between ``joint`` and its parent.
 
     The new joint takes slot ``joint``; every original joint at or after
@@ -147,7 +147,7 @@ def duplicate_joint(
     new_parents[joint] = -1 if old_parent == -1 else shift(old_parent)
     new_parents[joint + 1] = joint
 
-    new_anim = Anim(
+    new_anim = RigidBodyAnimation.from_root_motion(
         rotations=new_rotations,
         root_pos=anim.root_pos.copy(),
         offsets=new_offsets,
@@ -166,11 +166,10 @@ class DuplicateJoint(Augmentation):
     """Randomly duplicate one single-child, non-root-adjacent joint.
 
     Ports the reference's ``add_joint_augmentation``, but the split is exact
-    under forward kinematics rather than an interpolation of features (see
-    design spec section 4).
+    under forward kinematics rather than an interpolation of features.
     """
 
-    def apply_structural(self, anim: Anim, resolved: ResolvedSkeleton, rng: np.random.Generator):
+    def apply_structural(self, anim: RigidBodyAnimation, resolved: ResolvedSkeleton, rng: np.random.Generator):
         excluded = _excluded_joints(resolved)
         counts = child_count(anim.parents)
         candidates = [

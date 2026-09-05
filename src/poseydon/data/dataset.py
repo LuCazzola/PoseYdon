@@ -11,7 +11,7 @@ import numpy as np
 
 from poseydon.augment.base import Augmentation, AugmentPipeline
 from poseydon.conditioners.base import CONDITIONERS, Conditioner
-from poseydon.core.anim import Anim
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
 from poseydon.core.spec import FeatureSpec
 from poseydon.data.normalize import Normalizer
@@ -25,7 +25,7 @@ class ClipView:
     """What a conditioner sees for one item."""
 
     record: ClipRecord
-    anim: Anim
+    anim: RigidBodyAnimation
     resolved: ResolvedSkeleton
     normalizer: Normalizer
     rest_frame: np.ndarray  # (J, D) normalized rest pose describing this rig
@@ -77,7 +77,7 @@ class MotionDataset:
         self._rng = np.random.default_rng(seed)
         self._manifests: dict[str, SkeletonManifest] = {}
         self._normalizers: dict[str, Normalizer] = {}
-        self._anims: dict[str, Anim] = {}
+        self._anims: dict[str, RigidBodyAnimation] = {}
         self._rest_frames: dict[str, np.ndarray] = {}
 
         # A clip yields more than one window under a deterministic policy, so the
@@ -103,9 +103,9 @@ class MotionDataset:
             )
         return self._manifests[skeleton]
 
-    def _anim(self, record: ClipRecord) -> Anim:
+    def _anim(self, record: ClipRecord) -> RigidBodyAnimation:
         if record.clip_id not in self._anims:
-            self._anims[record.clip_id] = Anim.load(self.root / record.path)
+            self._anims[record.clip_id] = RigidBodyAnimation.load(self.root / record.path)
         return self._anims[record.clip_id]
 
     def _resolved(self, record: ClipRecord) -> ResolvedSkeleton:
@@ -143,9 +143,9 @@ class MotionDataset:
 
         manifest = self._manifest(skeleton)
         if manifest.tpose is not None and manifest.tpose.is_file():
-            from poseydon.io.bvh import load_bvh
+            from poseydon.io.bvh import BVH
 
-            anim = load_bvh(manifest.tpose)
+            anim = BVH.read(manifest.tpose).to_animation().as_rigid_body(joint_translation="drop")
             raw, _ = extract_features(anim, resolve(manifest, anim.names), self.features)
         else:
             first = next(r for r in self.records if r.skeleton == skeleton)

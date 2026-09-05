@@ -1,0 +1,15 @@
+base: _base.yaml
+skeleton: FireAnt
+facing:
+  hips:      {right: Bip01_R_Thigh_Rear, left: Bip01_L_Thigh_Rear}
+  shoulders: {right: Bip01_R_ForeArm, left: Bip01_L_ForeArm}
+foot_joints:
+  - Bip01_L_Foot_Mid
+  - Bip01_L_Leg_Mid_Nub
+  - Bip01_R_Foot_Mid
+  - Bip01_R_Leg_Mid_Nub
+  - Bip01_R_Foot_Rear
+  - Bip01_R_Leg_Rear_Nub
+  - Bip01_L_Foot_Rear
+  - Bip01_L_Leg_Rear_Nub
+tags: [milliped]

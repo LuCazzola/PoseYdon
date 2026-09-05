@@ -1,0 +1,7 @@
+base: _base.yaml
+skeleton: Pirrana
+facing:
+  hips:      {right: harabireR, left: harabireL}
+  shoulders: {right: munabireR, left: munabireL}
+foot_joints: []   # the reference's heuristic finds none for this rig
+tags: [fish]

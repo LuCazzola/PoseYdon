@@ -77,7 +77,7 @@ def _sample(args: argparse.Namespace) -> int:
     from poseydon.core.batch import Cond, Masks
     from poseydon.data.collate import collate
     from poseydon.features import reconstruct
-    from poseydon.io.bvh import save_bvh
+    from poseydon.io.bvh import BVH
     from poseydon.training.build import build_dataset, build_model, build_process
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
@@ -146,7 +146,7 @@ def _sample(args: argparse.Namespace) -> int:
         if anim is None:
             print(f"wrote {stem}.positions.npy  (`{method}` yields no rotations, so no BVH)")
         else:
-            save_bvh(anim, f"{stem}.bvh")
+            BVH.from_animation(anim).write(f"{stem}.bvh")
             print(f"wrote {stem}.bvh  (reconstruct={method})")
 
         if args.render:

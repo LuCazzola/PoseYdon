@@ -12,7 +12,7 @@ import BVH  # Motion
 import numpy as np
 from Animation import positions_global
 
-from poseydon.io.bvh import load_bvh
+from poseydon.io.bvh import BVH as PoseydonBVH
 
 ASSETS = Path("external/neural_motion_blending/assets/truebones")
 REPEATS = 5
@@ -34,7 +34,7 @@ def main() -> None:
 
     for path in sorted(ASSETS.glob("*.bvh")):
         (anim_ref, _names, _frame_time), t_ref = timed(BVH.load, str(path))
-        anim_ours, t_ours = timed(load_bvh, path)
+        anim_ours, t_ours = timed(lambda p: PoseydonBVH.read(p).to_animation().as_rigid_body(), path)
 
         total_motion += t_ref
         total_ours += t_ours

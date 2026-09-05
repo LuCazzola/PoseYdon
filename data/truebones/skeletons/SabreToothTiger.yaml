@@ -1,0 +1,13 @@
+base: _base.yaml
+skeleton: SabreToothTiger
+facing:
+  hips:      {right: Sabrecat_RightThigh_RThi_, left: Sabrecat_LeftThigh_LThi_}
+  shoulders: {right: Sabrecat_RightClavicle_RClv_, left: Sabrecat_LeftClavicle_LClv_}
+foot_joints:
+  - Sabrecat_LeftFoot_LFot_
+  - Sabrecat_LeftToe0_LT00_
+  - Sabrecat_LeftToe0_LT01_
+  - Sabrecat_RightFoot_RFot_
+  - Sabrecat_RightToe0_RT00_
+  - Sabrecat_RightToe0_RT01_
+tags: [quadruped]

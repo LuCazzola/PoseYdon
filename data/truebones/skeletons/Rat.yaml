@@ -1,0 +1,9 @@
+base: _base.yaml
+skeleton: Rat
+facing:
+  hips:      {right: RightUpLeg, left: LeftUpLeg}
+  shoulders: {right: RightForeArm, left: LeftForeArm}
+foot_joints:
+  - RightFoot
+  - LeftFoot
+tags: [quadruped]
