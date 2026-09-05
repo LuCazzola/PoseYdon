@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 
+from poseydon.augment.topology import DropEndEffector
 from poseydon.core.batch import MotionBatch
 from poseydon.data.collate import collate
 from poseydon.data.dataset import MotionDataset
@@ -116,6 +117,37 @@ def test_a_real_batch_trains(corpus, process):
     assert all(v.isfinite() for v in losses.values())
     losses["total"].backward()
     assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in task.parameters())
+
+
+def test_empty_augmentation_list_matches_unaugmented_output(corpus):
+    plain = make_dataset(corpus, window=FullClip())
+    explicit_empty = make_dataset(corpus, window=FullClip(), augmentations=())
+
+    np.testing.assert_array_equal(plain[0].features, explicit_empty[0].features)
+
+
+def test_structural_augmentation_keeps_conditioning_consistent_with_features(corpus):
+    dataset = make_dataset(
+        corpus,
+        window=FullClip(),
+        augmentations=(DropEndEffector(p=1.0),),
+        conditioners=("topology", "tpose", "norm_stats"),
+    )
+    batch = collate([dataset[i] for i in range(len(dataset))])
+
+    for i in range(len(batch)):
+        joints = int(batch.masks.n_joints[i])
+        parents = batch.cond["topology"]["parents"][i]
+        mean = batch.cond["norm_stats"]["mean"][i]
+        tpose = batch.cond["tpose"][i]
+
+        assert torch.all(parents[joints:] == -1)
+        assert torch.all(mean[joints:] == 0)
+        assert torch.all(tpose[joints:] == 0)
+        # the surviving joint count must match across the feature tensor and
+        # every declared conditioner -- this is the property the whole design
+        # exists to guarantee.
+        assert batch.x[i, joints:].abs().sum() == 0
 
 
 def test_changing_features_needs_no_reingest(corpus):

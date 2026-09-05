@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from poseydon.augment.base import Augmentation, AugmentPipeline
 from poseydon.conditioners.base import CONDITIONERS, Conditioner
 from poseydon.core.anim import Anim
 from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
@@ -57,6 +58,7 @@ class MotionDataset:
         features: Sequence[str] = DEFAULT_FEATURES,
         window: Window | None = None,
         conditioners: Sequence[str] = (),
+        augmentations: Sequence[Augmentation] = (),
         split: str | None = None,
         seed: int = 0,
     ) -> None:
@@ -67,6 +69,7 @@ class MotionDataset:
         self.conditioners: list[Conditioner] = [
             CONDITIONERS.get(name)() for name in conditioners
         ]
+        self.augment_pipeline = AugmentPipeline(augmentations)
         self.records = index.query(split=split) if split else list(index.records)
         if not self.records:
             raise ValueError(f"no clips in the index for split={split!r}")
@@ -156,19 +159,28 @@ class MotionDataset:
         clip_index, window_index = self._plan[index]
         record = self.records[clip_index]
 
-        raw, spec = self._extract(record)
-        normalizer = self._normalizer(record.skeleton, spec)
+        anim = self._anim(record)
+        resolved = self._resolved(record)
+        anim, resolved, edit = self.augment_pipeline.apply_structural(anim, resolved, self._rng)
+
+        raw, spec = extract_features(anim, resolved, self.features)
+        base_normalizer = self._normalizer(record.skeleton, spec)
+        normalizer = edit.transport(base_normalizer)
         features = normalizer.normalize(raw)
+        features = self.augment_pipeline.apply_features(features, spec, resolved, self._rng)
 
         start, length = self.window.bounds(features.shape[0], window_index, self._rng)
         window = features[start : start + length]
 
+        base_rest_frame = self._rest_frame(record, spec, base_normalizer)
+        rest_frame = edit.transport_row(base_rest_frame)
+
         view = ClipView(
             record=record,
-            anim=self._anim(record),
-            resolved=self._resolved(record),
+            anim=anim,
+            resolved=resolved,
             normalizer=normalizer,
-            rest_frame=self._rest_frame(record, spec, normalizer),
+            rest_frame=rest_frame,
         )
         return Item(
             features=window,
