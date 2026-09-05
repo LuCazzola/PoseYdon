@@ -17,7 +17,7 @@ import numpy as np
 
 from poseydon.core.anim import Anim
 from poseydon.core.rotations import quat_mul
-from poseydon.io.bvh import _channels_to_arrays, _parse_hierarchy, _parse_motion
+from poseydon.io.bvh import _POSITION_CHANNELS, _channels_to_arrays, _parse_hierarchy, _parse_motion
 
 _ZERO_OFFSET_ATOL = 1e-6
 
@@ -100,6 +100,17 @@ def _parse_and_merge(path: str | Path):
     n_channels = sum(len(spec) for spec in channels)
     values, frame_time = _parse_motion(motion, n_channels)
     rotations, positions = _channels_to_arrays(values, channels, len(names))
+
+    # A joint with no position channels at all (every End Site, by BVH
+    # convention) has no raw per-frame translation to read -- _channels_to_arrays
+    # defaults it to zero, which reads as "coincident with its parent" once
+    # interpreted as a local transform (poseydon.preproc.rest_pose.recover_raw_global_pose),
+    # even though its offset is not zero. The real reference avoids this by
+    # pre-filling every joint's position with its own OFFSET before overwriting
+    # from parsed data; this does the same, for the same reason.
+    for joint, spec in enumerate(channels):
+        if not any(name in spec for name in _POSITION_CHANNELS):
+            positions[:, joint] = offsets[joint]
 
     if _should_merge(parents, offsets):
         names, parents, offsets, rotations, positions = merge_redundant_root(

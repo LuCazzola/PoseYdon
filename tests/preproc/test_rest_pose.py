@@ -2,7 +2,7 @@ import numpy as np
 
 from poseydon.core.anim import Anim
 from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_mul
-from poseydon.preproc.rest_pose import remove_bind_pose
+from poseydon.preproc.rest_pose import recover_raw_global_pose, remove_bind_pose
 
 
 def test_remove_bind_pose_makes_the_rest_frame_read_as_identity():
@@ -181,3 +181,56 @@ def test_remove_bind_pose_falls_back_to_the_clips_own_frame_zero_for_a_missing_n
     # Root reads as identity at frame 0 (it HAS a rest reference); Child's
     # own frame-0 was USED as its bind, so it also reads as identity there.
     np.testing.assert_allclose(new_anim.rotations[0, :2], np.broadcast_to(QUAT_IDENTITY, (2, 4)), atol=1e-9)
+
+
+def test_establish_rest_pose_recovers_a_bind_rotation_exactly(tmp_path):
+    # Two joints, each raw channel carrying position AND rotation. The
+    # child's OFFSET direction is [1, 0, 0], but its raw per-frame position
+    # channel places it at true global position [0, 1, 0] (same distance
+    # from the root, 90 degrees off in direction) -- exactly the kind of
+    # "declared OFFSET direction is wrong" quirk this function exists to fix.
+    # Length matches exactly, so IK can reach zero residual here.
+    bvh_text = (
+        "HIERARCHY\n"
+        "ROOT Root\n"
+        "{\n"
+        "\tOFFSET 0.0 0.0 0.0\n"
+        "\tCHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n"
+        "\tJOINT Child\n"
+        "\t{\n"
+        "\t\tOFFSET 1.0 0.0 0.0\n"
+        "\t\tCHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n"
+        "\t\tEnd Site #name: Child_End\n"
+        "\t\t{\n"
+        "\t\t\tOFFSET 1.0 0.0 0.0\n"
+        "\t\t}\n"
+        "\t}\n"
+        "}\n"
+        "MOTION\n"
+        "Frames: 1\n"
+        "Frame Time: 0.033333\n"
+        "0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0\n"
+    )
+    path = tmp_path / "synthetic_tpose.bvh"
+    path.write_text(bvh_text)
+
+    from poseydon.preproc.rest_pose import establish_rest_pose
+
+    rest = establish_rest_pose(path, iterations=500)
+
+    positions = rest.global_positions()
+    np.testing.assert_allclose(positions[0, 0], [0.0, 0.0, 0.0], atol=1e-4)
+    np.testing.assert_allclose(positions[0, 1], [0.0, 1.0, 0.0], atol=1e-3)
+
+
+def test_recover_raw_global_pose_treats_every_joint_as_its_own_local_transform():
+    parents = np.array([-1, 0], dtype=np.int32)
+    # Root at [1, 0, 0] with identity rotation; child's RAW position channel
+    # (not an offset) is [0, 2, 0], read in the root's (identity) frame.
+    rotations = np.array([[[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0]]])
+    positions = np.array([[[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]]])
+
+    global_pos, global_rot = recover_raw_global_pose(rotations, positions, parents)
+
+    np.testing.assert_allclose(global_pos[0, 0], [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(global_pos[0, 1], [1.0, 2.0, 0.0])
