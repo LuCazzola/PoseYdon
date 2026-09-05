@@ -109,6 +109,12 @@ def rot6d_to_matrix(d6: np.ndarray, layout: str = "rows") -> np.ndarray:
     return np.swapaxes(out, -1, -2) if layout == "columns" else out
 
 
+def quat_inverse(q: np.ndarray) -> np.ndarray:
+    """Inverse rotation. Assumes ``q`` is a unit quaternion (conjugate = inverse)."""
+    q = np.asarray(q, dtype=np.float64)
+    return q * np.array([-1.0, -1.0, -1.0, 1.0])
+
+
 def quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Composition: applying the result equals applying ``b`` then ``a``."""
     a = np.asarray(a, dtype=np.float64)

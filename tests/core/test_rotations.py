@@ -8,10 +8,21 @@ from poseydon.core.rotations import (
     matrix_to_rot6d,
     quat_apply,
     quat_between,
+    quat_inverse,
     quat_mul,
     quat_to_matrix,
     rot6d_to_matrix,
 )
+
+
+def test_quat_inverse_undoes_the_rotation():
+    q = random_quats(5)
+    composed = quat_mul(quat_inverse(q), q)
+    np.testing.assert_allclose(composed, np.broadcast_to(QUAT_IDENTITY, composed.shape), atol=1e-10)
+
+
+def test_quat_inverse_of_identity_is_identity():
+    np.testing.assert_allclose(quat_inverse(QUAT_IDENTITY), QUAT_IDENTITY)
 
 
 def random_quats(n, seed=0):
