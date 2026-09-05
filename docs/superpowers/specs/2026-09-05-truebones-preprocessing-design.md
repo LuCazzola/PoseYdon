@@ -105,6 +105,20 @@ This is a deliberate simplification matching how the rest of this codebase
 already treats skeletons, not an oversight. See §5 for how this is kept
 easy to relax later.
 
+**Confirmed empirically, so the plan doesn't need to re-derive it:** the
+merge applies only when the root has exactly one child whose offset is
+~zero (true for BrownBear, Coyote, Flamingo, Goat, Skunk among the pilot
+species) -- Crab's root has a single child at a real, non-zero offset, and
+Scorpion's root has two children, so neither merges; both keep `Hips` as a
+genuine root. Separately, raw files have 9-15 more joint entries than the
+curated fixtures per species, entirely accounted for by `End Site` leaf
+markers -- `poseydon.io.bvh.load_bvh` already treats these as ordinary
+joints (its own documented convention) while the fixtures simply omit them.
+This is not a discrepancy to fix: the cleaned `Anim` this pilot produces
+will legitimately have more joints than the matching fixture, and the
+validation task in §6 compares by joint *name* intersection, not by joint
+count or positional array equality.
+
 Two things are *not* the cleanup step's concern, because they're already
 handled downstream: raw files are in different units/orientation than the
 curated fixtures, but `poseydon.ingest.align` (rotate to face +Z, scale to
