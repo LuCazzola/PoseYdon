@@ -1,10 +1,13 @@
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
-from scripts.create_truebones_dataset import clean_species_clips
+from scripts.create_truebones_dataset import clean_species_clips, resolve_rest_anim
 
 from poseydon.core.anim import Anim
+from poseydon.core.rotations import QUAT_IDENTITY
+from poseydon.datasets.raw_bvh import load_raw_biped_bvh
 from poseydon.ingest.pipeline import ingest_corpus
 from poseydon.io.bvh import load_bvh
 
@@ -42,6 +45,51 @@ def test_clean_species_clips_produces_loadable_bvh(tmp_path, small_raw_root):
     anim = load_bvh(written[0])  # must round-trip through the STRICT loader
     assert isinstance(anim, Anim)
     assert anim.names[0] == "Bip01_Pelvis"
+
+
+def test_resolve_rest_anim_prefers_a_t_pose_file():
+    _skip_if_raw_dump_missing()
+    # BrownBear has a raw T-pose file (BrownBear/__Tpose.bvh).
+    rest_anim = resolve_rest_anim("BrownBear", REAL_RAW_ROOT)
+    assert rest_anim.n_frames == 1
+    assert rest_anim.names[0] == "Bip01_Pelvis"  # cleaned via load_raw_biped_bvh, so already merged
+
+
+def test_resolve_rest_anim_falls_back_to_the_first_clips_first_frame():
+    _skip_if_raw_dump_missing()
+    # Goat has no raw T-pose file at all.
+    assert not list((REAL_RAW_ROOT / "Goat").glob("*[Tt][Pp][Oo][Ss][Ee]*"))
+    rest_anim = resolve_rest_anim("Goat", REAL_RAW_ROOT)
+    assert rest_anim.n_frames == 1
+
+    first_clip = sorted((REAL_RAW_ROOT / "Goat").glob("*.bvh"))[0]
+    expected = load_raw_biped_bvh(first_clip)
+    np.testing.assert_allclose(rest_anim.rotations[0], expected.rotations[0])
+
+
+def test_clean_species_clips_preserves_positions_and_zeroes_the_rest_frame(tmp_path):
+    _skip_if_raw_dump_missing()
+    scratch_root = tmp_path / "scratch"
+    written = clean_species_clips("Goat", REAL_RAW_ROOT, scratch_root)
+
+    # Goat's rest fallback is its alphabetically-first raw clip -- that
+    # clip's own cleaned frame 0 must now read as identity for every joint.
+    first_clip_name = sorted((REAL_RAW_ROOT / "Goat").glob("*.bvh"))[0].name
+    rest_clip = next(p for p in written if p.name == first_clip_name)
+    rest_cleaned = load_bvh(rest_clip)
+    np.testing.assert_allclose(
+        rest_cleaned.rotations[0],
+        np.broadcast_to(QUAT_IDENTITY, (rest_cleaned.n_joints, 4)),
+        atol=1e-5,
+    )
+
+    # A different clip's global positions must be unchanged by bind removal
+    # (only the rotation/offset convention changes), modulo the save_bvh/
+    # load_bvh round trip's .6f serialization precision.
+    other_clip = next(p for p in written if p.name == "__HeadButt.bvh")
+    before = load_raw_biped_bvh(REAL_RAW_ROOT / "Goat" / "__HeadButt.bvh")
+    after = load_bvh(other_clip)
+    np.testing.assert_allclose(after.global_positions(), before.global_positions(), atol=1e-3)
 
 
 def test_cleaned_clips_ingest_through_the_unmodified_pipeline(tmp_path, small_raw_root):

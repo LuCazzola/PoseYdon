@@ -14,7 +14,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from poseydon.datasets.raw_bvh import load_raw_biped_bvh
+from poseydon.core.anim import Anim
+from poseydon.datasets.raw_bvh import load_raw_biped_bvh, remove_bind_pose
 from poseydon.ingest.pipeline import ingest_corpus
 from poseydon.io.bvh import save_bvh
 
@@ -33,6 +34,26 @@ MANIFEST_DIR = Path("data/truebones/skeletons")
 OUT_DIR = Path("data/truebones")
 
 
+def resolve_rest_anim(species: str, raw_root: Path) -> Anim:
+    """The cleaned, single-frame rest pose to remove every clip's bind rotation against.
+
+    Prefers a raw T-pose file (matched case-insensitively, e.g.
+    ``__TPOSE.bvh``) when the species has one. Otherwise falls back to the
+    first frame of the alphabetically-first raw clip -- the same fallback
+    ``poseydon.data.dataset.MotionDataset._rest_frame`` already uses
+    elsewhere in this codebase when a manifest names no T-pose.
+    """
+    species_dir = raw_root / species
+    tpose_candidates = sorted(species_dir.glob("*[Tt][Pp][Oo][Ss][Ee]*.bvh"))
+    if tpose_candidates:
+        source = tpose_candidates[0]
+    else:
+        source = sorted(species_dir.glob("*.bvh"))[0]
+
+    anim = load_raw_biped_bvh(source)
+    return anim.slice(0, 1)
+
+
 def clean_species_clips(species: str, raw_root: Path, scratch_root: Path) -> list[Path]:
     """Clean every raw ``.bvh`` clip for one species into ``scratch_root/<species>/``.
 
@@ -44,9 +65,12 @@ def clean_species_clips(species: str, raw_root: Path, scratch_root: Path) -> lis
     out_dir = scratch_root / species
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    rest_anim = resolve_rest_anim(species, raw_root)
+
     written = []
     for raw_path in sorted(species_dir.glob("*.bvh")):
         anim = load_raw_biped_bvh(raw_path)
+        anim = remove_bind_pose(anim, rest_anim)
         dest = out_dir / raw_path.name
         save_bvh(anim, dest)
         written.append(dest)
