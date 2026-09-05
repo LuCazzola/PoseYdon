@@ -63,8 +63,24 @@ def test_unknown_loss_name_is_rejected():
         build_losses(OmegaConf.create({"nonsense": 1.0}))
 
 
-def test_augmentations_default_to_empty():
-    assert list(load().augmentations) == []
+def test_default_config_matches_the_reference_augmentation_schedule():
+    # data_loaders/truebones/data/dataset.py::MotionDataset.augment draws
+    # aug_type = random.choice([0, 1, 2]) -- a uniform 1/3 chance each of no
+    # augmentation, drop, or duplicate -- with removal rate uniform over
+    # {0.1, 0.2, 0.3}. This pipeline's two entries fire independently rather
+    # than as one mutually-exclusive draw (see configs/train.yaml), but each
+    # is set to the same 1/3 marginal probability the reference gives it.
+    config = load()
+    targets = [entry["_target_"] for entry in config.augmentations]
+    assert targets == ["poseydon.augment.DropEndEffector", "poseydon.augment.DuplicateJoint"]
+    for entry in config.augmentations:
+        assert entry["p"] == pytest.approx(1 / 3)
+    assert list(config.augmentations[0]["rate"]) == [0.1, 0.2, 0.3]
+
+
+def test_augmentations_can_be_disabled_from_the_command_line():
+    config = load(["augmentations=[]"])
+    assert list(config.augmentations) == []
 
 
 def test_augmentations_override_from_the_command_line():

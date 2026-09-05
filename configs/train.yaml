@@ -17,9 +17,28 @@ features: [ric_pos, rot6d, local_vel, foot_contact]
 conditioners: [topology, tpose, norm_stats]
 
 # Structural or feature-space edits applied per-sample at read time, each
-# gated by its own probability and applied in the declared order. Empty by
-# default -- augmentation is opt-in, like conditioners.
-augmentations: []
+# gated by its own probability and applied in the declared order.
+#
+# Matches the reference's per-sample augmentation
+# (data_loaders/truebones/data/dataset.py::MotionDataset.augment): for each
+# training sample it draws `aug_type = random.choice([0, 1, 2])` -- a uniform
+# 1/3 chance of no augmentation, 1/3 drop, 1/3 duplicate -- with the removal
+# rate itself drawn uniformly from {0.1, 0.2, 0.3}.
+#
+# This pipeline's entries fire INDEPENDENTLY (p=1/3 each below), not as one
+# mutually-exclusive draw, since composability -- not replicating that
+# specific exclusivity -- is the point of this design (see the augmentation
+# design spec). That reproduces the reference's per-type marginal rate
+# exactly (each fires on 1/3 of samples) while occasionally applying both to
+# the same sample, which the reference's single random.choice never does.
+# Set either p to 0 to fall back to a strictly one-or-the-other-or-neither
+# schedule, or override with `augmentations=[]` to disable entirely.
+augmentations:
+  - _target_: poseydon.augment.DropEndEffector
+    p: 0.3333333333333333
+    rate: [0.1, 0.2, 0.3]
+  - _target_: poseydon.augment.DuplicateJoint
+    p: 0.3333333333333333
 
 # Weighted loss terms. Each declares the feature blocks it needs, checked
 # against `features` above before the first step.
