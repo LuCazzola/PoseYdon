@@ -16,6 +16,11 @@ features: [ric_pos, rot6d, local_vel, foot_contact]
 # Only declared conditioning is loaded, collated and moved to device.
 conditioners: [topology, tpose, norm_stats]
 
+# Structural or feature-space edits applied per-sample at read time, each
+# gated by its own probability and applied in the declared order. Empty by
+# default -- augmentation is opt-in, like conditioners.
+augmentations: []
+
 # Weighted loss terms. Each declares the feature blocks it needs, checked
 # against `features` above before the first step.
 losses:

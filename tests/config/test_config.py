@@ -63,6 +63,16 @@ def test_unknown_loss_name_is_rejected():
         build_losses(OmegaConf.create({"nonsense": 1.0}))
 
 
+def test_augmentations_default_to_empty():
+    assert list(load().augmentations) == []
+
+
+def test_augmentations_override_from_the_command_line():
+    config = load(["augmentations=[{_target_:poseydon.augment.DropEndEffector,p:0.2}]"])
+    assert config.augmentations[0]["_target_"] == "poseydon.augment.DropEndEffector"
+    assert config.augmentations[0]["p"] == 0.2
+
+
 def test_trainer_presets_exist():
     assert load(["trainer=debug"]).trainer.max_steps == 5
     assert load(["trainer=default"]).trainer.max_steps > 5

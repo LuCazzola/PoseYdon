@@ -35,6 +35,7 @@ def build_dataset(config: DictConfig, split: str | None = None) -> MotionDataset
         features=list(config.features),
         window=instantiate(config.data.window),
         conditioners=list(config.conditioners),
+        augmentations=[instantiate(entry) for entry in config.get("augmentations", [])],
         split=split,
         seed=config.seed,
     )
