@@ -15,7 +15,8 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.anim import Anim
-from poseydon.core.rotations import quat_mul
+from poseydon.core.kinematics import forward_kinematics
+from poseydon.core.rotations import quat_inverse, quat_mul
 from poseydon.io.bvh import _channels_to_arrays, _parse_hierarchy, _parse_motion
 
 _ZERO_OFFSET_ATOL = 1e-6
@@ -74,6 +75,62 @@ def freeze_non_root_translation(positions: np.ndarray) -> np.ndarray:
     averaging or sampling it. Returns the root's own trajectory unchanged.
     """
     return positions[:, 0].copy()
+
+
+def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
+    """Re-express ``anim`` so zero rotation on every joint reproduces the rest pose.
+
+    Raw Biped rigs bake an arbitrary, per-joint "bind" rotation into every
+    clip -- e.g. one joint reading a constant ~90 degree rotation in every
+    clip of a skeleton, not because it moves 90 degrees, but because that's
+    the exporter's zero point for that joint. This removes it, using
+    ``rest_anim`` (typically the skeleton's T-pose, or a fallback frame,
+    cleaned the same way as ``anim`` via :func:`load_raw_biped_bvh`) as the
+    reference for what "zero" should mean.
+
+    Global joint POSITIONS are preserved exactly, at every frame -- only the
+    rotation/offset convention changes, not the physically observed motion.
+    Offsets are recomputed from the rest pose's own global geometry (the
+    bone vectors implied by its joint positions), since keeping the raw,
+    arbitrarily-oriented offsets while changing what "zero rotation" means
+    would visually distort the skeleton's shape.
+
+    Raises ``ValueError`` if ``anim`` and ``rest_anim`` are not the same
+    skeleton (same names and parents) -- they must come from cleaning the
+    same species' raw files, so their bone lengths necessarily agree too.
+    """
+    if anim.names != rest_anim.names or not np.array_equal(anim.parents, rest_anim.parents):
+        raise ValueError("anim and rest_anim must be the same skeleton")
+
+    rest_positions, rest_global_rot = forward_kinematics(
+        rest_anim.rotations[:1], rest_anim.root_pos[:1], rest_anim.offsets, rest_anim.parents
+    )
+    rest_pos = rest_positions[0]  # (J, 3)
+    bind = rest_global_rot[0]  # (J, 4) -- each joint's global rest rotation
+
+    new_offsets = np.zeros_like(anim.offsets)
+    parent_of = anim.parents[1:]
+    new_offsets[1:] = rest_pos[1:] - rest_pos[parent_of]
+
+    # A joint's raw local rotation, sandwiched between its own bind (undone on
+    # the right) and its parent's bind (reapplied on the left) -- the two-sided
+    # change of basis that makes the rest frame read as identity while new_offsets
+    # (the parent-bind-rotated raw offset) keeps every frame's global positions
+    # exactly matching the original animation.
+    new_rotations = np.empty_like(anim.rotations)
+    new_rotations[:, 0] = quat_mul(anim.rotations[:, 0], quat_inverse(bind[0]))
+    new_rotations[:, 1:] = quat_mul(
+        bind[parent_of], quat_mul(anim.rotations[:, 1:], quat_inverse(bind[1:]))
+    )
+
+    return Anim(
+        rotations=new_rotations,
+        root_pos=anim.root_pos,
+        offsets=new_offsets,
+        parents=anim.parents,
+        names=anim.names,
+        fps=anim.fps,
+    )
 
 
 def _should_merge(parents: np.ndarray, offsets: np.ndarray) -> bool:

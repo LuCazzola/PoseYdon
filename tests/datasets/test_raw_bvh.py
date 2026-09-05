@@ -4,12 +4,131 @@ import numpy as np
 import pytest
 
 from poseydon.core.anim import Anim
-from poseydon.core.rotations import quat_mul
+from poseydon.core.kinematics import forward_kinematics
+from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_mul
 from poseydon.datasets.raw_bvh import (
     freeze_non_root_translation,
     load_raw_biped_bvh,
     merge_redundant_root,
+    remove_bind_pose,
 )
+
+
+def test_remove_bind_pose_makes_the_rest_frame_read_as_identity_and_preserves_positions():
+    # Root and child each carry a large, arbitrary "bind" rotation (mimicking
+    # the real raw Biped rig quirk), plus an extra rotation on the animated
+    # frame that represents genuine motion.
+    names = ("Root", "Child")
+    parents = np.array([-1, 0], dtype=np.int32)
+    offsets = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+
+    root_bind = euler_to_quat(np.array([[90.0, 0.0, 0.0]]), "ZYX")[0]
+    child_bind = euler_to_quat(np.array([[0.0, 0.0, 90.0]]), "ZYX")[0]
+    extra_root = euler_to_quat(np.array([[0.0, 30.0, 0.0]]), "ZYX")[0]
+    extra_child = euler_to_quat(np.array([[20.0, 0.0, 0.0]]), "ZYX")[0]
+
+    rest_anim = Anim(
+        rotations=np.array([[root_bind, child_bind]]),
+        root_pos=np.zeros((1, 3)),
+        offsets=offsets,
+        parents=parents,
+        names=names,
+        fps=30.0,
+    )
+    anim = Anim(
+        rotations=np.array(
+            [
+                [root_bind, child_bind],  # frame 0: exactly at rest
+                [quat_mul(extra_root, root_bind), quat_mul(extra_child, child_bind)],  # frame 1: animated
+            ]
+        ),
+        root_pos=np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 3.0]]),
+        offsets=offsets,
+        parents=parents,
+        names=names,
+        fps=30.0,
+    )
+
+    new_anim = remove_bind_pose(anim, rest_anim)
+
+    # Zero rotation at the rest frame, for every joint.
+    np.testing.assert_allclose(
+        new_anim.rotations[0], np.broadcast_to(QUAT_IDENTITY, (2, 4)), atol=1e-9
+    )
+
+    # Global joint positions are preserved exactly at every frame -- only the
+    # rotation/offset CONVENTION changed, not the physically observed motion.
+    old_positions, _ = forward_kinematics(anim.rotations, anim.root_pos, anim.offsets, anim.parents)
+    new_positions, _ = forward_kinematics(
+        new_anim.rotations, new_anim.root_pos, new_anim.offsets, new_anim.parents
+    )
+    np.testing.assert_allclose(new_positions, old_positions, atol=1e-9)
+
+
+def test_remove_bind_pose_preserves_positions_through_a_three_joint_chain():
+    # A deeper chain (root -> mid -> tip) with distinct bind rotations at
+    # every level, to guard against a formula that only happens to work when
+    # there is just one non-root joint.
+    names = ("Root", "Mid", "Tip")
+    parents = np.array([-1, 0, 1], dtype=np.int32)
+    offsets = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+    bind = euler_to_quat(np.array([[40.0, -60.0, 15.0], [70.0, 10.0, -25.0], [-30.0, 50.0, 5.0]]), "ZYX")
+    extra = euler_to_quat(np.array([[12.0, 8.0, -4.0], [5.0, -15.0, 20.0], [-10.0, 3.0, 9.0]]), "ZYX")
+
+    rest_anim = Anim(
+        rotations=bind[None, :, :],
+        root_pos=np.zeros((1, 3)),
+        offsets=offsets,
+        parents=parents,
+        names=names,
+        fps=30.0,
+    )
+    animated_rotations = quat_mul(extra, bind)
+    anim = Anim(
+        rotations=np.stack([bind, animated_rotations]),
+        root_pos=np.array([[0.0, 0.0, 0.0], [0.5, -1.0, 2.0]]),
+        offsets=offsets,
+        parents=parents,
+        names=names,
+        fps=30.0,
+    )
+
+    new_anim = remove_bind_pose(anim, rest_anim)
+
+    np.testing.assert_allclose(
+        new_anim.rotations[0], np.broadcast_to(QUAT_IDENTITY, (3, 4)), atol=1e-9
+    )
+    old_positions, _ = forward_kinematics(anim.rotations, anim.root_pos, anim.offsets, anim.parents)
+    new_positions, _ = forward_kinematics(
+        new_anim.rotations, new_anim.root_pos, new_anim.offsets, new_anim.parents
+    )
+    np.testing.assert_allclose(new_positions, old_positions, atol=1e-9)
+
+
+def test_remove_bind_pose_rejects_mismatched_skeletons():
+    names_a = ("Root", "Child")
+    parents = np.array([-1, 0], dtype=np.int32)
+    offsets = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    anim = Anim(
+        rotations=np.broadcast_to(QUAT_IDENTITY, (1, 2, 4)).copy(),
+        root_pos=np.zeros((1, 3)),
+        offsets=offsets,
+        parents=parents,
+        names=names_a,
+        fps=30.0,
+    )
+    rest_anim = Anim(
+        rotations=np.broadcast_to(QUAT_IDENTITY, (1, 2, 4)).copy(),
+        root_pos=np.zeros((1, 3)),
+        offsets=offsets,
+        parents=parents,
+        names=("Root", "Different"),
+        fps=30.0,
+    )
+
+    with pytest.raises(ValueError, match="same skeleton"):
+        remove_bind_pose(anim, rest_anim)
 
 RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "truebones" / "Truebone_Z-OO"
 
