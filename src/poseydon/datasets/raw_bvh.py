@@ -10,9 +10,13 @@ module. See docs/superpowers/specs/2026-09-05-truebones-preprocessing-design.md.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
+from poseydon.core.anim import Anim
 from poseydon.core.rotations import quat_mul
+from poseydon.io.bvh import _channels_to_arrays, _parse_hierarchy, _parse_motion
 
 _ZERO_OFFSET_ATOL = 1e-6
 
@@ -70,3 +74,47 @@ def freeze_non_root_translation(positions: np.ndarray) -> np.ndarray:
     averaging or sampling it. Returns the root's own trajectory unchanged.
     """
     return positions[:, 0].copy()
+
+
+def _should_merge(parents: np.ndarray, offsets: np.ndarray) -> bool:
+    return (
+        parents.size >= 2
+        and np.count_nonzero(parents == 0) == 1
+        and np.allclose(offsets[1], 0.0, atol=_ZERO_OFFSET_ATOL)
+    )
+
+
+def load_raw_biped_bvh(path: str | Path) -> Anim:
+    """Read a raw multi-channel Biped BVH export into a valid ``Anim``.
+
+    Merges a redundant zero-offset root when the raw hierarchy has one
+    (``_should_merge``), then freezes every remaining non-root joint's
+    translation to its declared offset. Reuses ``poseydon.io.bvh``'s
+    hierarchy/motion grammar parsing -- the "only the root may translate"
+    restriction in ``load_bvh`` is the only thing this skips.
+    """
+    text = Path(path).read_text()
+    head, marker, motion = text.partition("MOTION")
+    if not marker:
+        raise ValueError(f"{path}: no MOTION block found")
+
+    names, parents, offsets, channels = _parse_hierarchy(head)
+    n_channels = sum(len(spec) for spec in channels)
+    values, frame_time = _parse_motion(motion, n_channels)
+    rotations, positions = _channels_to_arrays(values, channels, len(names))
+
+    if _should_merge(parents, offsets):
+        names, parents, offsets, rotations, positions = merge_redundant_root(
+            names, parents, offsets, rotations, positions
+        )
+
+    root_pos = freeze_non_root_translation(positions)
+
+    return Anim(
+        rotations=rotations,
+        root_pos=root_pos,
+        offsets=offsets,
+        parents=parents,
+        names=names,
+        fps=1.0 / frame_time,
+    )

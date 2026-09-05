@@ -1,8 +1,55 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from poseydon.core.anim import Anim
 from poseydon.core.rotations import quat_mul
-from poseydon.datasets.raw_bvh import freeze_non_root_translation, merge_redundant_root
+from poseydon.datasets.raw_bvh import (
+    freeze_non_root_translation,
+    load_raw_biped_bvh,
+    merge_redundant_root,
+)
+
+RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "truebones" / "Truebone_Z-OO"
+
+# (relative path, expected root name, expected joint count). Joint counts and
+# merge outcomes were verified by direct inspection of these exact files --
+# see the design spec's §3 addendum.
+PILOT_RAW_CLIPS = [
+    ("BrownBear/__RiseSwat.bvh", "Bip01_Pelvis", 48),
+    ("Coyote/__Attack3.bvh", "Bip01_Pelvis", 49),
+    ("Crab/__Attack3.bvh", "Hips", 64),
+    ("Flamingo/Flamingo_OneLEgBEnt.bvh", "Bip01_Pelvis", 52),
+    ("Goat/__HeadButt.bvh", "Bip01_Pelvis", 39),
+    ("Scorpion/__SlowForward.bvh", "Hips", 78),
+    ("Skunk/__Spray.bvh", "Bip01_Pelvis", 46),
+]
+
+
+def _skip_if_raw_dump_missing():
+    if not RAW_ROOT.is_dir():
+        pytest.skip(f"raw Truebones dump not found at {RAW_ROOT}")
+
+
+def test_loads_every_pilot_species_raw_clip():
+    _skip_if_raw_dump_missing()
+    for relative, expected_root, expected_joints in PILOT_RAW_CLIPS:
+        anim = load_raw_biped_bvh(RAW_ROOT / relative)
+        assert isinstance(anim, Anim), relative
+        assert anim.names[0] == expected_root, relative
+        assert anim.n_joints == expected_joints, relative
+        assert anim.parents[0] == -1, relative
+
+
+def test_does_not_merge_when_root_has_two_children():
+    _skip_if_raw_dump_missing()
+    # Scorpion's root (Hips) has two children (Bip01_Neck1, Bip01_Spine), so
+    # nothing merges: root name and joint count are unchanged from the raw
+    # hierarchy (78 joints total, including End Sites).
+    anim = load_raw_biped_bvh(RAW_ROOT / "Scorpion/__SlowForward.bvh")
+    assert anim.names[0] == "Hips"
+    assert anim.n_joints == 78
 
 
 def test_freeze_non_root_translation_keeps_only_the_root_column():
