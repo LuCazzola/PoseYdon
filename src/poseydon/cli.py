@@ -168,6 +168,7 @@ def _tile(value, times: int):
 
 
 def _list(args: argparse.Namespace) -> int:
+    from poseydon.augment import AUGMENTATIONS
     from poseydon.conditioners import CONDITIONERS
     from poseydon.data.window import WINDOWS
     from poseydon.features import FEATURES
@@ -180,6 +181,7 @@ def _list(args: argparse.Namespace) -> int:
     registries = {
         "features": FEATURES,
         "conditioners": CONDITIONERS,
+        "augmentations": AUGMENTATIONS,
         "losses": LOSSES,
         "models": MODELS,
         "processes": PROCESSES,

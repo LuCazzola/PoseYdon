@@ -92,6 +92,14 @@ def test_empty_pipeline_is_a_no_op():
     np.testing.assert_array_equal(out, features)
 
 
-def test_augmentations_registry_exists_and_starts_empty_before_topology_import():
-    registry = AUGMENTATIONS
-    assert registry.kind == "augmentation"
+def test_topology_augmentations_are_registered_on_import():
+    import poseydon.augment  # noqa: F401  (side-effecting import: registers)
+
+    assert AUGMENTATIONS.names() == ["drop_end_effector", "duplicate_joint"]
+
+
+def test_augmentations_are_importable_from_the_package_root():
+    from poseydon.augment import DropEndEffector, DuplicateJoint
+
+    assert DropEndEffector().p == 1.0
+    assert DuplicateJoint().p == 1.0
