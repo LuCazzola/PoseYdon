@@ -2,11 +2,11 @@ import shutil
 from pathlib import Path
 
 import pytest
+from scripts.create_truebones_dataset import clean_species_clips
 
 from poseydon.core.anim import Anim
-from poseydon.io.bvh import load_bvh
 from poseydon.ingest.pipeline import ingest_corpus
-from scripts.create_truebones_dataset import clean_species_clips
+from poseydon.io.bvh import load_bvh
 
 REAL_RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "truebones" / "Truebone_Z-OO"
 MANIFEST_DIR = Path(__file__).resolve().parents[2] / "data" / "truebones" / "skeletons"

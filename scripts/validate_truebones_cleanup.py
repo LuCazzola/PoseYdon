@@ -58,7 +58,7 @@ def compare_clip(species: str, raw_relpath: str, fixture_stem: str) -> dict[str,
     raw_anim = load_raw_biped_bvh(RAW_ROOT / raw_relpath)
     raw_resolved = resolve(manifest, raw_anim.names)
     raw_aligned = align(raw_anim, raw_resolved, compute_alignment_params(raw_anim, raw_resolved))
-    raw_features, raw_spec = extract_features(raw_aligned, raw_resolved, feature_names)
+    raw_features, _ = extract_features(raw_aligned, raw_resolved, feature_names)
 
     fixture_anim = load_bvh(FIXTURE_ROOT / f"{fixture_stem}.bvh")
     fixture_resolved = resolve(manifest, fixture_anim.names)

@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from scripts.validate_truebones_cleanup import compare_clip
 
 RAW_ROOT = Path(__file__).resolve().parents[2] / "data" / "truebones" / "Truebone_Z-OO"
