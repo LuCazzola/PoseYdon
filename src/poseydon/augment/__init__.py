@@ -14,9 +14,9 @@ from poseydon.augment.topology import DropEndEffector, DuplicateJoint
 
 __all__ = [
     "AUGMENTATIONS",
-    "Augmentation",
     "AugmentPipeline",
-    "JointEdit",
+    "Augmentation",
     "DropEndEffector",
     "DuplicateJoint",
+    "JointEdit",
 ]
