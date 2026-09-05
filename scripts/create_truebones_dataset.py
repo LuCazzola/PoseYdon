@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 from poseydon.core.anim import Anim
-from poseydon.datasets.raw_bvh import load_raw_biped_bvh, remove_bind_pose
+from poseydon.datasets.raw_bvh import establish_rest_pose, load_raw_biped_bvh, remove_bind_pose
 from poseydon.ingest.pipeline import ingest_corpus
 from poseydon.io.bvh import save_bvh
 
@@ -42,6 +42,11 @@ def resolve_rest_anim(species: str, raw_root: Path) -> Anim:
     first frame of the alphabetically-first raw clip -- the same fallback
     ``poseydon.data.dataset.MotionDataset._rest_frame`` already uses
     elsewhere in this codebase when a manifest names no T-pose.
+
+    Uses ``establish_rest_pose`` (IK-based offset/rotation recovery) rather
+    than ``load_raw_biped_bvh``, since a rest reference's OFFSETS matter --
+    unlike an ordinary clip, which reuses whatever offsets this returns and
+    never re-derives its own.
     """
     species_dir = raw_root / species
     tpose_candidates = sorted(species_dir.glob("*[Tt][Pp][Oo][Ss][Ee]*.bvh"))
@@ -50,8 +55,7 @@ def resolve_rest_anim(species: str, raw_root: Path) -> Anim:
     else:
         source = sorted(species_dir.glob("*.bvh"))[0]
 
-    anim = load_raw_biped_bvh(source)
-    return anim.slice(0, 1)
+    return establish_rest_pose(source)
 
 
 def clean_species_clips(species: str, raw_root: Path, scratch_root: Path) -> list[Path]:

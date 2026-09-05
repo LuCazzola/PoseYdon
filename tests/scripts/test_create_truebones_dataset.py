@@ -6,7 +6,6 @@ import pytest
 from scripts.create_truebones_dataset import clean_species_clips, resolve_rest_anim
 
 from poseydon.core.anim import Anim
-from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.datasets.raw_bvh import load_raw_biped_bvh
 from poseydon.ingest.pipeline import ingest_corpus
 from poseydon.io.bvh import load_bvh
@@ -59,36 +58,39 @@ def test_resolve_rest_anim_falls_back_to_the_first_clips_first_frame():
     _skip_if_raw_dump_missing()
     # Goat has no raw T-pose file at all.
     assert not list((REAL_RAW_ROOT / "Goat").glob("*[Tt][Pp][Oo][Ss][Ee]*"))
+    first_clip = sorted((REAL_RAW_ROOT / "Goat").glob("*.bvh"))[0]
+
     rest_anim = resolve_rest_anim("Goat", REAL_RAW_ROOT)
     assert rest_anim.n_frames == 1
+    assert rest_anim.names == load_raw_biped_bvh(first_clip).names
 
-    first_clip = sorted((REAL_RAW_ROOT / "Goat").glob("*.bvh"))[0]
-    expected = load_raw_biped_bvh(first_clip)
-    np.testing.assert_allclose(rest_anim.rotations[0], expected.rotations[0])
+    # resolve_rest_anim fits clean rotations/offsets via IK (establish_rest_pose)
+    # rather than using the fallback file's raw declared rotations directly --
+    # so its own global positions should closely match that file's TRUE
+    # (rotation+translation) geometry, not equal its raw rotations exactly.
+    from poseydon.datasets.raw_bvh import _damaged_global, _parse_and_merge
+
+    names, parents, offsets, rotations, positions, fps = _parse_and_merge(first_clip)
+    true_positions, _ = _damaged_global(rotations[:1], positions[:1], parents)
+    scale = np.linalg.norm(offsets[1:], axis=1).mean()
+
+    fitted_positions = rest_anim.global_positions()
+    error = np.linalg.norm(fitted_positions[0] - true_positions[0], axis=-1) / scale
+    assert np.median(error) < 0.05
 
 
-def test_clean_species_clips_preserves_positions_and_zeroes_the_rest_frame(tmp_path):
+def test_clean_species_clips_reuses_the_rest_poses_offsets_for_every_clip(tmp_path):
     _skip_if_raw_dump_missing()
     scratch_root = tmp_path / "scratch"
     written = clean_species_clips("Goat", REAL_RAW_ROOT, scratch_root)
 
-    # Goat's rest fallback is its alphabetically-first raw clip -- that
-    # clip's own cleaned frame 0 must now read as identity for every joint.
-    first_clip_name = sorted((REAL_RAW_ROOT / "Goat").glob("*.bvh"))[0].name
-    rest_clip = next(p for p in written if p.name == first_clip_name)
-    rest_cleaned = load_bvh(rest_clip)
-    np.testing.assert_allclose(
-        rest_cleaned.rotations[0],
-        np.broadcast_to(QUAT_IDENTITY, (rest_cleaned.n_joints, 4)),
-        atol=1e-5,
-    )
-
     # Every clip of a skeleton reuses the SAME (rest-pose) offsets -- they
     # are a skeleton-level constant, never re-rotated per clip -- matching
     # the reference's own compute_rots_from_tpos, which does the same.
+    rest_anim = resolve_rest_anim("Goat", REAL_RAW_ROOT)
     other_clip = next(p for p in written if p.name == "__HeadButt.bvh")
     after = load_bvh(other_clip)
-    np.testing.assert_allclose(after.offsets, rest_cleaned.offsets, atol=1e-5)
+    np.testing.assert_allclose(after.offsets, rest_anim.offsets, atol=1e-5)
 
 
 def test_cleaned_clips_ingest_through_the_unmodified_pipeline(tmp_path, small_raw_root):

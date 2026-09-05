@@ -4,13 +4,68 @@ import numpy as np
 import pytest
 
 from poseydon.core.anim import Anim
-from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_mul
+from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_apply, quat_mul
 from poseydon.datasets.raw_bvh import (
+    _damaged_global,
+    _kabsch_init,
+    _parse_and_merge,
+    establish_rest_pose,
     freeze_non_root_translation,
     load_raw_biped_bvh,
     merge_redundant_root,
     remove_bind_pose,
 )
+
+
+def test_kabsch_init_exactly_fits_a_single_child_chain():
+    # One child per joint (no fork), so the best-fit rotation is exact --
+    # this is the base case _kabsch_init reduces to.
+    offsets = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    parents = np.array([-1, 0, 1], dtype=np.int32)
+    true_rot = euler_to_quat(np.array([[30.0, -15.0, 40.0], [10.0, 25.0, -5.0], [0.0, 0.0, 0.0]]), "ZYX")
+
+    global_rot = np.zeros((3, 4))
+    global_pos = np.zeros((3, 3))
+    global_rot[0] = true_rot[0]
+    for j in (1, 2):
+        global_rot[j] = quat_mul(global_rot[parents[j]], true_rot[j])
+        global_pos[j] = global_pos[parents[j]] + quat_apply(global_rot[parents[j]], offsets[j])
+
+    local_rot = _kabsch_init(offsets, global_pos, parents)
+
+    # Recompute global positions via ordinary FK using the fitted LOCAL
+    # rotations, and check they reproduce the true positions exactly.
+    fitted_global_rot = np.zeros((3, 4))
+    fitted_pos = np.zeros((3, 3))
+    fitted_global_rot[0] = local_rot[0]
+    for j in (1, 2):
+        fitted_global_rot[j] = quat_mul(fitted_global_rot[parents[j]], local_rot[j])
+        fitted_pos[j] = fitted_pos[parents[j]] + quat_apply(fitted_global_rot[parents[j]], offsets[j])
+
+    np.testing.assert_allclose(fitted_pos, global_pos, atol=1e-6)
+
+
+def test_establish_rest_pose_reproduces_most_joint_positions_closely_on_real_data():
+    _skip_if_raw_dump_missing()
+    # BrownBear's declared bone lengths are internally slightly inconsistent
+    # with its own T-pose recording for two joints (verified: Bip01_L_Thigh
+    # and Bip01_R_Thigh, ~6-8% off) -- a real data property, not a solver
+    # bug (see establish_rest_pose's docstring). The other ~34 joints should
+    # fit closely.
+    path = RAW_ROOT / "BrownBear" / "__Tpose.bvh"
+    names, parents, offsets, rotations, positions, fps = _parse_and_merge(path)
+    global_pos, _ = _damaged_global(rotations[:1], positions[:1], parents)
+
+    rest = establish_rest_pose(path)
+    fitted_positions = rest.global_positions()
+
+    error = np.linalg.norm(fitted_positions[0] - global_pos[0], axis=-1)
+    scale = np.linalg.norm(offsets[1:], axis=1).mean()
+    relative = error / scale
+
+    # Most joints fit well; a handful (the known data inconsistency) don't.
+    assert np.median(relative) < 0.03
+    assert (relative < 0.05).sum() >= len(names) - 6
 
 
 def test_remove_bind_pose_makes_the_rest_frame_read_as_identity():
