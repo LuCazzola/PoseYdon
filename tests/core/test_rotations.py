@@ -15,6 +15,12 @@ from poseydon.core.rotations import (
 )
 
 
+def random_quats(n, seed=0):
+    rng = np.random.default_rng(seed)
+    q = rng.normal(size=(n, 4))
+    return q / np.linalg.norm(q, axis=-1, keepdims=True)
+
+
 def test_quat_inverse_undoes_the_rotation():
     q = random_quats(5)
     composed = quat_mul(quat_inverse(q), q)
@@ -23,12 +29,6 @@ def test_quat_inverse_undoes_the_rotation():
 
 def test_quat_inverse_of_identity_is_identity():
     np.testing.assert_allclose(quat_inverse(QUAT_IDENTITY), QUAT_IDENTITY)
-
-
-def random_quats(n, seed=0):
-    rng = np.random.default_rng(seed)
-    q = rng.normal(size=(n, 4))
-    return q / np.linalg.norm(q, axis=-1, keepdims=True)
 
 
 def test_quat_layout_is_scalar_last():
