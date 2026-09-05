@@ -83,13 +83,12 @@ def test_clean_species_clips_preserves_positions_and_zeroes_the_rest_frame(tmp_p
         atol=1e-5,
     )
 
-    # A different clip's global positions must be unchanged by bind removal
-    # (only the rotation/offset convention changes), modulo the save_bvh/
-    # load_bvh round trip's .6f serialization precision.
+    # Every clip of a skeleton reuses the SAME (rest-pose) offsets -- they
+    # are a skeleton-level constant, never re-rotated per clip -- matching
+    # the reference's own compute_rots_from_tpos, which does the same.
     other_clip = next(p for p in written if p.name == "__HeadButt.bvh")
-    before = load_raw_biped_bvh(REAL_RAW_ROOT / "Goat" / "__HeadButt.bvh")
     after = load_bvh(other_clip)
-    np.testing.assert_allclose(after.global_positions(), before.global_positions(), atol=1e-3)
+    np.testing.assert_allclose(after.offsets, rest_cleaned.offsets, atol=1e-5)
 
 
 def test_cleaned_clips_ingest_through_the_unmodified_pipeline(tmp_path, small_raw_root):

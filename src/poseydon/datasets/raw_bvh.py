@@ -15,8 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.anim import Anim
-from poseydon.core.kinematics import forward_kinematics
-from poseydon.core.rotations import quat_apply, quat_inverse, quat_mul
+from poseydon.core.rotations import quat_inverse, quat_mul
 from poseydon.io.bvh import _channels_to_arrays, _parse_hierarchy, _parse_motion
 
 _ZERO_OFFSET_ATOL = 1e-6
@@ -88,12 +87,14 @@ def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
     cleaned the same way as ``anim`` via :func:`load_raw_biped_bvh`) as the
     reference for what "zero" should mean.
 
-    Global joint POSITIONS are preserved exactly, at every frame -- only the
-    rotation/offset convention changes, not the physically observed motion.
-    Offsets are recomputed from the rest pose's own global geometry (the
-    bone vectors implied by its joint positions), since keeping the raw,
-    arbitrarily-oriented offsets while changing what "zero rotation" means
-    would visually distort the skeleton's shape.
+    Offsets come from ``rest_anim`` unchanged (or ``anim``'s own, for a
+    joint missing from the rest reference -- see below; skeleton-level
+    offsets are the same file-declared constant either way) and are never
+    rotated per clip: this matches the reference's own per-clip step
+    (`motion_process.py::compute_rots_from_tpos`, ported here verbatim
+    modulo quaternion storage convention) exactly, which reuses one
+    canonical offset array for every clip of a skeleton rather than
+    re-deriving it per clip.
 
     ``rest_anim``'s joints need not be every one of ``anim``'s -- matched by
     NAME. Raw T-pose files sometimes omit whole sub-chains that action clips
@@ -110,45 +111,41 @@ def remove_bind_pose(anim: Anim, rest_anim: Anim) -> Anim:
     already-identity noise, in every clip checked).
     """
     rest_index = {name: i for i, name in enumerate(rest_anim.names)}
-    _, rest_global_rot = forward_kinematics(
-        rest_anim.rotations[:1], rest_anim.root_pos[:1], rest_anim.offsets, rest_anim.parents
-    )
 
-    # `bind[joint]` is joint's GLOBAL rest rotation, in anim's own joint
-    # order. For a joint present in rest_anim, that's straight from FK on
-    # the rest pose. For one missing, it's built the same way FK builds any
-    # global rotation -- compose the PARENT's already-resolved global bind
-    # (parents always precede children, so it's already filled in) with
-    # this joint's own frame-0 local rotation, treating that as its local
-    # bind value.
+    # `local_bind[j]` is joint j's own LOCAL rest rotation: straight from
+    # rest_anim when present, else falls back to anim's own frame-0 value
+    # (see docstring). `bind[j]` is the GLOBAL rest rotation -- the usual FK
+    # accumulation, parent's global composed with this joint's own local --
+    # needed for the PARENT side of the formula below. Both are built in one
+    # pass since parents always precede children.
+    local_bind = np.empty((anim.n_joints, 4))
     bind = np.empty((anim.n_joints, 4))
     for joint, name in enumerate(anim.names):
-        if name in rest_index:
-            bind[joint] = rest_global_rot[0, rest_index[name]]
-        elif joint == 0:
-            bind[joint] = anim.rotations[0, joint]
-        else:
-            bind[joint] = quat_mul(bind[anim.parents[joint]], anim.rotations[0, joint])
+        local_bind[joint] = (
+            rest_anim.rotations[0, rest_index[name]] if name in rest_index else anim.rotations[0, joint]
+        )
+        bind[joint] = (
+            local_bind[joint]
+            if joint == 0
+            else quat_mul(bind[anim.parents[joint]], local_bind[joint])
+        )
 
     new_offsets = anim.offsets.copy()
     new_rotations = anim.rotations.copy()
 
-    new_rotations[:, 0] = quat_mul(anim.rotations[:, 0], quat_inverse(bind[0]))
+    new_rotations[:, 0] = quat_mul(anim.rotations[:, 0], quat_inverse(local_bind[0]))
 
     for joint in range(1, anim.n_joints):
         parent_bind = bind[anim.parents[joint]]
-        own_bind = bind[joint]
 
-        # The offset -- a vector in the PARENT's frame -- follows the
-        # parent's own bind removal, whether or not this joint has its own
-        # rest reference. The rotation is sandwiched between its own bind
-        # (undone on the right) and its parent's bind (reapplied on the
-        # left) -- this two-sided change of basis is what makes the rest
-        # frame read as identity while keeping every frame's global
-        # positions exactly matching the original animation.
-        new_offsets[joint] = quat_apply(parent_bind, anim.offsets[joint])
+        # Sandwiched between its own LOCAL bind (undone) and its parent's
+        # GLOBAL bind (removed, then reapplied) -- ported verbatim from the
+        # reference's compute_rots_from_tpos. Offsets are untouched: they
+        # stay the skeleton-level constant from the rest pose, reused for
+        # every frame and every clip, exactly as the reference does.
         new_rotations[:, joint] = quat_mul(
-            parent_bind, quat_mul(anim.rotations[:, joint], quat_inverse(own_bind))
+            quat_mul(quat_mul(parent_bind, anim.rotations[:, joint]), quat_inverse(local_bind[joint])),
+            quat_inverse(parent_bind),
         )
 
     return Anim(
