@@ -17,10 +17,11 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.skeleton import SkeletonManifest, resolve
-from poseydon.datasets.raw_bvh import load_raw_biped_bvh
+from poseydon.datasets.raw_bvh import load_raw_biped_bvh, remove_bind_pose
 from poseydon.features import extract_features
 from poseydon.ingest.align import align, compute_alignment_params
 from poseydon.io.bvh import load_bvh
+from scripts.create_truebones_dataset import resolve_rest_anim
 
 RAW_ROOT = Path("data/truebones/Truebone_Z-OO")
 FIXTURE_ROOT = Path("external/neural_motion_blending/assets/truebones")
@@ -55,7 +56,8 @@ def compare_clip(species: str, raw_relpath: str, fixture_stem: str) -> dict[str,
     manifest = SkeletonManifest.load(MANIFEST_DIR / f"{species}.yaml")
     feature_names = ("ric_pos", "rot6d", "local_vel", "foot_contact")
 
-    raw_anim = load_raw_biped_bvh(RAW_ROOT / raw_relpath)
+    rest_anim = resolve_rest_anim(species, RAW_ROOT)
+    raw_anim = remove_bind_pose(load_raw_biped_bvh(RAW_ROOT / raw_relpath), rest_anim)
     raw_resolved = resolve(manifest, raw_anim.names)
     raw_aligned = align(raw_anim, raw_resolved, compute_alignment_params(raw_anim, raw_resolved))
     raw_features, _ = extract_features(raw_aligned, raw_resolved, feature_names)
