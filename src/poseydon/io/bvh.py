@@ -128,7 +128,7 @@ def _channels_to_arrays(values, channels, n_joints):
     Every joint gets a (F, 3) position slot -- zero-filled if it declared no
     position channels. No contract enforcement: callers decide what a
     non-root position column means. Shared by ``_channels_to_local`` (which
-    rejects non-root translation) and ``poseydon.datasets.raw_bvh`` (which
+    rejects non-root translation) and ``poseydon.preproc.raw_bvh`` (which
     doesn't).
 
     Joints are grouped by rotation order and converted in one call per order
