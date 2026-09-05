@@ -60,3 +60,13 @@ def merge_redundant_root(
     new_names = names[1:]
 
     return new_names, new_parents, new_offsets[1:], new_rotations[:, 1:], new_positions[:, 1:]
+
+
+def freeze_non_root_translation(positions: np.ndarray) -> np.ndarray:
+    """Discard every non-root joint's animated translation.
+
+    PoseYdon's ``Anim`` has no field to carry per-joint translation (bone
+    lengths are fixed; only the root moves), so this drops it rather than
+    averaging or sampling it. Returns the root's own trajectory unchanged.
+    """
+    return positions[:, 0].copy()

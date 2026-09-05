@@ -2,7 +2,21 @@ import numpy as np
 import pytest
 
 from poseydon.core.rotations import quat_mul
-from poseydon.datasets.raw_bvh import merge_redundant_root
+from poseydon.datasets.raw_bvh import freeze_non_root_translation, merge_redundant_root
+
+
+def test_freeze_non_root_translation_keeps_only_the_root_column():
+    positions = np.array(
+        [
+            [[1.0, 2.0, 3.0], [10.0, 20.0, 30.0], [100.0, 200.0, 300.0]],
+            [[4.0, 5.0, 6.0], [40.0, 50.0, 60.0], [400.0, 500.0, 600.0]],
+        ]
+    )  # (F=2, J=3, 3)
+
+    root_pos = freeze_non_root_translation(positions)
+
+    np.testing.assert_array_equal(root_pos, [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    assert root_pos.shape == (2, 3)
 
 
 def _chain(offset1, rot0, rot1, pos0, pos1):
