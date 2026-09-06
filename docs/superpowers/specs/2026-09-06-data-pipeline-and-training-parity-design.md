@@ -179,6 +179,35 @@ from `bvh/<Rig>` and from `fbx/<Rig>` must agree on joint count, names, parent
 array and rest offsets. Currently verified once, by hand, in a commit message.
 It becomes a test.
 
+### Rest geometry is not rig-level
+
+`FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion, not
+just rotations, so **prepared clips of the same rig do not share an OFFSET
+block** — each clip's rest geometry is rotated by that clip's own frame-0
+facing correction, and those corrections differ clip to clip (up to 0.42 bone
+lengths apart, measured on BrownBear). "The skeleton extracted from
+`clips/<Rig>/`" is therefore not a single object; there are as many rest
+geometries as there are clips, one per facing quaternion.
+
+This matters beyond this phase. Spec §4 has a later phase write one
+rig-level `skeleton.npz` carrying `offsets`, and `features/reconstruct.py`
+does forward kinematics with them. The canonical rig-level rest geometry has
+to be the **T-pose clip's** offsets specifically — using any other clip's
+offsets with that clip's own rotations is fine (they are mutually
+consistent), but using rig-level offsets from one clip together with a
+*different* clip's rotations yields a skeleton rotated by `R_rest · R_clip⁻¹`
+relative to the truth. A later phase must take rig-level offsets from the
+rest-pose clip, never from an arbitrary one.
+
+The reference implementation avoids this entirely by rotating only the root
+joint to face +Z, leaving every other joint's offset untouched and shared
+across all of a rig's clips by construction. PoseYdon's choice to rotate the
+whole rig (`rotate_rig`, not just the root) is deliberate: it is what lets a
+DCC tool draw the rest skeleton and the animation with the same convention,
+rather than the root pointing one way and the limbs implicitly assuming
+another. That convenience is what produces the per-clip OFFSET divergence
+documented here.
+
 ## 4. Stage 2 — `scripts/build_features.py`
 
 A thin Hydra runner over a new `poseydon/build/` package, configured by
@@ -580,6 +609,21 @@ central guarantee for four characters.
 
 **No validation split.** Out of scope by decision; every index row is
 `split: train` and the Trainer runs with validation disabled.
+
+**BVH and FBX clips do not pair by filename for the whole corpus.** Both
+stage-1 scripts derive a clip's basename the same way —
+`strip_skeleton_prefix(action_slug(stem), rig)` — on the assumption that the
+two raw corpora name their files consistently enough for this to converge.
+It does not hold everywhere. BrownBear's BVH files are `__<Action>.bvh`,
+stripping the manifest's `brownbear_` prefix, while its FBX files are
+`BEAR-<Action>.fbx` — `strip_skeleton_prefix` strips the *rig* name, not
+`bear_`, so the two sides produce disjoint basenames (0 of 22 clips agree).
+Elephant and Fox are worse: their FBX corpora ship `atk 1.fbx` against BVH's
+`__Attack1.bvh`, a divergence no filename-derivation rule can close because
+the two names share no derivable relationship at all. Closing this needs an
+authored per-rig alias map from FBX filename to BVH action, not a cleverer
+slug function; BrownBear, Elephant and Fox are the confirmed cases, and the
+corpus has not been swept exhaustively for others.
 
 ## Phasing
 
