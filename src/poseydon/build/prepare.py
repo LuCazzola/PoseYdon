@@ -15,8 +15,10 @@ between a crouch and a stand. A ``"clip"`` stage fits per animation.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
@@ -384,3 +386,61 @@ class PutOnGround(PrepareStage):
     def invert(self, anim, params):
         shift = np.array([0.0, float(params["height"]), 0.0])
         return _with_root(anim, anim.root_pos + shift)
+
+
+@dataclass(frozen=True)
+class RigTransform:
+    """Everything the chain fitted for one rig, plus its per-clip parameters.
+
+    Persisted because the transform is otherwise one-way. The facing rotation in
+    particular is derived from a clip's own frame 0, so a prepared file already
+    facing +Z no longer knows which way it started.
+
+    Stored as a flat npz with ``/``-joined keys -- ``rig/scale/factor``,
+    ``clip/walk/face_axis/rotation`` -- so the file stays inspectable with
+    ``np.load`` and needs no pickle.
+    """
+
+    rig_params: dict[str, dict]
+    clip_params: dict[str, dict[str, dict]]
+
+    def params_for(self, clip: str) -> dict[str, dict]:
+        """The full parameter set for one clip: rig-scoped plus its own."""
+        if clip not in self.clip_params:
+            known = ", ".join(sorted(self.clip_params)[:5]) or "(none)"
+            raise KeyError(
+                f"no recorded parameters for clip `{clip}`; known clips: {known}"
+            )
+        return {**self.rig_params, **self.clip_params[clip]}
+
+    def save(self, path) -> None:
+        arrays: dict[str, np.ndarray] = {}
+        for stage, params in self.rig_params.items():
+            for key, value in params.items():
+                arrays[f"rig/{stage}/{key}"] = np.asarray(value)
+        for clip, stages in self.clip_params.items():
+            for stage, params in stages.items():
+                for key, value in params.items():
+                    arrays[f"clip/{clip}/{stage}/{key}"] = np.asarray(value)
+        arrays["__clips__"] = np.array(json.dumps(sorted(self.clip_params)))
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(Path(path), **arrays)
+
+    @classmethod
+    def load(cls, path) -> RigTransform:
+        rig: dict[str, dict] = {}
+        clips: dict[str, dict[str, dict]] = {}
+        with np.load(Path(path), allow_pickle=True) as data:
+            for name in json.loads(str(data["__clips__"])):
+                clips[name] = {}
+            for key in data.files:
+                if key == "__clips__":
+                    continue
+                head, *rest = key.split("/")
+                if head == "rig":
+                    stage, field = rest
+                    rig.setdefault(stage, {})[field] = data[key]
+                else:
+                    clip, stage, field = rest
+                    clips.setdefault(clip, {}).setdefault(stage, {})[field] = data[key]
+        return cls(rig_params=rig, clip_params=clips)

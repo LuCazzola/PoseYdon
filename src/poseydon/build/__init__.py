@@ -8,6 +8,7 @@ from poseydon.build.prepare import (
     PrepareStage,
     PutOnGround,
     RestRelative,
+    RigTransform,
     ScaleToMeanBoneLength,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "PrepareStage",
     "PutOnGround",
     "RestRelative",
+    "RigTransform",
     "ScaleToMeanBoneLength",
 ]

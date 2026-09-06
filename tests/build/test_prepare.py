@@ -15,6 +15,7 @@ from poseydon.build.prepare import (
     PrepareStage,
     PutOnGround,
     RestRelative,
+    RigTransform,
     ScaleToMeanBoneLength,
 )
 from poseydon.core.animation import Animation
@@ -333,3 +334,29 @@ def test_enforce_rigid_records_the_source_channel_layout():
     # is not the source's declaration.
     assert params["source_channels"][-1] == ()
     assert written.channels[-1] == ()
+
+
+def test_rig_transform_round_trips_through_a_file(tmp_path):
+    chain = PrepareChain((Shift(), Double()))
+    source = _anim()
+    rig = chain.fit_rig(source, resolved=None)
+    _prepared, params = chain.apply(source, resolved=None, rig_params=rig)
+
+    transform = RigTransform(rig_params=rig, clip_params={"walk": params})
+    path = tmp_path / "prepare.npz"
+    transform.save(path)
+    loaded = RigTransform.load(path)
+
+    np.testing.assert_allclose(
+        loaded.rig_params["shift"]["amount"], rig["shift"]["amount"]
+    )
+    np.testing.assert_allclose(
+        loaded.clip_params["walk"]["double"]["factor"], 2.0
+    )
+
+
+def test_rig_transform_reports_an_unknown_clip_clearly(tmp_path):
+    transform = RigTransform(rig_params={}, clip_params={})
+    transform.save(tmp_path / "prepare.npz")
+    with pytest.raises(KeyError, match="jump"):
+        RigTransform.load(tmp_path / "prepare.npz").params_for("jump")
