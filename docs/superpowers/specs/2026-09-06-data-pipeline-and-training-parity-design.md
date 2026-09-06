@@ -68,42 +68,69 @@ source ◀─unprepare── prepared ◀──expand─────────
 
 ## 2. On-disk layout
 
-Each fact is stored at exactly one scope. The index is where scopes are joined.
+Organised **by entity**: everything about one character lives under
+`rigs/<Rig>/`, everything about one clip shares a basename under
+`clips/<Rig>/`. One `ls` answers "what do we know about BrownBear".
 
 ```
 data/truebones/
-├── skeletons/<Rig>.yaml      rig,  authored   facing, foot_joints, contact, fps, tags
-├── labels/<clip>.yaml        clip, authored   action, split, text, notes
+├── source/<Rig>/…                raw BVH and FBX, as purchased or uploaded
 │
-│                             ── stage 1: prepare, DCC-facing
-├── bvh/<Rig>/<clip>.bvh      prepared motion, openable in a DCC tool
-├── fbx/<Rig>/<clip>.fbx      the same motion, with skin
-├── mesh/<Rig>.npz            verts, faces, skin weights, bind pose
-├── prepare/<Rig>.npz         the inverse: rig constants + per-clip facing quats
+├── rigs/_base.yaml               shared manifest fragment
+├── rigs/<Rig>/
+│   ├── manifest.yaml   authored  facing, foot_joints, contact, fps, tags
+│   ├── prepare.npz     stage 1   rest rotations, scale, ground, XZ, per-clip facing table
+│   ├── mesh.npz        stage 1   verts, faces, skin weights, bind pose
+│   ├── skeleton.npz    stage 2   offsets, parents, raw and humanized names,
+│   │                             reduction map, prepare constants, name embeddings
+│   └── stats.npz       stage 2   mean, std, blocks, tpose frame  (schema-dependent)
 │
-│                             ── stage 2: build_features, training-facing
-├── motion/<clip>.npz         prepared motion as arrays, fast to load
-├── rigs/<Rig>.npz            offsets, parents, names, humanized names, reduction map,
-│                             prepare constants, mesh and weights, name embeddings
-├── stats/<Rig>.npz           mean, std, blocks, tpose frame — the only schema-dependent artefact
-└── index.jsonl               derived join, one flat row per clip
+├── clips/<Rig>/
+│   ├── <action>.yaml   authored  split, text, notes
+│   ├── <action>.bvh    stage 1   prepared motion, openable in a DCC tool
+│   ├── <action>.fbx    stage 1   the same motion, with skin
+│   └── <action>.npz    stage 2   prepared motion as arrays + this clip's facing quat
+│
+└── index.jsonl         stage 2   derived join, one flat row per clip
 ```
 
-The dividing rule: **stage 1 writes DCC formats, stage 2 writes everything
-training reads.** Training never opens a `.bvh`.
+A rig is a **directory**, which retires the `_`-prefix convention
+`available_skeletons` uses today to tell manifests from shared fragments. The
+clip id stays `<Rig>__<action>` as the index identity; on disk the rig is the
+directory, so the filename need not repeat it.
 
-Two properties follow.
+Because authored and derived files interleave, `.gitignore` matches by extension
+rather than by directory:
 
-**Only `stats/` depends on the feature schema.** Changing `features:` re-runs one
-pass over already-prepared motion — seconds, not a corpus rebuild.
-`stats/<Rig>.npz` records the block layout it was fitted under, and
-`MotionDataset` refuses a mismatch rather than normalizing with the wrong
-numbers.
+```
+data/*/source/
+data/**/*.npz
+data/**/*.bvh
+data/**/*.fbx
+data/**/index.jsonl
+```
+
+**Every file has exactly one writer.** Stage 1 writes `prepare.npz`, `mesh.npz`
+and the prepared BVH/FBX; stage 2 writes `skeleton.npz`, `stats.npz`, the clip
+`.npz` and the index. Stage 2 reads `prepare.npz` and folds the rig constants
+into `skeleton.npz` and each clip's facing quaternion into its own `.npz`, so
+the training-facing files are self-contained and stage 2 can be re-run without
+Blender.
+
+Three properties follow.
+
+**Only `stats.npz` depends on the feature schema.** Changing `features:` re-runs
+one pass over already-prepared motion — seconds, not a corpus rebuild. It records
+the block layout it was fitted under, and `MotionDataset` refuses a mismatch
+rather than normalizing with the wrong numbers. One schema is stored at a time;
+building a second overwrites the first.
+
+**Training never opens a `.bvh`.** The `.bvh` and `.fbx` beside each clip exist
+so a human can look at the data; `MotionDataset` reads only `.npz` and `.yaml`.
 
 **Labels are authored, not owned by the build.** A rebuild writes a label file
-only when one is absent. `--relabel` refreshes derived fields (`action`,
-`split`) and preserves every key it did not write, so a hand-written `text:`
-survives.
+only when one is absent. `--relabel` refreshes derived fields and preserves every
+key it did not write, so a hand-written `text:` survives.
 
 `tags` lives once, in the manifest, and is joined into the index rows at build
 time. Today `ingest/pipeline.py:141` copies it into every `ClipRecord`, writing
@@ -123,7 +150,7 @@ The stages, each implementing `apply` and `invert`:
 |---|---|---|
 | `RestRelative` | the rig's rest pose | rest rotations `(J, 4)`, per rig |
 | `FaceAxis(axis="+Z")` | **each clip's** frame 0 | facing quaternion `(4,)`, per clip |
-| `EnforceRigid(joint_translation="drop")` | — | none; not invertible, see Limitations |
+| `EnforceRigid(joint_translation="drop")` | — | the rest offsets; structure inverts, values do not |
 | `ScaleToMeanBoneLength(target=0.2092)` | the rig's rest pose | scale factor, per rig |
 | `CentreXZ` | the rig's rest pose | XZ offset, per rig |
 | `PutOnGround` | the rig's rest pose | ground height, per rig |
@@ -134,7 +161,12 @@ scale, ground. Reordering changes the result.
 The per-clip facing is the one that would be lost silently. `rotate_to_face_axis`
 derives it from that clip's frame 0, so once the prepared file faces +Z the
 original orientation is unrecoverable from it. It is written to
-`prepare/<Rig>.npz` as a clip-id-keyed table.
+`rigs/<Rig>/prepare.npz` as a clip-id-keyed table.
+
+`EnforceRigid.invert` re-inserts the per-joint position channels filled with the
+rest offsets. A source BVH declaring six channels per joint comes back declaring
+six channels per joint, with the same hierarchy, names and channel order, and an
+FBX keeps its translation curves. Only the values differ — see Limitations.
 
 The reference stores the rig-level constants for the same reason —
 `root_pose_init_xz`, `scale_factor`, `ground_height`, `tpos_rots` in `cond.npy`,
@@ -155,28 +187,25 @@ value is a plain key.
 
 ```yaml
 # configs/dataset/truebones.yaml
-prepared_root: data/truebones/bvh
-out_root:      data/truebones
-manifests:     data/truebones/skeletons
-schema:        [ric_pos, rot6d, local_vel, foot_contact]
+root:   data/truebones
+schema: [ric_pos, rot6d, local_vel, foot_contact]
 
-source: {_target_: poseydon.build.sources.PerRigDirectory, pattern: "*.bvh"}
-labels: {_target_: poseydon.build.labels.FromFilename}
-reduce: {_target_: poseydon.build.reduce.DropDegenerateJoints, tolerance: 1.0e-8}
+corpus: {_target_: poseydon.build.corpus.PerRigDirectory, pattern: "*.bvh"}
+reduce: {_target_: poseydon.features.reduce.DropDegenerateJoints, tolerance: 1.0e-8}
 names:  {_target_: poseydon.build.names.Humanize, lowercase: true, expand_sides: true}
 text:   null
 ```
 
 Passes:
 
-- **per clip** — read the prepared BVH, write `motion/<clip>.npz` carrying the
-  motion arrays and that clip's facing quaternion from `prepare/<Rig>.npz`, and
-  write `labels/<clip>.yaml` if absent.
+- **per clip** — read `clips/<Rig>/<action>.bvh`, write `<action>.npz` carrying
+  the motion arrays and that clip's facing quaternion from `prepare.npz`, and
+  write `<action>.yaml` if absent.
 - **per rig** — build the reduction map; humanize joint names; optionally encode
-  them; fold in `prepare/<Rig>.npz` and `mesh/<Rig>.npz`; write `rigs/<Rig>.npz`.
+  them; fold in `prepare.npz` and `mesh.npz`; write `skeleton.npz`.
 - **per rig, schema-dependent** — extract the schema over every clip of the rig
   through the reduction, fit the `Normalizer` under the per-block policy, extract
-  and normalize the rest frame, write `stats/<Rig>.npz`.
+  and normalize the rest frame, write `stats.npz`.
 - **once** — write `index.jsonl`, joining clip labels with rig-level manifest
   fields.
 
@@ -253,7 +282,7 @@ reference's stored joint counts exactly:
 The map is a `JointEdit` — the type already in `augment/joint_edit.py`, which
 records `source_of[new] = old` and transports normalizer rows and the rest frame
 through a relabelling. The reduction is one more edit, computed once per rig,
-stored in `rigs/<Rig>.npz`, and composed with the per-sample augmentations via
+stored in `rigs/<Rig>/skeleton.npz`, and composed with the per-sample augmentations via
 the existing `JointEdit.compose`. Order: reduce (deterministic, rig-level) then
 augment (random, per-sample). `resolve()`'s facing and foot indices are remapped
 through the same edit by `augment/topology.py::_reindex_resolved`.
@@ -307,7 +336,7 @@ prepare:
   - {_target_: poseydon.build.prepare.CentreXZ}
   - {_target_: poseydon.build.prepare.PutOnGround}
 
-reduce: {_target_: poseydon.build.reduce.DropDegenerateJoints, tolerance: 1.0e-8}
+reduce: {_target_: poseydon.features.reduce.DropDegenerateJoints, tolerance: 1.0e-8}
 features: [ric_pos, rot6d, local_vel, foot_contact]
 normalize:                    # the per-block policy of §5, verbatim
   - {name: ric_pos,      center: true,  scale: joint_block}
@@ -333,11 +362,11 @@ the recipe and rejects overrides that touch the data path.
 `MotionDataset.__getitem__` becomes:
 
 ```
-load motion/<clip>.npz          prepared RigidBodyAnimation, full joint set
-apply the rig's reduction       JointEdit from rigs/<Rig>.npz
+load clips/<Rig>/<action>.npz   prepared RigidBodyAnimation, full joint set
+apply the rig's reduction       JointEdit from rigs/<Rig>/skeleton.npz
 apply augmentations             JointEdit composed onto it
 extract features                the schema
-normalize                       stats/<Rig>.npz, transported through the composed edit
+normalize                       rigs/<Rig>/stats.npz, transported through the composed edit
 crop                            window policy
 ```
 
@@ -355,8 +384,8 @@ class ClipView:
     anim: RigidBodyAnimation
     resolved: ResolvedSkeleton
     start: int
-    clip: Annotations   # labels/<clip>.yaml plus any per-clip arrays
-    rig: Annotations    # rigs/<Rig>.npz — names, embeddings, mesh, weights
+    clip: Annotations   # clips/<Rig>/<action>.yaml plus any per-clip arrays
+    rig: Annotations    # rigs/<Rig>/*.npz — names, embeddings, mesh, weights
 ```
 
 A future `text` conditioner reads `view.clip["text_emb"]`; `joint_names` reads
@@ -370,7 +399,8 @@ the identical crop and augmentation stream. It is reseeded per worker in
 
 ### Conditioners
 
-- **`joint_names`** — `(J, 768)` from `rigs/<Rig>.npz`, padded on the joint axis.
+- **`joint_names`** — `(J, 768)` from `rigs/<Rig>/skeleton.npz`, padded on the
+  joint axis.
   `configs/model/anytop.yaml` gains `name_embedding_dim: 768`, without which
   `AnyTop.name_projection` stays `None` and the embeddings are silently ignored
   (`models/anytop.py:139`).
@@ -452,15 +482,36 @@ Six, chosen to be load-bearing rather than exhaustive.
 
 ## 12. Migration
 
+Each new module lives where its *consumer* is, not where it is produced, so
+training imports `features/` and `core/` and never imports `build/`.
+
+| module | role |
+|---|---|
+| `build/prepare.py` | the invertible geometry stages |
+| `build/corpus.py` | clip discovery and label derivation |
+| `build/names.py` | humanize, and optionally encode, joint names |
+| `build/index.py` | moved from `ingest/`, unchanged |
+| `build/pipeline.py` | the four passes |
+| `core/recipe.py` | the recorded chain — read by `sample` and the application |
+| `features/reduce.py` | reduction and expansion, inverted in `reconstruct.py` |
+| `data/normalize.py` | extended with the per-block policy; no new file |
+
+Seven new modules against six deleted, so the package count rises by one:
+
 | path | fate |
 |---|---|
-| `src/poseydon/ingest/pipeline.py` | deleted; replaced by `poseydon/build/` |
+| `src/poseydon/ingest/pipeline.py` | deleted; replaced by `build/pipeline.py` |
 | `src/poseydon/ingest/align.py` | → `build/prepare.py`, as invertible stages |
 | `src/poseydon/ingest/index.py` | → `build/index.py`, unchanged |
+| `src/poseydon/ingest/__init__.py` | deleted with the package |
 | `src/poseydon/preproc/rest_pose.py` | → `build/prepare.py::RestRelative` |
+| `src/poseydon/preproc/__init__.py` | deleted with the package |
 | `src/poseydon/datasets/` | deleted; contains only an empty `__init__.py` |
 | `SkeletonManifest.strip_joint_prefix` | removed; `Humanize` computes the prefix |
 | `poseydon ingest` | → `poseydon build` |
+| `data/truebones/skeletons/<Rig>.yaml` | → `rigs/<Rig>/manifest.yaml` |
+| `data/truebones/{bvh,fbx}/<Rig>/` | → `clips/<Rig>/` |
+| `data/truebones/Truebone_Z-OO/` | → `source/` |
 | `data/truebones/index.jsonl` | regenerated; the current file is stale |
 
 `CorpusIndex.load` calls `ClipRecord(**payload)` (`index.py:92`), so any index
@@ -484,12 +535,15 @@ Every joint lands in the right place with the right name, parent and offset; wha
 differs is which of two coincident joints stores the rotation. Unobservable in
 world space, and for generated motion there was never an original split.
 
-**`EnforceRigid` is not invertible.** Dropping per-joint translation discards
-real motion — measured at roughly 10% of skeleton size on raw Truebones. The
-round-trip returns a rigid animation, so a source rig that genuinely translates
-its joints comes back rigid. This is intrinsic to a rotation-based
-representation, not a defect of the implementation, and it is why the stage is
-explicit rather than silent.
+**`EnforceRigid` preserves structure but not values.** `invert` re-inserts the
+per-joint position channels, so the returned file declares the same channels in
+the same order under the same hierarchy and an FBX keeps its translation curves —
+the rig is structurally what the user handed over. What is lost is the animated
+content of those channels: they come back holding the constant rest offsets,
+because dropping per-joint translation discards real motion, measured at roughly
+10% of skeleton size on raw Truebones. This is intrinsic to a rotation-based
+representation rather than a defect of the implementation, and it is why the
+stage is explicit rather than silent.
 
 **No validation split.** Out of scope by decision; every index row is
 `split: train` and the Trainer runs with validation disabled.
