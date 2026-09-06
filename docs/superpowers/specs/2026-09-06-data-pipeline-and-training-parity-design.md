@@ -561,6 +561,23 @@ because dropping per-joint translation discards real motion, measured at roughly
 representation rather than a defect of the implementation, and it is why the
 stage is explicit rather than silent.
 
+**A clip whose joints differ from its own rest pose is rejected.**
+`RestRelative` requires the clip it prepares to carry exactly the joints its
+fitted rest pose declares, in the same order. It has to: a joint the rest pose
+never covered has no recorded bind rotation, so no inverse exists for it, and
+the whole point of this stage is that the transform can be undone. The earlier
+non-invertible implementation fell back to the clip's own frame-0 rotation for
+such joints — exact for a childless End Site, an approximation everywhere else.
+
+Measured over the corpus, this rejects **64 clips of 1153 across 8 of 73 rigs**.
+Most lose one clip. Four are gutted: Ant keeps 1 of 18, Crab 1 of 11, Deer 1 of
+21, Jaguar 1 of 14 — in each case the rig's own T-pose file declares a different
+skeleton from its animation clips (Crab's T-pose has 54 joints against the
+clips' 64). Those four are effectively unusable until someone supplies a rest
+pose that matches their clips, which is a data question rather than a code one.
+Recovering them by reinstating the approximate bind would trade this phase's
+central guarantee for four characters.
+
 **No validation split.** Out of scope by decision; every index row is
 `split: train` and the Trainer runs with validation disabled.
 
