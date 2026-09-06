@@ -67,11 +67,7 @@ def _children_of(parents: np.ndarray, joint: int) -> list[int]:
     return [j for j in range(len(parents)) if parents[j] == joint]
 
 
-def _next_removal(
-    anim: RigidBodyAnimation,
-    tolerance: float,
-    original_sibling_count: dict[str, int] | None = None,
-) -> RemovalOp | None:
+def _next_removal(anim: RigidBodyAnimation, tolerance: float) -> RemovalOp | None:
     """The first removable joint, or None when the rig is fully reduced."""
     lengths = np.linalg.norm(anim.offsets, axis=-1)
     for joint in range(1, anim.n_joints):
@@ -79,16 +75,11 @@ def _next_removal(
             continue
         parent = int(anim.parents[joint])
         children = _children_of(anim.parents, joint)
-        joint_name = anim.names[joint]
         if not children:
-            if original_sibling_count and original_sibling_count.get(joint_name, 0) > 0:
-                continue
-            return RemovalOp(joint_name, anim.names[parent], joint, DROP)
-        if original_sibling_count and original_sibling_count.get(joint_name, 0) > 0:
-            continue
+            return RemovalOp(anim.names[joint], anim.names[parent], joint, DROP)
         if len(_children_of(anim.parents, parent)) == 1:
             return RemovalOp(
-                joint_name,
+                anim.names[joint],
                 anim.names[parent],
                 joint,
                 COLLAPSE,
@@ -143,18 +134,13 @@ def build_reduction(
     """
     ops: list[RemovalOp] = []
     current = anim
-
-    # Compute sibling counts in the original rig
-    original_sibling_count: dict[str, int] = {}
-    for i in range(anim.n_joints):
-        parent_idx = int(anim.parents[i])
-        if parent_idx >= 0:
-            siblings = len(_children_of(anim.parents, parent_idx)) - 1
-        else:
-            siblings = 0
-        original_sibling_count[anim.names[i]] = siblings
-
-    while (op := _next_removal(current, tolerance, original_sibling_count)) is not None:
+    # Re-derived every iteration, deliberately: dropping a zero-offset leaf can
+    # leave its parent a zero-offset leaf in turn, and that parent is then
+    # droppable by case 1 even though it began as an internal joint with
+    # siblings. Scorpion/Bip01_Neck1 is exactly this shape. Testing the
+    # CURRENT hierarchy ensures we capture joints as they actually become
+    # droppable, not as they began.
+    while (op := _next_removal(current, tolerance)) is not None:
         ops.append(op)
         current = _remove(current, op)
 

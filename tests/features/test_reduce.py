@@ -60,6 +60,29 @@ def _with_sibling():
     )
 
 
+def _leaf_with_sibling():
+    """P -> {Z zero-offset internal with a zero-offset leaf child, other}.
+    Z begins with a sibling, so a rule reading the ORIGINAL hierarchy keeps it.
+    Reducing at removal time drops Z's leaf, which makes Z a leaf, and drops Z."""
+    return _rig(
+        offsets=[[0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0]],
+        parents=[-1, 0, 1, 0],
+        names=("root", "z", "z_end", "other"),
+        spin=(1,),
+    )
+
+
+def _real_internal_with_siblings():
+    """P -> {Z zero-offset with real-offset child, other}.
+    Z is internal and has siblings, so it is kept; it will never become a leaf."""
+    return _rig(
+        offsets=[[0, 0, 0], [0, 0, 0], [0, 2, 0], [1, 0, 0]],
+        parents=[-1, 0, 1, 0],
+        names=("root", "z", "a", "other"),
+        spin=(1, 2),
+    )
+
+
 def test_a_zero_offset_leaf_is_dropped():
     reduction = build_reduction(_leafy())
     reduced = apply_reduction(_leafy(), reduction)
@@ -81,8 +104,10 @@ def test_a_zero_offset_joint_with_siblings_is_kept():
 
 
 @pytest.mark.parametrize(
-    "factory", [_leafy, _only_child, _with_sibling],
-    ids=["leaf", "only-child", "with-sibling"],
+    "factory",
+    [_leafy, _only_child, _with_sibling, _leaf_with_sibling, _real_internal_with_siblings],
+    ids=["leaf", "only-child", "with-sibling", "leaf-with-sibling",
+         "real-internal-with-siblings"],
 )
 def test_reduction_does_not_move_any_surviving_joint(factory):
     source = factory()
@@ -99,8 +124,10 @@ def test_reduction_does_not_move_any_surviving_joint(factory):
 
 
 @pytest.mark.parametrize(
-    "factory", [_leafy, _only_child, _with_sibling],
-    ids=["leaf", "only-child", "with-sibling"],
+    "factory",
+    [_leafy, _only_child, _with_sibling, _leaf_with_sibling, _real_internal_with_siblings],
+    ids=["leaf", "only-child", "with-sibling", "leaf-with-sibling",
+         "real-internal-with-siblings"],
 )
 def test_expansion_restores_structure_and_world_positions(factory):
     source = factory()
@@ -132,3 +159,19 @@ def test_reduction_never_removes_the_root():
         offsets=[[0, 0, 0], [0, 1, 0]], parents=[-1, 0], names=("root", "tip")
     )
     assert apply_reduction(anim, build_reduction(anim)).names == ("root", "tip")
+
+
+def test_a_joint_that_becomes_a_leaf_is_dropped_even_though_it_had_siblings():
+    """Z initially has a sibling and is internal, but becomes a leaf after its
+    zero-offset child is dropped, then is itself dropped."""
+    source = _leaf_with_sibling()
+    reduced = apply_reduction(source, build_reduction(source))
+    assert reduced.names == ("root", "other")
+
+
+def test_a_zero_offset_internal_joint_with_real_children_and_siblings_is_kept():
+    """The genuine case 3: its child has a real offset, so it never becomes a
+    leaf, and folding it would turn its sibling."""
+    source = _real_internal_with_siblings()
+    reduced = apply_reduction(source, build_reduction(source))
+    assert "z" in reduced.names
