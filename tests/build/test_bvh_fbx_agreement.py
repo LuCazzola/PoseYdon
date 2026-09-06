@@ -2,11 +2,15 @@
 
 Split in two because the two claims tangled here have different statuses.
 Joint-set SHAPE and parent-by-name HIERARCHY hold and are enforced. Rest
-GEOMETRY at shared joints does not currently agree -- see the `xfail` on
-``test_bvh_and_fbx_agree_on_rest_geometry`` below for the open question and
-the measured numbers; this is a recorded Phase 2 problem (skin weights are
-indexed by the FBX joint order, so the disagreement means weights applied to
-BVH-driven motion would deform wrongly), not something resolved here.
+GEOMETRY at shared joints was parked as an unexplained disagreement (up to
+8.1e-1 bone lengths on Flamingo) for one review cycle; it turned out to be
+Critical 1 of the final review, on the BVH side -- ScaleToMeanBoneLength
+averaged over zero-length End Sites, inflating its factor by a rig-dependent
+(J_all-1)/(J_real-1), while `FBX.write_mesh_npz` computed its factor over the
+End-Site-free FBX joint set. Comparing an arbitrary BVH clip's OFFSET block
+against the FBX bind pose was also wrong on its own terms (`FaceAxis` rotates
+per clip, `mesh.npz`'s bind pose was faced from the rest pose alone) -- see
+`_rest_path` below. With both fixed this test is enforced at full strength.
 
 Skips without the FBX artefacts, because the test image has no Blender.
 """
@@ -20,15 +24,36 @@ from poseydon.io.bvh import BVH
 from tests.conftest import CORPUS, SAMPLE_RIGS
 
 
+def _rest_path(bvhs):
+    """The rig's rest-pose clip, by the same rule as test_roundtrip._rest_path.
+
+    `FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion,
+    so every prepared clip carries a differently-rotated offset block --
+    comparing an arbitrary clip against `mesh.npz`'s bind pose (faced from the
+    REST pose) cannot agree even when the two corpora describe the same
+    skeleton. Only the T-pose clip's offsets correspond to the bind pose.
+    """
+    for path in bvhs:
+        if "tpos" in path.name.lower():
+            return path
+    for path in bvhs:
+        if path.name.lower().lstrip("_").startswith("idle"):
+            return path
+    return None
+
+
 def _pair(rig: str):
     clips = CORPUS / "clips" / rig
     bvhs = sorted(clips.glob("*.bvh"))
     if not bvhs:
         pytest.skip(f"{rig}: no prepared BVH")
+    rest = _rest_path(bvhs)
+    if rest is None:
+        pytest.skip(f"{rig}: no rest-pose clip in the prepared corpus")
     mesh = CORPUS / "rigs" / rig / "mesh.npz"
     if not mesh.is_file():
         pytest.skip(f"{rig}: no mesh.npz -- run the fbx container")
-    return bvhs[0], mesh
+    return rest, mesh
 
 
 @pytest.mark.parametrize("rig", SAMPLE_RIGS)
@@ -78,23 +103,9 @@ def test_bvh_and_fbx_agree_on_the_skeleton_structure(rig):
             )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "BVH and FBX disagree on rest geometry at shared joints, unexplained. "
-        "Worst disagreement in bone lengths: Flamingo 8.1e-1 at Bip01_R_Foot, "
-        "BrownBear 5.5e-1 at Bip01_R_Forearm, Scorpion 4.7e-1 at Bip01_TailNub, "
-        "against Crab's 2.0e-5. Errors grow distally along each chain. A "
-        "coordinate-frame mismatch was ruled out by measuring parent-local and "
-        "world-space forms and finding them identical to 1e-7. BrownBear is the "
-        "rig behind the original 'joint positions agree to 0.0000 at frame 0' "
-        "claim, so either that measured a different quantity -- world positions "
-        "through FK rather than the rest OFFSET block -- or something regressed."
-    ),
-    strict=False,
-)
 @pytest.mark.parametrize("rig", SAMPLE_RIGS)
 def test_bvh_and_fbx_agree_on_rest_geometry(rig):
-    """Rest offsets at shared joints. Known-failing; see the xfail reason."""
+    """Rest offsets at shared joints, compared on the rig's T-pose clip."""
     bvh_path, mesh_path = _pair(rig)
     anim = BVH.read(bvh_path).to_animation()
     with np.load(mesh_path, allow_pickle=True) as mesh:
