@@ -2334,3 +2334,71 @@ claim in a commit message."
 - `data/truebones/rigs/<Rig>/prepare.npz` exists for every processed rig and `RigTransform.load` returns parameters for every clip written beside it.
 - `data/truebones/clips/<Rig>/` holds prepared BVH whose mean bone length is `0.20921428571428569`.
 - Phase 2 (`build_features.py`, the artefacts, names, the normalization policy) can begin: it consumes `clips/<Rig>/*.bvh`, `rigs/<Rig>/prepare.npz` and `rigs/<Rig>/mesh.npz`, all of which this phase produces.
+
+---
+
+# Outcome
+
+Completed 2026-09-06. 33 commits, `471400d..b6184cf`. Suite: 56 passed, 1 skipped,
+6 xfailed, 1 xpassed. `ruff` clean.
+
+All eleven tasks landed and every phase exit criterion is met except one: the
+BVH/FBX agreement test passes structurally but not geometrically, and is
+recorded as an `xfail` rather than silently dropped.
+
+## What went well
+
+**The stage contract was the right abstraction.** `PrepareStage` (fit/apply/invert,
+scoped rig or clip) plus `PrepareChain` is about a hundred lines and carries the
+whole phase. Nothing in it needed rework once written.
+
+**Invertibility holds on real data, end to end.** Loading a committed
+`prepare.npz` from disk, inverting a prepared clip and re-preparing it
+reproduces the prepared clip to 1.4–2.0e-6 — BVH's six-decimal write precision.
+
+**Joint reduction matches the reference exactly** (38/40/31/54/63) once the rule
+was corrected to evaluate siblings at removal time rather than against the
+original hierarchy.
+
+**The layering held.** Nothing outside `build/` and `scripts/` imports the build
+package; `features/reduce.py` sits where its consumer is.
+
+## What didn't
+
+**The plan's tests were its weakest part.** Four of eleven tasks shipped an
+assertion that was wrong — a vacuous order test, a reference skeleton the
+pipeline deliberately distrusts, a demand for representation-exactness the
+design disclaims, and a name-equality assertion that two file formats cannot
+satisfy. Each was caught by review, and in every case the production code was
+correct and the test was not.
+
+**One spec amendment was made on a wrong measurement.** The reduction rule was
+"corrected" to add a conservative guard, based on scanning the original
+hierarchy rather than the hierarchy at removal time. Reverted.
+
+**A Critical bug survived all eleven tasks.** `ScaleToMeanBoneLength` averaged
+over zero-length End Sites, so the canonical scale was rig-dependent by up to
+33%. It reached the final whole-branch review because the corpus-level
+assertion guarding it — `mean bone length == target` — restated the stage's own
+definition instead of measuring independently. The same pattern appears in the
+ground assertion. **Assertions that restate the implementation are the recurring
+failure mode of this phase**, and the facing residual check is the one that got
+it right: it measures the prepared output against an external definition.
+
+**Two assumptions in the plan were simply false.** BVH and FBX clips do not share
+basenames and cannot be made to by any filename rule (`atk 1.fbx` against
+`__Attack1.bvh`); and `io/fbx.py` had no data-gathering half to extract, so
+Task 11 was substantially larger than planned.
+
+**Naming a test directory `build` cost two silent landmines** — `.gitignore`
+swallowing `src/poseydon/build/`, and pytest's `norecursedirs` pruning
+`tests/build/` so two tasks reported a green suite while collecting one test.
+
+## Carried into Phase 2
+
+- Residual BVH/FBX rest-geometry disagreement, 3–7% of a bone length, unexplained.
+  Matters because `mesh.npz` weights are indexed by FBX joint order.
+- Basename pairing needs an authored alias map (BrownBear, Elephant, Fox).
+- 64 clips of 1153 rejected across 8 rigs; Ant, Crab, Deer and Jaguar keep one
+  each. A data problem — those rigs need a T-pose matching their clips.
+- `src/poseydon/data/dataset.py` still points at the pre-migration layout.

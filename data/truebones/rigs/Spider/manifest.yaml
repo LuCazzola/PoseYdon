@@ -1,0 +1,15 @@
+base: ../_base.yaml
+skeleton: Spider
+facing:
+  hips:      {right: Leg_R_30_, left: Leg_L_30_}
+  shoulders: {right: ArmR_01_, left: ArmL_01_}
+foot_joints:
+  - _RToe3_
+  - _LToe3_
+  - _RToe2_
+  - _LToe2_
+  - _RToe1_
+  - _LToe1_
+  - _RToe0_
+  - _LToe0_
+tags: [milliped]

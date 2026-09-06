@@ -179,6 +179,35 @@ from `bvh/<Rig>` and from `fbx/<Rig>` must agree on joint count, names, parent
 array and rest offsets. Currently verified once, by hand, in a commit message.
 It becomes a test.
 
+### Rest geometry is not rig-level
+
+`FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion, not
+just rotations, so **prepared clips of the same rig do not share an OFFSET
+block** — each clip's rest geometry is rotated by that clip's own frame-0
+facing correction, and those corrections differ clip to clip (up to 0.42 bone
+lengths apart, measured on BrownBear). "The skeleton extracted from
+`clips/<Rig>/`" is therefore not a single object; there are as many rest
+geometries as there are clips, one per facing quaternion.
+
+This matters beyond this phase. Spec §4 has a later phase write one
+rig-level `skeleton.npz` carrying `offsets`, and `features/reconstruct.py`
+does forward kinematics with them. The canonical rig-level rest geometry has
+to be the **T-pose clip's** offsets specifically — using any other clip's
+offsets with that clip's own rotations is fine (they are mutually
+consistent), but using rig-level offsets from one clip together with a
+*different* clip's rotations yields a skeleton rotated by `R_rest · R_clip⁻¹`
+relative to the truth. A later phase must take rig-level offsets from the
+rest-pose clip, never from an arbitrary one.
+
+The reference implementation avoids this entirely by rotating only the root
+joint to face +Z, leaving every other joint's offset untouched and shared
+across all of a rig's clips by construction. PoseYdon's choice to rotate the
+whole rig (`rotate_rig`, not just the root) is deliberate: it is what lets a
+DCC tool draw the rest skeleton and the animation with the same convention,
+rather than the root pointing one way and the limbs implicitly assuming
+another. That convenience is what produces the per-clip OFFSET divergence
+documented here.
+
 ## 4. Stage 2 — `scripts/build_features.py`
 
 A thin Hydra runner over a new `poseydon/build/` package, configured by
@@ -272,11 +301,14 @@ The rule has two cases, and conflating them loses real motion:
   fold is exact only when the joint is its parent's sole child, so this case is
   left alone rather than silently displacing its siblings.
 
-Reduction repeats to a fixed point, because removing a zero-offset leaf can leave
-its parent a zero-offset leaf in turn.
+Reduction repeats to a fixed point, and the repetition does most of the work:
+removing a zero-offset leaf can leave its parent a zero-offset leaf in turn, and
+that parent is then droppable by case 1 even though it began as an internal
+joint with siblings. The sibling condition is therefore evaluated against the
+hierarchy **as it stands at the moment of removal**, never against the original.
 
 Measured on the prepared corpus, this reproduces the reference's stored joint
-counts on six of the seven fixture rigs:
+counts exactly:
 
 | rig | full | removed | reduced | reference `.npy` |
 |---|---|---|---|---|
@@ -284,13 +316,12 @@ counts on six of the seven fixture rigs:
 | Flamingo | 53 | 13 | 40 | 40 |
 | Goat | 40 | 9 | 31 | 31 |
 | Crab | 64 | 10 | 54 | 54 |
-| Scorpion | 78 | 14 | **64** | 63 |
+| Scorpion | 78 | 15 | 63 | 63 |
 
-Scorpion differs because `Bip01_Neck1` has zero offset but its parent `Hips` has
-two children, so the conservative rule keeps it where the reference drops it.
-Thirteen of the seventy-three rigs contain at least one such joint. Exactness
-wins over the count: golden parity is therefore asserted over the joints the two
-representations share, matched by name, not over the joint count.
+Case 3 is real but rarer than a scan of the original hierarchy suggests. A
+joint only survives it if its children have genuine offsets, so it never
+becomes a leaf — `Tukan/kosi` and `Bear/NPC_Spine1` are the shape. Neither rig
+is in the reference's fixture set, so keeping them costs no parity.
 
 The map is a `JointEdit` — the type already in `augment/joint_edit.py`, which
 records `source_of[new] = old` and transports normalizer rows and the rest frame
@@ -559,8 +590,56 @@ because dropping per-joint translation discards real motion, measured at roughly
 representation rather than a defect of the implementation, and it is why the
 stage is explicit rather than silent.
 
+**A clip whose joints differ from its own rest pose is rejected.**
+`RestRelative` requires the clip it prepares to carry exactly the joints its
+fitted rest pose declares, in the same order. It has to: a joint the rest pose
+never covered has no recorded bind rotation, so no inverse exists for it, and
+the whole point of this stage is that the transform can be undone. The earlier
+non-invertible implementation fell back to the clip's own frame-0 rotation for
+such joints — exact for a childless End Site, an approximation everywhere else.
+
+Measured over the corpus, this rejects **64 clips of 1153 across 8 of 73 rigs**.
+Most lose one clip. Four are gutted: Ant keeps 1 of 18, Crab 1 of 11, Deer 1 of
+21, Jaguar 1 of 14 — in each case the rig's own T-pose file declares a different
+skeleton from its animation clips (Crab's T-pose has 54 joints against the
+clips' 64). Those four are effectively unusable until someone supplies a rest
+pose that matches their clips, which is a data question rather than a code one.
+Recovering them by reinstating the approximate bind would trade this phase's
+central guarantee for four characters.
+
 **No validation split.** Out of scope by decision; every index row is
 `split: train` and the Trainer runs with validation disabled.
+
+**BVH and FBX clips do not pair by filename for the whole corpus.** Both
+stage-1 scripts derive a clip's basename the same way —
+`strip_skeleton_prefix(action_slug(stem), rig)` — on the assumption that the
+two raw corpora name their files consistently enough for this to converge.
+It does not hold everywhere. BrownBear's BVH files are `__<Action>.bvh`,
+stripping the manifest's `brownbear_` prefix, while its FBX files are
+`BEAR-<Action>.fbx` — `strip_skeleton_prefix` strips the *rig* name, not
+`bear_`, so the two sides produce disjoint basenames (0 of 22 clips agree).
+Elephant and Fox are worse: their FBX corpora ship `atk 1.fbx` against BVH's
+`__Attack1.bvh`, a divergence no filename-derivation rule can close because
+the two names share no derivable relationship at all. Closing this needs an
+authored per-rig alias map from FBX filename to BVH action, not a cleverer
+slug function; BrownBear, Elephant and Fox are the confirmed cases, and the
+corpus has not been swept exhaustively for others.
+
+**BVH and FBX still disagree on rest geometry at shared joints, residually.**
+`ScaleToMeanBoneLength` averaging over zero-length End Sites (fixed above)
+was the dominant cause of an earlier, larger disagreement — up to 8.1e-1 bone
+lengths on Flamingo — and fixing it cut the error roughly tenfold. What
+remains is real and unexplained: at the rig's own T-pose clip, the worst
+per-rig disagreement is Flamingo 6.8e-2, BrownBear 5.5e-2 and Scorpion 3.3e-2
+bone lengths, against Crab's 2.0e-5 (which passes; its BVH T-pose has exactly
+one zero-length bone, so it was never much affected by the scale bug either).
+A coordinate-frame mismatch was ruled out by measuring parent-local and
+world-space forms and finding them identical to 1e-7.
+`test_bvh_and_fbx_agree_on_rest_geometry` records this as an `xfail` with the
+current numbers rather than resolving it — it matters for a later phase,
+where `mesh.npz` skin weights are indexed by the FBX joint order and would be
+applied to BVH-driven motion, so the disagreement means weights deforming
+wrongly. Needs both bind poses inspected side by side in Blender.
 
 ## Phasing
 

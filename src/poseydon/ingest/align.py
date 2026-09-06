@@ -103,6 +103,41 @@ def facing_quat(
     return facing_quats(positions[:1], facing_indices, extra_yaw_deg)[0]
 
 
+def axis_vector(axis: str) -> np.ndarray:
+    """``"+Z"``, ``"Z"``, ``"-x"`` -> a unit vector. A bare name means positive."""
+    spec = str(axis).strip().upper()
+    name = spec[1:] if spec[:1] in "+-" else spec
+    if name not in _AXES:
+        raise ValueError(
+            f"target axis must be X, Y or Z with an optional sign, got `{axis}`"
+        )
+    return (-1.0 if spec.startswith("-") else 1.0) * _AXES[name]
+
+
+def rotate_rig(anim: Animation, rotation: np.ndarray) -> Animation:
+    """Turn a whole rig -- motion AND rest geometry -- by ``rotation``.
+
+    ``offsets' = R . offsets``, ``rotations' = R . rotations . R^-1``,
+    ``translations' = R . translations``. The conjugation is what distinguishes
+    this from composing onto the root alone: every joint's local frame has
+    itself turned. Both forms give identical world motion, but only this one
+    leaves a BVH whose OFFSET block describes the new orientation, so a DCC
+    tool draws the rest skeleton and the animation facing the same way.
+
+    It also preserves a rest-relative representation: wherever a local rotation
+    is identity, ``R . identity . R^-1`` is identity still.
+    """
+    inverse = quat_inverse(rotation)
+    return type(anim)(
+        rotations=quat_mul(quat_mul(rotation, anim.rotations), inverse),
+        translations=quat_apply(rotation, anim.translations),
+        offsets=quat_apply(rotation, anim.offsets),
+        parents=anim.parents,
+        names=anim.names,
+        fps=anim.fps,
+    )
+
+
 def rotate_to_face_axis(
     anim: Animation,
     facing_indices: tuple[tuple[int, int], ...],
@@ -151,34 +186,12 @@ def rotate_to_face_axis(
     world up simply tips the whole rig onto its face or back. That is rarely
     what a caller wants, but it is not an error, so it is not rejected.
     """
-    spec = str(axis).strip().upper()
-    name = spec[1:] if spec[:1] in "+-" else spec
-    if name not in _AXES:
-        raise ValueError(
-            f"target axis must be X, Y or Z with an optional sign, got `{axis}`"
-        )
-    target = (-1.0 if spec.startswith("-") else 1.0) * _AXES[name]
+    target = axis_vector(axis)
 
     rotation = facing_quats(
         anim.global_positions()[:1], facing_indices, extra_yaw_deg, target
     )[0]
-    inverse = quat_inverse(rotation)
-
-    # Every local translation turns with the frame it is expressed in, the
-    # root's included (its entry IS the root's global position). Rebuilding
-    # from a root trajectory instead would pin each joint to its rest offset
-    # and throw away any real per-joint translation, so this carries the
-    # translations through -- and a rigid animation stays rigid, since
-    # rotating `translations` and `offsets` by the same R preserves their
-    # equality. `type(anim)` keeps a RigidBodyAnimation rigid on the way out.
-    return type(anim)(
-        rotations=quat_mul(quat_mul(rotation, anim.rotations), inverse),
-        translations=quat_apply(rotation, anim.translations),
-        offsets=quat_apply(rotation, anim.offsets),
-        parents=anim.parents,
-        names=anim.names,
-        fps=anim.fps,
-    )
+    return rotate_rig(anim, rotation)
 
 
 def rotate_to_face_z(anim: RigidBodyAnimation, rotation: np.ndarray) -> RigidBodyAnimation:

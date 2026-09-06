@@ -1,0 +1,7 @@
+base: ../_base.yaml
+skeleton: HermitCrab
+facing:
+  hips:      {right: BN_Leg_R_09, left: BN_Leg_L_09}
+  shoulders: {right: BN_Crab_pincers_R_02, left: BN_Crab_pincers_L_02}
+foot_joints: []   # the reference's heuristic finds none for this rig
+tags: [milliped]

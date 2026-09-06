@@ -1,0 +1,17 @@
+base: ../_base.yaml
+skeleton: Giantbee
+facing:
+  hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
+  shoulders: {right: BN_Wing_R_01, left: BN_Wing_L_01}
+foot_joints:
+  - Bip01_R_Foot
+  - Bip01_R_Toe0
+  - Bip01_R_Toe0Nub
+  - Bip01_L_Foot
+  - Bip01_L_Toe0
+  - Bip01_L_Toe0Nub
+  - BN_Foot_R_01
+  - BN_Foot_L_01
+  - BN_Foot_R_02
+  - BN_Foot_L_02
+tags: [flying]

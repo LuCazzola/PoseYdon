@@ -1,0 +1,15 @@
+base: ../_base.yaml
+skeleton: Roach
+facing:
+  hips:      {right: Bip01_R_Thigh01, left: Bip01_L_Thigh01}
+  shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
+foot_joints:
+  - Bip01_R_Foot01
+  - Bone18
+  - Bip01_L_Foot01
+  - Bone22
+  - Bip01_L_Foot11
+  - Bone17
+  - Bip01_R_Foot11
+  - Bone16
+tags: [milliped]

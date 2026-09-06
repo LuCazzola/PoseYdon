@@ -1,0 +1,200 @@
+"""The two prepared corpora must describe the same skeleton.
+
+Split in two because the two claims tangled here have different statuses.
+Joint-set SHAPE and parent-by-name HIERARCHY hold and are enforced. Rest
+GEOMETRY at shared joints was parked as an unexplained disagreement (up to
+8.1e-1 bone lengths on Flamingo) for one review cycle; it turned out to be
+mostly Critical 1 of the final review, on the BVH side -- ScaleToMeanBoneLength
+averaged over zero-length End Sites, inflating its factor by a rig-dependent
+(J_all-1)/(J_real-1), while `FBX.write_mesh_npz` computed its factor over the
+End-Site-free FBX joint set. Comparing an arbitrary BVH clip's OFFSET block
+against the FBX bind pose was also wrong on its own terms (`FaceAxis` rotates
+per clip, `mesh.npz`'s bind pose was faced from the rest pose alone) -- see
+`_rest_path` below. Fixing both cut the disagreement roughly tenfold (Flamingo
+8.1e-1 -> 6.8e-2, etc.) but did not close it; the residue is re-parked behind
+the `xfail` on `test_bvh_and_fbx_agree_on_rest_geometry` below, with the
+current measurements in its reason -- a Phase 2 problem (skin weights are
+indexed by the FBX joint order, so the disagreement means weights applied to
+BVH-driven motion would deform wrongly), not something resolved here.
+
+Skips without the FBX artefacts, because the test image has no Blender.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from poseydon.io.bvh import BVH
+from tests.conftest import CORPUS, SAMPLE_RIGS
+
+
+def _rest_path(bvhs):
+    """The rig's rest-pose clip, by the same rule as test_roundtrip._rest_path.
+
+    `FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion,
+    so every prepared clip carries a differently-rotated offset block --
+    comparing an arbitrary clip against `mesh.npz`'s bind pose (faced from the
+    REST pose) cannot agree even when the two corpora describe the same
+    skeleton. Only the T-pose clip's offsets correspond to the bind pose.
+    """
+    for path in bvhs:
+        if "tpos" in path.name.lower():
+            return path
+    for path in bvhs:
+        if path.name.lower().lstrip("_").startswith("idle"):
+            return path
+    return None
+
+
+def _pair(rig: str):
+    clips = CORPUS / "clips" / rig
+    bvhs = sorted(clips.glob("*.bvh"))
+    if not bvhs:
+        pytest.skip(f"{rig}: no prepared BVH")
+    rest = _rest_path(bvhs)
+    if rest is None:
+        pytest.skip(f"{rig}: no rest-pose clip in the prepared corpus")
+    mesh = CORPUS / "rigs" / rig / "mesh.npz"
+    if not mesh.is_file():
+        pytest.skip(f"{rig}: no mesh.npz -- run the fbx container")
+    return rest, mesh
+
+
+@pytest.mark.parametrize("rig", SAMPLE_RIGS)
+def test_bvh_and_fbx_agree_on_the_skeleton_structure(rig):
+    """Joint-set shape and hierarchy. This half holds and is enforced."""
+    if rig == "Crab":
+        pytest.xfail(
+            "Crab's BVH T-pose reference declares a different skeleton from its "
+            "animations (54 joints against 64), so its prepared corpus is the "
+            "T-pose alone and carries a non-leaf joint the FBX bind pose lacks. "
+            "A corpus data problem, recorded in the design spec's Limitations."
+        )
+
+    bvh_path, mesh_path = _pair(rig)
+    anim = BVH.read(bvh_path).to_animation()
+    with np.load(mesh_path, allow_pickle=True) as mesh:
+        fbx_names = tuple(str(n) for n in mesh["joint_names"])
+        fbx_parents = mesh["joint_parents"]
+
+    fbx_set, bvh_set = set(fbx_names), set(anim.names)
+
+    # BVH mandates an End Site per leaf bone and FBX has no counterpart, so the
+    # two joint lists cannot be equal. Assert the SHAPE of the difference
+    # instead: everything BVH carries that FBX does not must be a childless,
+    # zero-offset End Site -- precisely the class joint reduction drops.
+    has_child = np.zeros(anim.n_joints, dtype=bool)
+    real = anim.parents >= 0
+    has_child[anim.parents[real]] = True
+    for name in (n for n in anim.names if n not in fbx_set):
+        j = anim.names.index(name)
+        assert not has_child[j], f"{rig}: `{name}` is BVH-only but has children"
+        assert np.linalg.norm(anim.offsets[j]) < 1e-8, (
+            f"{rig}: `{name}` is BVH-only but has a real offset"
+        )
+
+    # FBX must never carry a joint the BVH lacks.
+    assert [n for n in fbx_names if n not in bvh_set] == []
+
+    # Shared joints must agree on hierarchy, by NAME -- the index spaces
+    # differ by exactly the End Sites, so an index comparison would be
+    # meaningless.
+    for name in (n for n in anim.names if n in fbx_set):
+        b, f = anim.names.index(name), fbx_names.index(name)
+        if anim.parents[b] >= 0 and fbx_parents[f] >= 0:
+            assert anim.names[anim.parents[b]] == fbx_names[fbx_parents[f]], (
+                f"{rig}: `{name}` has different parents in BVH and FBX"
+            )
+
+
+@pytest.mark.xfail(
+    reason=(
+        "BVH and FBX still disagree on rest geometry at shared joints, at "
+        "3-7% of a bone length: Flamingo 6.8e-2, BrownBear 5.5e-2, Scorpion "
+        "3.3e-2, against Crab's 2.0e-5, which passes. This is what REMAINS "
+        "after fixing the dominant cause -- ScaleToMeanBoneLength averaged "
+        "over zero-length End Sites, inflating the factor by "
+        "(J_all-1)/(J_real-1) and making the two corpora differ by exactly "
+        "that ratio. That fix cut the disagreement about tenfold; the residue "
+        "is unexplained. A coordinate-frame mismatch was excluded by measuring "
+        "parent-local and world-space forms and finding them identical to "
+        "1e-7. Crab passing is informative: its BVH T-pose has exactly one "
+        "zero-length bone, so it was never affected by the scale bug either. "
+        "Matters for the next phase, where mesh.npz skin weights are indexed "
+        "by the FBX joint order and get applied to BVH-driven motion."
+    ),
+    strict=False,
+)
+@pytest.mark.parametrize("rig", SAMPLE_RIGS)
+def test_bvh_and_fbx_agree_on_rest_geometry(rig):
+    """Rest offsets at shared joints, compared on the rig's T-pose clip.
+
+    Known-failing for Flamingo/BrownBear/Scorpion; see the xfail reason."""
+    bvh_path, mesh_path = _pair(rig)
+    anim = BVH.read(bvh_path).to_animation()
+    with np.load(mesh_path, allow_pickle=True) as mesh:
+        fbx_names = tuple(str(n) for n in mesh["joint_names"])
+        fbx_offsets = mesh["joint_offsets"]
+
+    fbx_set = set(fbx_names)
+
+    # The root is excluded: BVH's root OFFSET is a world placement, FBX's is
+    # the bind position, and they are not the same quantity.
+    scale = float(np.linalg.norm(anim.offsets[1:], axis=-1).mean())
+    worst, worst_name = 0.0, ""
+    for name in (n for n in anim.names if n in fbx_set):
+        b, f = anim.names.index(name), fbx_names.index(name)
+        if b == 0:
+            continue
+        error = float(np.abs(anim.offsets[b] - fbx_offsets[f]).max())
+        if error > worst:
+            worst, worst_name = error, name
+    assert worst < 1e-3 * scale, (
+        f"{rig}: worst rest-offset disagreement {worst / scale:.2e} bone lengths "
+        f"at `{worst_name}`"
+    )
+
+
+@pytest.mark.parametrize("rig", SAMPLE_RIGS)
+def test_bvh_and_fbx_clips_share_basenames(rig):
+    """The plan and the FBX script's own docstring assert this; check it.
+
+    Both scripts derive `strip_skeleton_prefix(action_slug(stem), rig)`, so
+    agreement is not automatic -- it depends on the two corpora's raw
+    filenames actually sharing a prefix convention, which most but not all
+    rigs do.
+    """
+    if rig == "BrownBear":
+        pytest.xfail(
+            "BrownBear's BVH files are named `__<Action>.bvh`, stripping the "
+            "`brownbear_` prefix (its manifest name, lowercased), while its "
+            "FBX files are named `BEAR-<Action>.fbx` -- `strip_skeleton_prefix` "
+            "strips the RIG name, not `bear_`, so the two corpora derive "
+            "completely different basenames (`attack` vs `bear_attack`) for "
+            "the same clip. No filename-derivation rule can close this: it "
+            "needs an authored alias, see the design spec's Limitations."
+        )
+    if rig == "Crab":
+        pytest.xfail(
+            "Unrelated to naming: Crab's BVH T-pose declares 54 joints against "
+            "its animations' 64 (the RestRelative limitation recorded in the "
+            "design spec), so only tpose.bvh survives prepare -- 1 BVH clip "
+            "against 11 FBX clips, which cannot share a basename set no matter "
+            "how either side derives its filename."
+        )
+
+    bvh_dir = CORPUS / "clips" / rig
+    bvhs = sorted(bvh_dir.glob("*.bvh"))
+    if not bvhs:
+        pytest.skip(f"{rig}: no prepared BVH")
+    fbxs = sorted(bvh_dir.glob("*.fbx"))
+    if not fbxs:
+        pytest.skip(f"{rig}: no prepared FBX -- run the fbx container")
+
+    bvh_stems = {p.stem for p in bvhs}
+    fbx_stems = {p.stem for p in fbxs}
+    assert bvh_stems == fbx_stems, (
+        f"{rig}: BVH-only {sorted(bvh_stems - fbx_stems)}, "
+        f"FBX-only {sorted(fbx_stems - bvh_stems)}"
+    )

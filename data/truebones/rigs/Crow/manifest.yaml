@@ -1,0 +1,7 @@
+base: ../_base.yaml
+skeleton: Crow
+facing:
+  hips:      {right: _07, left: _02}
+  shoulders: {right: _19, left: _16}
+foot_joints: []   # the reference's heuristic finds none for this rig
+tags: [flying, bird]

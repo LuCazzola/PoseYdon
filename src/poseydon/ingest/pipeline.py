@@ -23,14 +23,26 @@ from poseydon.io.bvh import BVH
 ALIGNED_DIRNAME = "aligned"
 
 
-def available_skeletons(manifest_dir: str | Path) -> list[str]:
-    """Manifest names available in ``manifest_dir``, longest first.
+def available_rigs(rig_root: str | Path) -> list[str]:
+    """Rig names under ``rig_root``, longest first.
 
-    Longest-first matters: given both `Goat` and `GoatKid`, a clip named
-    `GoatKid_walk` must match `GoatKid`, not `Goat`.
+    A rig is a DIRECTORY containing a ``manifest.yaml``, which is why the old
+    ``_``-prefix convention for shared fragments is no longer needed: a bare
+    ``_base.yaml`` is a file, not a directory. A directory alone does not
+    qualify either -- ``rigs/<Rig>/`` also holds derived artefacts (a
+    prepared clip, a mesh, statistics), so one can exist before anyone has
+    authored a manifest for it. Longest first matters -- given both `Goat`
+    and `GoatKid`, a clip named `GoatKid_walk` must match `GoatKid`.
     """
-    names = [p.stem for p in Path(manifest_dir).glob("*.yaml") if not p.stem.startswith("_")]
-    return sorted(names, key=len, reverse=True)
+    root = Path(rig_root)
+    if not root.is_dir():
+        return []
+    names = [
+        path.name
+        for path in root.iterdir()
+        if path.is_dir() and (path / "manifest.yaml").is_file()
+    ]
+    return sorted(names, key=lambda name: (-len(name), name))
 
 
 def infer_skeleton(path: Path, manifest_dir: str | Path) -> str:
@@ -45,7 +57,7 @@ def infer_skeleton(path: Path, manifest_dir: str | Path) -> str:
        (``Truebone_Z-OO/<Species>/*.bvh``);
     3. otherwise the longest manifest name the filename starts with.
     """
-    known = available_skeletons(manifest_dir)
+    known = available_rigs(manifest_dir)
     declared = path.stem.split(SEPARATOR, 1)[0] if SEPARATOR in path.stem else None
     if declared in known:
         return declared
@@ -161,7 +173,7 @@ def ingest_corpus(
         try:
             skeleton = skeleton_of(path) if skeleton_of else infer_skeleton(path, manifest_dir)
             if skeleton not in cache:
-                cache[skeleton] = SkeletonManifest.load(manifest_dir / f"{skeleton}.yaml")
+                cache[skeleton] = SkeletonManifest.load(manifest_dir / skeleton / "manifest.yaml")
             manifest = cache[skeleton]
             if skeleton not in params_cache:
                 first = BVH.read(path).to_animation().as_rigid_body(joint_translation="drop")

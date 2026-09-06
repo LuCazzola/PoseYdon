@@ -1,0 +1,23 @@
+base: ../_base.yaml
+skeleton: Scorpion
+facing:
+  hips:      {right: Bip01_R_Thigh_4, left: Bip01_L_Thigh1_4}
+  shoulders: {right: Bip01_R_Forearm, left: Bip01_L_Forearm}
+foot_joints:
+  - Bip01_R_Foot_1
+  - Bip01_R_FootNub_1
+  - Bip01_L_Foot_4
+  - Bip01_L_FootNub_4
+  - Bip01_L_Foot_3
+  - Bip01_L_FootNub_3
+  - Bip01_L_Foot_2
+  - Bip01_L_FootNub_2
+  - Bip01_L_Foot_1
+  - Bip01_L_FootNub_1
+  - Bip01_R_Foot_2
+  - Bip01_R_FootNub_2
+  - Bip01_R_Foot_3
+  - Bip01_R_FootNub_3
+  - Bip01_R_Foot_4
+  - Bip01_R_FootNub_4
+tags: [milliped]

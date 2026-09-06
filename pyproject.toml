@@ -43,6 +43,10 @@ testpaths = ["tests"]
 # Makes `import poseydon` work from the src layout without installing the
 # project, which keeps the Docker image's dependency layer independent of source.
 pythonpath = ["src", "."]
+# pytest's own default norecursedirs includes "build", which silently prunes
+# tests/build/ (a package under test, not an artifact directory) from any run
+# that scans a directory rather than naming a file. Restated without "build".
+norecursedirs = ["*.egg", ".*", "_darcs", "CVS", "dist", "node_modules", "venv", "{arch}"]
 
 [tool.ruff]
 line-length = 100

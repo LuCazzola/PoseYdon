@@ -1,0 +1,25 @@
+base: ../_base.yaml
+skeleton: Pteranodon
+facing:
+  hips:      {right: jt_Thigh_R, left: jt_Thigh_L}
+  shoulders: {right: jt_Elbow_R, left: jt_Elbow_L}
+foot_joints:
+  - jt_Foot_L
+  - jt_ClawMiddle_L
+  - jt_ClawMiddle2_L
+  - jt_ClawInner_L
+  - jt_ClawInner2_L
+  - jt_ClawOutter_L
+  - jt_ClawOutter2_L
+  - jt_ClawBack_L
+  - jt_ClawBack2_L
+  - jt_Foot_R
+  - jt_ClawMiddle_R
+  - jt_ClawMiddle2_R
+  - jt_ClawInner_R
+  - jt_ClawInner2_R
+  - jt_ClawOutter_R
+  - jt_ClawOutter2_R
+  - jt_ClawBack_R
+  - jt_ClawBack2_R
+tags: [flying]

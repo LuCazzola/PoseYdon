@@ -50,6 +50,10 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import numpy as np
+
+from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
+
 try:
     import bpy
     from mathutils import Matrix, Vector
@@ -71,6 +75,12 @@ _AXES = {"X": Vector((1.0, 0.0, 0.0)), "Y": FORWARD, "Z": UP}
 # and across-body vectors agree to 1.0000. The negated X is not a mirror --
 # swapping two axes flips handedness and negating the third restores it.
 TO_Y_UP = Matrix(((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)))
+
+
+def _to_y_up(vector: Vector) -> np.ndarray:
+    """Blender world-space vector -> a PoseYdon Y-up ``(3,)`` array."""
+    converted = TO_Y_UP @ vector
+    return np.array((converted.x, converted.y, converted.z), dtype=np.float64)
 
 
 class FBX:
@@ -101,8 +111,39 @@ class FBX:
     # -------------------------------------------------------------- geometry
 
     @property
-    def bone_names(self) -> list[str]:
+    def joint_names(self) -> list[str]:
+        """Bone names, in the armature's own order."""
         return [b.name for b in self.armature.data.bones]
+
+    @property
+    def joint_parents(self) -> list[int]:
+        """Parent index per joint, ``-1`` for a root -- the BVH convention."""
+        index = {name: i for i, name in enumerate(self.joint_names)}
+        return [
+            index[bone.parent.name] if bone.parent is not None else -1
+            for bone in self.armature.data.bones
+        ]
+
+    @property
+    def joint_offsets(self) -> np.ndarray:
+        """``(J, 3)`` bind-pose parent-relative offsets, in PoseYdon's Y-up frame.
+
+        FBX/Blender expose only absolute bind-pose joint positions, never an
+        explicit offset block the way BVH does, so this derives one: each
+        joint's offset is its bind position minus its parent's, and a root's
+        offset is its own bind position.
+        """
+        names = self.joint_names
+        parents = self.joint_parents
+        positions = np.stack(
+            [_to_y_up(self.joint_position(name, rest=True)) for name in names]
+        )
+        offsets = np.empty_like(positions)
+        for joint, parent in enumerate(parents):
+            offsets[joint] = (
+                positions[joint] if parent < 0 else positions[joint] - positions[parent]
+            )
+        return offsets
 
     @property
     def action(self):
@@ -251,27 +292,137 @@ class FBX:
             bake_anim_force_startend_keying=False,
         )
 
-    def write_bind_pose_obj(self, path: str | Path) -> None:
-        """Write the character's mesh, in its BIND pose, as a single OBJ.
+    def bind_pose_arrays(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
+        """Gather the character's BIND-pose mesh, skin weights and joint order.
 
-        ``pose_position = 'REST'`` restores the bind pose, so this is the
+        ``pose_position = 'REST'`` restores the bind pose, so this reads the
         undeformed character rather than whichever frame happened to be
-        current. Exported Y-up / +Z-forward to match the rest of the corpus.
+        current -- an Armature modifier only ever deforms the EVALUATED mesh,
+        never ``obj.data``, but ``pose_position`` still selects which pose
+        matrices a later evaluation would use, so this keeps that consistent.
+        Every mesh object on the armature is merged into one set of arrays,
+        because a rig's skin is one character, not one per object. Vertices
+        are converted to PoseYdon's Y-up, +Z-forward frame the same way
+        :attr:`joint_offsets` is, so mesh and skeleton land in the same space.
+
+        Returns ``(vertices, faces, weights, joints)``:
+
+        * ``vertices`` -- ``(V, 3)`` float64 bind-pose vertex positions.
+        * ``faces`` -- ``(F, 3)`` int32 triangle indices.
+        * ``weights`` -- ``(V, J)`` float64 per-vertex weight per joint, each
+          row normalized to sum to 1 (a vertex with no vertex-group weight at
+          all is left as all zeros rather than divided by zero).
+        * ``joints`` -- the ``J`` joint names ``weights`` is indexed by, in
+          the same order as :attr:`joint_names`.
         """
         armature = self.armature
         previous = armature.data.pose_position
         armature.data.pose_position = "REST"
         bpy.context.view_layer.update()
 
-        for obj in bpy.data.objects:
-            obj.select_set(obj.type == "MESH")
+        try:
+            names = self.joint_names
+            joint_index = {name: i for i, name in enumerate(names)}
+            n_joints = len(names)
+
+            all_vertices: list[np.ndarray] = []
+            all_faces: list[np.ndarray] = []
+            all_weights: list[np.ndarray] = []
+            offset = 0
+            for obj in self.meshes:
+                mesh = obj.data
+                if not mesh.vertices:
+                    continue
+                mesh.calc_loop_triangles()
+                matrix = obj.matrix_world
+
+                verts = np.stack([_to_y_up(matrix @ v.co) for v in mesh.vertices])
+                all_vertices.append(verts)
+
+                tris = np.array(
+                    [list(tri.vertices) for tri in mesh.loop_triangles], dtype=np.int32
+                ).reshape(-1, 3)
+                all_faces.append(tris + offset)
+
+                groups = obj.vertex_groups
+                rows = np.zeros((len(mesh.vertices), n_joints), dtype=np.float64)
+                for vi, vertex in enumerate(mesh.vertices):
+                    for element in vertex.groups:
+                        joint = joint_index.get(groups[element.group].name)
+                        if joint is not None:
+                            rows[vi, joint] = element.weight
+                sums = rows.sum(axis=1)
+                nonzero = sums > 1e-12
+                rows[nonzero] /= sums[nonzero, None]
+                all_weights.append(rows)
+
+                offset += len(mesh.vertices)
+
+            if not all_vertices:
+                raise ValueError("this FBX has no mesh to gather a bind pose from")
+
+            return (
+                np.concatenate(all_vertices, axis=0),
+                np.concatenate(all_faces, axis=0),
+                np.concatenate(all_weights, axis=0),
+                tuple(names),
+            )
+        finally:
+            armature.data.pose_position = previous
+            bpy.context.view_layer.update()
+
+    def write_bind_pose_obj(self, path: str | Path) -> None:
+        """Write the character's mesh, in its BIND pose, as a single OBJ.
+
+        Shares its geometry with :meth:`write_mesh_npz` via
+        :meth:`bind_pose_arrays`, so the two can never disagree. Kept for
+        inspection -- the skin weights only survive in the npz.
+        """
+        vertices, faces, _weights, _joints = self.bind_pose_arrays()
+        lines = [f"v {x:.6f} {y:.6f} {z:.6f}" for x, y, z in vertices]
+        lines += [f"f {a + 1} {b + 1} {c + 1}" for a, b, c in faces]
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        bpy.ops.wm.obj_export(
-            filepath=str(path),
-            export_selected_objects=True,
-            export_materials=False,
-            export_animation=False,
-            forward_axis="Z",
-            up_axis="Y",
+        Path(path).write_text("\n".join(lines) + "\n")
+
+    def write_mesh_npz(
+        self, path: str | Path, target_mean_bone_length: float = HML_MEAN_BONE_LENGTH
+    ) -> None:
+        """Mesh, skinning and rest skeleton in one file.
+
+        One load gives a consumer everything needed to drive the skin:
+        vertices and faces, the per-vertex weight matrix and the joint
+        ordering it is indexed by, and the rest skeleton those weights were
+        bound against. Splitting them across an OBJ and something else
+        guarantees they drift apart.
+
+        FBX/Blender units are whatever the source file declares -- centimeters
+        for most of this corpus's 3ds Max exports -- while the BVH pipeline's
+        ``ScaleToMeanBoneLength`` rescales every rig so its mean bone length
+        equals ``target_mean_bone_length``. Left unscaled, a mesh.npz would sit
+        in a wholly different numeric range from its BVH counterpart (measured
+        ratios of 0.01-0.6x across three rigs, not a constant conversion
+        factor -- these corpora do not even share a unit convention).
+        Rescaling here by that SAME target, computed from this rig's OWN bind
+        pose the same way ``ScaleToMeanBoneLength`` computes it from a BVH
+        T-pose, is what makes the two corpora comparable at all; the agreement
+        test in ``tests/build/test_bvh_fbx_agreement.py`` depends on it,
+        confirmed to 2e-5 of a bone length against a rig with a genuine BVH
+        T-pose reference (Crab).
+        """
+        vertices, faces, weights, joints = self.bind_pose_arrays()
+        offsets = self.joint_offsets
+        mean_length = float(np.linalg.norm(offsets[1:], axis=-1).mean())
+        factor = target_mean_bone_length / mean_length if mean_length > 1e-12 else 1.0
+
+        np.savez_compressed(
+            Path(path),
+            vertices=vertices * factor,
+            faces=faces,
+            skin_weights=weights,
+            skin_joints=np.array(joints, dtype=object),
+            joint_names=np.array(self.joint_names, dtype=object),
+            joint_parents=np.asarray(self.joint_parents, dtype=np.int32),
+            joint_offsets=np.asarray(offsets * factor, dtype=np.float64),
         )
-        armature.data.pose_position = previous

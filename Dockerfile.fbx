@@ -9,8 +9,22 @@ FROM debian:bookworm-slim
 
 # Blender links against the system Python, so manifest parsing needs the
 # distro's PyYAML rather than a pip install into a bundled interpreter.
+# python3-numpy and python3-scipy are needed transitively, and scipy in
+# particular is NOT dead weight to "optimise away": the FBX script imports
+# poseydon.ingest.pipeline.available_rigs (to share the entity-first layout
+# with the BVH script), which imports poseydon.core.animation, which imports
+# poseydon.core.kinematics, which does `from poseydon.core.rotations import
+# quat_apply, quat_mul` -- and poseydon.core.rotations does `from
+# scipy.spatial.transform import Rotation` at MODULE SCOPE. Nothing the FBX
+# script calls actually touches Rotation (available_rigs is a plain directory
+# scan), but Python executes a module's whole body on import, so this whole
+# chain -- and therefore the FBX script itself -- fails to import at all
+# without scipy installed (verified: removing it reproduces
+# `ModuleNotFoundError: No module named 'scipy'` at the available_rigs import
+# line, before the script's own code ever runs). FBX's own mesh.npz writer
+# uses numpy directly too.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      blender python3-yaml \
+      blender python3-yaml python3-numpy python3-scipy \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
