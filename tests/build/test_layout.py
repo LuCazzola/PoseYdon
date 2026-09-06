@@ -10,10 +10,18 @@ from tests.conftest import CORPUS
 
 
 def test_available_rigs_lists_directories_not_yaml_stems(tmp_path):
-    (tmp_path / "rigs" / "Goat").mkdir(parents=True)
-    (tmp_path / "rigs" / "Crab").mkdir(parents=True)
-    (tmp_path / "rigs" / "_base.yaml").write_text("fps: 30\n")
-    assert available_rigs(tmp_path / "rigs") == ["Crab", "Goat"]
+    rigs = tmp_path / "rigs"
+    for name in ("Goat", "Crab"):
+        (rigs / name).mkdir(parents=True)
+        (rigs / name / "manifest.yaml").write_text(f"skeleton: {name}\n")
+    # A shared fragment is a file, not a directory, so it is not a rig -- which
+    # is what retires the `_`-prefix convention the old flat layout needed.
+    (rigs / "_base.yaml").write_text("fps: 30\n")
+    # A directory with no manifest is not a rig either: rigs/<Rig>/ also holds
+    # derived artefacts, so one can exist before anyone authors a manifest.
+    (rigs / "Scratch").mkdir()
+
+    assert available_rigs(rigs) == ["Crab", "Goat"]
 
 
 def test_manifests_live_beside_their_rig():

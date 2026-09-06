@@ -26,12 +26,19 @@ ALIGNED_DIRNAME = "aligned"
 def available_rigs(rig_root: str | Path) -> list[str]:
     """Rig names under ``rig_root``, longest first.
 
-    A rig is a DIRECTORY, which is why the old ``_``-prefix convention for
-    shared fragments is no longer needed: a bare ``_base.yaml`` is a file, not
-    a directory. Longest first matters -- given both `Goat` and `GoatKid`, a
-    clip named `GoatKid_walk` must match `GoatKid`.
+    A rig is a DIRECTORY containing a ``manifest.yaml``, which is why the old
+    ``_``-prefix convention for shared fragments is no longer needed: a bare
+    ``_base.yaml`` is a file, not a directory. A directory alone does not
+    qualify either -- ``rigs/<Rig>/`` also holds derived artefacts (a
+    prepared clip, a mesh, statistics), so one can exist before anyone has
+    authored a manifest for it. Longest first matters -- given both `Goat`
+    and `GoatKid`, a clip named `GoatKid_walk` must match `GoatKid`.
     """
-    names = [path.name for path in Path(rig_root).iterdir() if path.is_dir()]
+    names = [
+        path.name
+        for path in Path(rig_root).iterdir()
+        if path.is_dir() and (path / "manifest.yaml").is_file()
+    ]
     return sorted(names, key=lambda name: (-len(name), name))
 
 
