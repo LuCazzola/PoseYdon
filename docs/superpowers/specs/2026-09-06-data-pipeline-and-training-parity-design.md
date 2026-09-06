@@ -272,11 +272,14 @@ The rule has two cases, and conflating them loses real motion:
   fold is exact only when the joint is its parent's sole child, so this case is
   left alone rather than silently displacing its siblings.
 
-Reduction repeats to a fixed point, because removing a zero-offset leaf can leave
-its parent a zero-offset leaf in turn.
+Reduction repeats to a fixed point, and the repetition does most of the work:
+removing a zero-offset leaf can leave its parent a zero-offset leaf in turn, and
+that parent is then droppable by case 1 even though it began as an internal
+joint with siblings. The sibling condition is therefore evaluated against the
+hierarchy **as it stands at the moment of removal**, never against the original.
 
 Measured on the prepared corpus, this reproduces the reference's stored joint
-counts on six of the seven fixture rigs:
+counts exactly:
 
 | rig | full | removed | reduced | reference `.npy` |
 |---|---|---|---|---|
@@ -284,13 +287,12 @@ counts on six of the seven fixture rigs:
 | Flamingo | 53 | 13 | 40 | 40 |
 | Goat | 40 | 9 | 31 | 31 |
 | Crab | 64 | 10 | 54 | 54 |
-| Scorpion | 78 | 14 | **64** | 63 |
+| Scorpion | 78 | 15 | 63 | 63 |
 
-Scorpion differs because `Bip01_Neck1` has zero offset but its parent `Hips` has
-two children, so the conservative rule keeps it where the reference drops it.
-Thirteen of the seventy-three rigs contain at least one such joint. Exactness
-wins over the count: golden parity is therefore asserted over the joints the two
-representations share, matched by name, not over the joint count.
+Case 3 is real but rarer than a scan of the original hierarchy suggests. A
+joint only survives it if its children have genuine offsets, so it never
+becomes a leaf — `Tukan/kosi` and `Bear/NPC_Spine1` are the shape. Neither rig
+is in the reference's fixture set, so keeping them costs no parity.
 
 The map is a `JointEdit` — the type already in `augment/joint_edit.py`, which
 records `source_of[new] = old` and transports normalizer rows and the rest frame
