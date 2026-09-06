@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pytest
 
-from poseydon.build.prepare import PrepareChain, PrepareStage, RestRelative
+from poseydon.build.prepare import FaceAxis, PrepareChain, PrepareStage, RestRelative
 from poseydon.core.animation import Animation
 from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat
 
@@ -187,3 +189,55 @@ def test_rest_relative_refuses_a_rig_it_was_not_fitted_to():
     other = _anim()
     with pytest.raises(ValueError, match="fitted"):
         stage.apply(other, params)
+
+
+@dataclass(frozen=True)
+class _FakeManifest:
+    extra_yaw_deg: float = 0.0
+
+
+@dataclass(frozen=True)
+class _FakeResolved:
+    facing_indices: tuple[tuple[int, int], ...]
+    manifest: _FakeManifest = _FakeManifest()
+
+
+def _wide() -> Animation:
+    """Root with a left and a right joint, facing +X rather than +Z."""
+    offsets = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]])
+    translations = np.broadcast_to(offsets, (2, 3, 3)).copy()
+    return Animation(
+        rotations=np.tile(QUAT_IDENTITY, (2, 3, 1)),
+        translations=translations, offsets=offsets,
+        parents=np.array([-1, 0, 0], dtype=np.int32),
+        names=("root", "right", "left"), fps=30.0,
+    )
+
+
+def test_face_axis_turns_frame_zero_onto_plus_z():
+    stage = FaceAxis(axis="+Z")
+    resolved = _FakeResolved(facing_indices=((1, 2),))
+    source = _wide()
+
+    params = stage.fit(source, resolved)
+    prepared = stage.apply(source, params)
+
+    positions = prepared.global_positions()
+    across = positions[0, 1] - positions[0, 2]
+    forward = np.cross(np.array([0.0, 1.0, 0.0]), across / np.linalg.norm(across))
+    np.testing.assert_allclose(forward, [0.0, 0.0, 1.0], atol=1e-9)
+
+
+def test_face_axis_inverts_exactly():
+    stage = FaceAxis(axis="+Z")
+    resolved = _FakeResolved(facing_indices=((1, 2),))
+    source = _wide()
+
+    params = stage.fit(source, resolved)
+    restored = stage.invert(stage.apply(source, params), params)
+
+    np.testing.assert_allclose(restored.rotations, source.rotations, atol=1e-9)
+    np.testing.assert_allclose(restored.offsets, source.offsets, atol=1e-9)
+    np.testing.assert_allclose(
+        restored.global_positions(), source.global_positions(), atol=1e-9
+    )

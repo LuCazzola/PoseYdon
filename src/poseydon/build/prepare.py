@@ -23,6 +23,7 @@ import numpy as np
 
 from poseydon.core.animation import Animation, rest_geometry
 from poseydon.core.rotations import quat_apply, quat_inverse, quat_mul
+from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig
 
 RIG = "rig"
 CLIP = "clip"
@@ -209,3 +210,33 @@ class RestRelative(PrepareStage):
             names=anim.names,
             fps=anim.fps,
         )
+
+
+@dataclass(frozen=True)
+class FaceAxis(PrepareStage):
+    """Turn each clip so its frame-0 facing direction points along ``axis``.
+
+    Clip-scoped, and that is the whole reason this module exists: the rotation
+    comes from THIS clip's frame 0, so once the prepared file faces +Z the
+    original orientation cannot be recovered from it. It has to be recorded.
+    """
+
+    axis: str = "+Z"
+
+    name: ClassVar[str] = "face_axis"
+    scope: ClassVar[str] = CLIP
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        rotation = facing_quats(
+            anim.global_positions()[:1],
+            resolved.facing_indices,
+            resolved.manifest.extra_yaw_deg,
+            axis_vector(self.axis),
+        )[0]
+        return {"rotation": rotation}
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return rotate_rig(anim, params["rotation"])
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return rotate_rig(anim, quat_inverse(params["rotation"]))
