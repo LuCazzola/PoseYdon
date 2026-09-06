@@ -72,7 +72,17 @@ def process_species(
     if not species_dir.is_dir():
         return 0, [f"{species}: no raw directory at {species_dir}"]
 
-    sources = sorted(species_dir.glob("*.fbx"))
+    # "ALL" files are Truebones' own all-takes compilations -- every
+    # animation of the rig concatenated into one clip, e.g. `GoatAll.fbx`,
+    # `scorpionALL.fbx`, `Flamingo-ALL.fbx` -- not a distinct action, and they
+    # have no BVH counterpart to pair basenames against. They are always the
+    # WHOLE stem ending in "all"; a hyphenated take that merely starts with
+    # the rig name plus "ALL" (Anaconda ships `AnacondaALL-Twistrattle.fbx`
+    # alongside the real `AnacondaALL.fbx`) is a real, separate clip and must
+    # not be swept up by a bare substring match.
+    sources = sorted(
+        p for p in species_dir.glob("*.fbx") if not p.stem.lower().endswith("all")
+    )
     if not sources:
         return 0, [f"{species}: no .fbx files in {species_dir}"]
 

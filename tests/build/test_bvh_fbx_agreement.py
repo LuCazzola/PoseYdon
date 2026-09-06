@@ -129,3 +129,47 @@ def test_bvh_and_fbx_agree_on_rest_geometry(rig):
         f"{rig}: worst rest-offset disagreement {worst / scale:.2e} bone lengths "
         f"at `{worst_name}`"
     )
+
+
+@pytest.mark.parametrize("rig", SAMPLE_RIGS)
+def test_bvh_and_fbx_clips_share_basenames(rig):
+    """The plan and the FBX script's own docstring assert this; check it.
+
+    Both scripts derive `strip_skeleton_prefix(action_slug(stem), rig)`, so
+    agreement is not automatic -- it depends on the two corpora's raw
+    filenames actually sharing a prefix convention, which most but not all
+    rigs do.
+    """
+    if rig == "BrownBear":
+        pytest.xfail(
+            "BrownBear's BVH files are named `__<Action>.bvh`, stripping the "
+            "`brownbear_` prefix (its manifest name, lowercased), while its "
+            "FBX files are named `BEAR-<Action>.fbx` -- `strip_skeleton_prefix` "
+            "strips the RIG name, not `bear_`, so the two corpora derive "
+            "completely different basenames (`attack` vs `bear_attack`) for "
+            "the same clip. No filename-derivation rule can close this: it "
+            "needs an authored alias, see the design spec's Limitations."
+        )
+    if rig == "Crab":
+        pytest.xfail(
+            "Unrelated to naming: Crab's BVH T-pose declares 54 joints against "
+            "its animations' 64 (the RestRelative limitation recorded in the "
+            "design spec), so only tpose.bvh survives prepare -- 1 BVH clip "
+            "against 11 FBX clips, which cannot share a basename set no matter "
+            "how either side derives its filename."
+        )
+
+    bvh_dir = CORPUS / "clips" / rig
+    bvhs = sorted(bvh_dir.glob("*.bvh"))
+    if not bvhs:
+        pytest.skip(f"{rig}: no prepared BVH")
+    fbxs = sorted(bvh_dir.glob("*.fbx"))
+    if not fbxs:
+        pytest.skip(f"{rig}: no prepared FBX -- run the fbx container")
+
+    bvh_stems = {p.stem for p in bvhs}
+    fbx_stems = {p.stem for p in fbxs}
+    assert bvh_stems == fbx_stems, (
+        f"{rig}: BVH-only {sorted(bvh_stems - fbx_stems)}, "
+        f"FBX-only {sorted(fbx_stems - bvh_stems)}"
+    )
