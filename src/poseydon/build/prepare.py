@@ -21,7 +21,8 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from poseydon.core.animation import Animation
+from poseydon.core.animation import Animation, rest_geometry
+from poseydon.core.rotations import quat_apply, quat_inverse, quat_mul
 
 RIG = "rig"
 CLIP = "clip"
@@ -90,3 +91,121 @@ class PrepareChain:
         for stage in reversed(self.stages):
             current = stage.invert(current, params[stage.name])
         return current
+
+
+def _global_binds(local_bind: np.ndarray, parents: np.ndarray) -> np.ndarray:
+    """Accumulate local rest rotations down the hierarchy. Parents precede children."""
+    binds = np.empty_like(local_bind)
+    binds[0] = local_bind[0]
+    for joint in range(1, len(parents)):
+        binds[joint] = quat_mul(binds[parents[joint]], local_bind[joint])
+    return binds
+
+
+class RestRelative(PrepareStage):
+    """Re-express rotations so zero on every joint reproduces the rest pose.
+
+    Raw Biped rigs bake an arbitrary per-joint bind rotation into every clip --
+    an exporter axis-convention artefact, not motion. Removing it is what makes a
+    T-pose read as identity, which every downstream consumer assumes.
+
+    Offsets become plain WORLD-SPACE differences of the rest pose's own global
+    positions, not offsets rotated into a joint's local frame: identity rotation
+    applied to a world-space offset reproduces that offset unchanged, which is
+    exactly what makes forward kinematics self-consistent at the rest frame.
+    Pairing identity rotations with parent-local offsets instead is a
+    coordinate-frame mismatch invisible at the rest frame and wrong everywhere
+    else.
+    """
+
+    name = "rest_relative"
+    scope = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        rest = rest_geometry(anim)
+        rest_global = rest.global_positions()
+        parent_of = rest.parents[1:]
+
+        rest_offsets = anim.offsets.copy()
+        rest_offsets[1:] = rest_global[0, 1:] - rest_global[0, parent_of]
+        return {
+            "local_bind": rest.rotations[0].copy(),
+            "rest_offsets": rest_offsets,
+            "source_offsets": anim.offsets.copy(),
+            "names": np.array(anim.names, dtype=object),
+        }
+
+    @staticmethod
+    def _check(anim: Animation, params: dict[str, np.ndarray]) -> None:
+        fitted = tuple(str(n) for n in params["names"])
+        if tuple(anim.names) != fitted:
+            raise ValueError(
+                "this animation's joints differ from the rig `rest_relative` was "
+                f"fitted to ({len(anim.names)} vs {len(fitted)} joints); a clip "
+                "rigged differently from its own rest pose cannot be prepared "
+                "against it"
+            )
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        self._check(anim, params)
+        local_bind = params["local_bind"]
+        binds = _global_binds(local_bind, anim.parents)
+
+        rotations = anim.rotations.copy()
+        rotations[:, 0] = quat_mul(anim.rotations[:, 0], quat_inverse(local_bind[0]))
+
+        translations = anim.translations.copy()
+        for joint in range(1, anim.n_joints):
+            parent_bind = binds[anim.parents[joint]]
+            # Sandwiched between its own local bind (undone) and its parent's
+            # global bind (removed, then reapplied).
+            rotations[:, joint] = quat_mul(
+                quat_mul(
+                    quat_mul(parent_bind, anim.rotations[:, joint]),
+                    quat_inverse(local_bind[joint]),
+                ),
+                quat_inverse(parent_bind),
+            )
+            # A translation is expressed in the PARENT's frame, and that frame
+            # has just turned, so it turns with it.
+            translations[:, joint] = quat_apply(parent_bind, anim.translations[:, joint])
+
+        return Animation(
+            rotations=rotations,
+            translations=translations,
+            offsets=params["rest_offsets"].copy(),
+            parents=anim.parents,
+            names=anim.names,
+            fps=anim.fps,
+        )
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        self._check(anim, params)
+        local_bind = params["local_bind"]
+        binds = _global_binds(local_bind, anim.parents)
+
+        rotations = anim.rotations.copy()
+        rotations[:, 0] = quat_mul(anim.rotations[:, 0], local_bind[0])
+
+        translations = anim.translations.copy()
+        for joint in range(1, anim.n_joints):
+            parent_bind = binds[anim.parents[joint]]
+            rotations[:, joint] = quat_mul(
+                quat_mul(
+                    quat_mul(quat_inverse(parent_bind), anim.rotations[:, joint]),
+                    parent_bind,
+                ),
+                local_bind[joint],
+            )
+            translations[:, joint] = quat_apply(
+                quat_inverse(parent_bind), anim.translations[:, joint]
+            )
+
+        return Animation(
+            rotations=rotations,
+            translations=translations,
+            offsets=params["source_offsets"].copy(),
+            parents=anim.parents,
+            names=anim.names,
+            fps=anim.fps,
+        )

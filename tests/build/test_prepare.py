@@ -5,8 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from poseydon.build.prepare import PrepareChain, PrepareStage
+from poseydon.build.prepare import PrepareChain, PrepareStage, RestRelative
 from poseydon.core.animation import Animation
+from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat
 
 
 def _anim(n_frames: int = 3, n_joints: int = 2) -> Animation:
@@ -130,3 +131,59 @@ def test_apply_rejects_a_missing_rig_parameter():
     chain = PrepareChain((Shift(),))
     with pytest.raises(KeyError, match="shift"):
         chain.apply(_anim(), resolved=None, rig_params={})
+
+
+def _bent(n_frames: int = 4) -> Animation:
+    """A three-joint chain whose rest pose is NOT the identity pose."""
+    rest = euler_to_quat(np.array([0.0, 0.0, 20.0]), "ZYX")
+    rotations = np.tile(QUAT_IDENTITY, (n_frames, 3, 1))
+    rotations[:, 1] = rest
+    rotations[:, 2] = euler_to_quat(np.array([0.0, 0.0, 35.0]), "ZYX")
+    offsets = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]])
+    translations = np.broadcast_to(offsets, (n_frames, 3, 3)).copy()
+    translations[:, 0] = np.arange(n_frames)[:, None] * np.array([1.0, 0.0, 0.0])
+    return Animation(
+        rotations=rotations, translations=translations, offsets=offsets,
+        parents=np.array([-1, 0, 1], dtype=np.int32),
+        names=("root", "mid", "tip"), fps=30.0,
+    )
+
+
+def test_rest_relative_makes_the_rest_pose_read_as_identity():
+    stage = RestRelative()
+    rest = _bent(n_frames=1)
+    params = stage.fit(rest, resolved=None)
+    prepared = stage.apply(rest, params)
+
+    dots = np.abs(np.sum(prepared.rotations * QUAT_IDENTITY, axis=-1))
+    np.testing.assert_allclose(dots, 1.0, atol=1e-9)
+
+
+def test_rest_relative_preserves_world_positions():
+    stage = RestRelative()
+    source = _bent()
+    params = stage.fit(_bent(n_frames=1), resolved=None)
+    prepared = stage.apply(source, params)
+
+    np.testing.assert_allclose(
+        prepared.global_positions(), source.global_positions(), atol=1e-9
+    )
+
+
+def test_rest_relative_inverts_exactly():
+    stage = RestRelative()
+    source = _bent()
+    params = stage.fit(_bent(n_frames=1), resolved=None)
+    restored = stage.invert(stage.apply(source, params), params)
+
+    np.testing.assert_allclose(restored.rotations, source.rotations, atol=1e-9)
+    np.testing.assert_allclose(restored.translations, source.translations, atol=1e-9)
+    np.testing.assert_allclose(restored.offsets, source.offsets, atol=1e-9)
+
+
+def test_rest_relative_refuses_a_rig_it_was_not_fitted_to():
+    stage = RestRelative()
+    params = stage.fit(_bent(n_frames=1), resolved=None)
+    other = _anim()
+    with pytest.raises(ValueError, match="fitted"):
+        stage.apply(other, params)

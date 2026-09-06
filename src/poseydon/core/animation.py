@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.kinematics import check_topological_order, forward_kinematics
+from poseydon.core.rotations import quat_apply, quat_inverse
 
 # Rigid translations are built by broadcasting offsets, so they match
 # exactly; this only absorbs float round trips through disk.
@@ -181,6 +182,34 @@ class Animation:
                 names=tuple(str(n) for n in data["names"]),
                 fps=float(data["fps"]),
             )
+
+
+def rest_geometry(anim: Animation) -> RigidBodyAnimation:
+    """Recover true bone geometry from a rest-pose frame's position channels.
+
+    Raw Biped exports carry the real skeleton in their per-joint POSITION
+    channels while the OFFSET block describes something else, so bone offsets
+    have to be read back out of frame 0's world-space layout and expressed in
+    each parent's own frame. Keeps the file's declared rotations, which is what
+    :class:`~poseydon.build.prepare.RestRelative` needs as the bind.
+    """
+    first = anim.slice(0, 1)
+    global_pos, global_rot = first.global_transforms()
+    parent_of = first.parents[1:]
+
+    offsets = np.zeros_like(first.offsets)
+    offsets[1:] = quat_apply(
+        quat_inverse(global_rot[0, parent_of]),
+        global_pos[0, 1:] - global_pos[0, parent_of],
+    )
+    return RigidBodyAnimation.from_root_motion(
+        rotations=first.rotations,
+        root_pos=global_pos[:, 0],
+        offsets=offsets,
+        parents=first.parents,
+        names=first.names,
+        fps=first.fps,
+    )
 
 
 @dataclass(frozen=True)

@@ -32,7 +32,7 @@ from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.ingest.align import rotate_to_face_axis
 from poseydon.io.bvh import BVH
-from poseydon.preproc.rest_pose import establish_rest_pose, make_anim_rest_relative
+from poseydon.build.prepare import RestRelative
 
 
 def load_raw_clip(path: Path) -> Animation:
