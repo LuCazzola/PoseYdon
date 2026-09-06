@@ -151,8 +151,8 @@ The stages, each implementing `apply` and `invert`:
 | `RestRelative` | the rig's rest pose | rest rotations `(J, 4)`, per rig |
 | `FaceAxis(axis="+Z")` | **each clip's** frame 0 | facing quaternion `(4,)`, per clip |
 | `EnforceRigid(joint_translation="drop")` | — | the rest offsets; structure inverts, values do not |
-| `ScaleToMeanBoneLength(target=0.2092)` | the rig's rest pose | scale factor, per rig |
 | `CentreXZ` | the rig's rest pose | XZ offset, per rig |
+| `ScaleToMeanBoneLength(target=0.2092)` | the rig's rest pose | scale factor, per rig |
 | `PutOnGround` | the rig's rest pose | ground height, per rig |
 
 Order is contractual and matches the reference's `process_anim`: rotate, centre,
@@ -263,21 +263,34 @@ The rule has two cases, and conflating them loses real motion:
   unobservable; nothing is lost. Exactly recoverable by re-inserting at the
   recorded index and parent with zero offset and identity rotation. Ten per rig,
   typically every End Site.
-- **Zero-offset internals** — collapse, not drop. Their rotation does swing their
-  subtree. Fold it into the parent (`rot(p) ← rot(p) · rot(z)`), reparent the
-  children onto `p`, remove `z`. There is exactly one per rig in Truebones,
-  always `Bip01_Pelvis` sitting on the root `Hips` with one or two children.
+- **Zero-offset internals that are an only child** — collapse. Their rotation does
+  swing their subtree, so they cannot simply be deleted. Fold it into the parent
+  (`rot(p) ← rot(p) · rot(z)`), reparent the children onto `p`, remove `z`. The
+  usual case is `Bip01_Pelvis` sitting on the root `Hips`.
+- **Zero-offset internals with siblings** — keep. Folding into the parent turns
+  the parent, and therefore turns every *other* child of that parent too. The
+  fold is exact only when the joint is its parent's sole child, so this case is
+  left alone rather than silently displacing its siblings.
 
-Measured on the prepared corpus, dropping every zero-offset joint reproduces the
-reference's stored joint counts exactly:
+Reduction repeats to a fixed point, because removing a zero-offset leaf can leave
+its parent a zero-offset leaf in turn.
 
-| rig | full | zero-offset | reduced | reference `.npy` |
+Measured on the prepared corpus, this reproduces the reference's stored joint
+counts on six of the seven fixture rigs:
+
+| rig | full | removed | reduced | reference `.npy` |
 |---|---|---|---|---|
 | BrownBear | 49 | 11 | 38 | 38 |
-| Scorpion | 78 | 15 | 63 | 63 |
 | Flamingo | 53 | 13 | 40 | 40 |
 | Goat | 40 | 9 | 31 | 31 |
 | Crab | 64 | 10 | 54 | 54 |
+| Scorpion | 78 | 14 | **64** | 63 |
+
+Scorpion differs because `Bip01_Neck1` has zero offset but its parent `Hips` has
+two children, so the conservative rule keeps it where the reference drops it.
+Thirteen of the seventy-three rigs contain at least one such joint. Exactness
+wins over the count: golden parity is therefore asserted over the joints the two
+representations share, matched by name, not over the joint count.
 
 The map is a `JointEdit` — the type already in `augment/joint_edit.py`, which
 records `source_of[new] = old` and transports normalizer rows and the rest frame
@@ -332,8 +345,8 @@ prepare:
   - {_target_: poseydon.build.prepare.RestRelative}
   - {_target_: poseydon.build.prepare.FaceAxis, axis: "+Z"}
   - {_target_: poseydon.build.prepare.EnforceRigid, joint_translation: drop}
-  - {_target_: poseydon.build.prepare.ScaleToMeanBoneLength, target: 0.20921428571428569}
   - {_target_: poseydon.build.prepare.CentreXZ}
+  - {_target_: poseydon.build.prepare.ScaleToMeanBoneLength, target: 0.20921428571428569}
   - {_target_: poseydon.build.prepare.PutOnGround}
 
 reduce: {_target_: poseydon.features.reduce.DropDegenerateJoints, tolerance: 1.0e-8}
@@ -466,13 +479,14 @@ Six, chosen to be load-bearing rather than exhaustive.
    offsets agree between the two prepared corpora, per rig. Skips when the FBX
    artefacts are absent, as the reference-dependent tests already do, because the
    test image has no Blender.
-3. **Reduction counts.** The reduced joint count equals the reference's stored
-   `.npy` joint count for all seven fixture skeletons. Cheap, and it pins the
-   degenerate-joint rule against regression.
+3. **Reduction is geometrically exact.** World-space joint positions are
+   unchanged by `reduce` on every surviving joint, and the reduced skeleton
+   contains no zero-offset leaf. Pins the drop-versus-collapse rule against
+   regression far more tightly than a joint count would.
 4. **Golden feature parity.** Features extracted by PoseYdon reproduce the
-   reference's own `.npy` arrays, block by block, with foot contact bit-exact.
-   A trimmed restoration of the deleted test, now meaningful because joint counts
-   match.
+   reference's own `.npy` arrays block by block, with foot contact bit-exact,
+   over the joints the two representations share, matched by name. A trimmed
+   restoration of the deleted test.
 5. **Normalization policy.** Each `scale` mode produces statistics of the
    documented shape, and `joint_block` leaves a 6D row's recovered rotation
    unchanged under Gram-Schmidt. A property, not an example.
@@ -552,10 +566,12 @@ stage is explicit rather than silent.
 
 Each phase leaves the repository working and is reviewable on its own.
 
-1. **Prepare and its inverse.** `build/prepare.py`, the stage contract, the
-   recorded constants, stage-1 script changes. Tests 1 and 2.
+1. **Invertibility.** `build/prepare.py`, the stage contract, the recorded
+   constants, `features/reduce.py`, the layout migration, stage-1 script
+   changes. Tests 1, 2 and 3. Reduction lands here rather than in phase 2
+   because the round-trip test cannot be written without it.
 2. **Build and layout.** `build_features.py`, the config group, the artefacts,
-   reduction, names, the normalization policy. Tests 3, 4 and 5.
+   names, the normalization policy. Tests 4 and 5.
 3. **Read path.** `MotionDataset`, `Annotations`, the conditioners, the temporal
    band, the recipe, the footskate fix.
 4. **Training loop.** Sampler, scheduler, checkpointing, resume, GPU image.
