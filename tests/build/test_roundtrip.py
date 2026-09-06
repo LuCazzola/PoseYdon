@@ -34,7 +34,6 @@ from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.features.reduce import apply_reduction, build_reduction, invert_reduction
 from poseydon.ingest.align import axis_vector, facing_quats
 from poseydon.io.bvh import BVH
-
 from tests.conftest import CORPUS, SAMPLE_RIGS
 
 CHAIN = PrepareChain(

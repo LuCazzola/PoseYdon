@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 
 from poseydon.io.bvh import BVH
-
 from tests.conftest import CORPUS, SAMPLE_RIGS
 
 
