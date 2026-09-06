@@ -247,26 +247,39 @@ class BVH:
         )
 
     @classmethod
-    def from_animation(cls, animation: Animation) -> BVH:
+    def from_animation(
+        cls, animation: Animation, channels: tuple[tuple[str, ...], ...] | None = None
+    ) -> BVH:
         """Prepare an animation for writing.
 
-        Joints are given position channels only where they actually
-        translate, so a rigid animation writes the ordinary
-        ``6 channels on the root, 3 elsewhere`` layout.
+        By default joints are given position channels only where they actually
+        translate, so a rigid animation writes the ordinary ``6 channels on the
+        root, 3 elsewhere`` layout. Pass ``channels`` to declare a specific
+        layout instead: undoing ``EnforceRigid`` has to restore the source
+        file's declaration even though the values in those channels are now the
+        constant rest offsets, so the returned rig is structurally the one the
+        user supplied.
         """
-        moves = ~np.all(
-            np.isclose(animation.translations, animation.offsets[np.newaxis], atol=1e-9),
-            axis=(0, 2),
-        )
-        children = _children_of(animation.parents)
-        channels = []
-        for joint in range(animation.n_joints):
-            if not children[joint]:
-                channels.append(())
-            elif joint == 0 or moves[joint]:
-                channels.append((*_POSITION_CHANNELS, "Zrotation", "Xrotation", "Yrotation"))
-            else:
-                channels.append(("Zrotation", "Xrotation", "Yrotation"))
+        if channels is None:
+            moves = ~np.all(
+                np.isclose(animation.translations, animation.offsets[np.newaxis], atol=1e-9),
+                axis=(0, 2),
+            )
+            children = _children_of(animation.parents)
+            built = []
+            for joint in range(animation.n_joints):
+                if not children[joint]:
+                    built.append(())
+                elif joint == 0 or moves[joint]:
+                    built.append((*_POSITION_CHANNELS, "Zrotation", "Xrotation", "Yrotation"))
+                else:
+                    built.append(("Zrotation", "Xrotation", "Yrotation"))
+            channels = tuple(built)
+        elif len(channels) != animation.n_joints:
+            raise ValueError(
+                f"channels declares {len(channels)} joints but the animation has "
+                f"{animation.n_joints}"
+            )
 
         return cls(
             names=animation.names,
@@ -274,7 +287,7 @@ class BVH:
             offsets=animation.offsets,
             rotations=animation.rotations,
             translations=animation.translations,
-            channels=tuple(channels),
+            channels=tuple(tuple(spec) for spec in channels),
             fps=animation.fps,
         )
 

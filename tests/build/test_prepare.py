@@ -7,9 +7,19 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from poseydon.build.prepare import FaceAxis, PrepareChain, PrepareStage, RestRelative
+from poseydon.build.prepare import (
+    CentreXZ,
+    EnforceRigid,
+    FaceAxis,
+    PrepareChain,
+    PrepareStage,
+    PutOnGround,
+    RestRelative,
+    ScaleToMeanBoneLength,
+)
 from poseydon.core.animation import Animation
 from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat
+from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 
 
 def _anim(n_frames: int = 3, n_joints: int = 2) -> Animation:
@@ -241,3 +251,77 @@ def test_face_axis_inverts_exactly():
     np.testing.assert_allclose(
         restored.global_positions(), source.global_positions(), atol=1e-9
     )
+
+
+def _rigid(n_frames: int = 3) -> Animation:
+    offsets = np.array([[0.0, 0.0, 0.0], [0.0, 4.0, 0.0], [0.0, 6.0, 0.0]])
+    translations = np.broadcast_to(offsets, (n_frames, 3, 3)).copy()
+    translations[:, 0] = np.array([7.0, 3.0, -2.0])
+    return Animation(
+        rotations=np.tile(QUAT_IDENTITY, (n_frames, 3, 1)),
+        translations=translations, offsets=offsets,
+        parents=np.array([-1, 0, 1], dtype=np.int32),
+        names=("root", "mid", "tip"), fps=30.0,
+    )
+
+
+def test_centre_xz_moves_frame_zero_to_the_origin_in_xz_only():
+    stage = CentreXZ()
+    source = _rigid()
+    params = stage.fit(source, resolved=None)
+    prepared = stage.apply(source, params)
+
+    np.testing.assert_allclose(prepared.translations[0, 0], [0.0, 3.0, 0.0], atol=1e-12)
+
+
+def test_scale_makes_the_mean_bone_length_the_target():
+    stage = ScaleToMeanBoneLength()
+    source = _rigid()
+    prepared = stage.apply(source, stage.fit(source, resolved=None))
+
+    lengths = np.linalg.norm(prepared.offsets[1:], axis=-1)
+    assert lengths.mean() == pytest.approx(HML_MEAN_BONE_LENGTH)
+
+
+def test_ground_puts_the_lowest_joint_at_zero():
+    stage = PutOnGround()
+    source = _rigid()
+    prepared = stage.apply(source, stage.fit(source, resolved=None))
+
+    assert prepared.global_positions()[..., 1].min() == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    "stage", [CentreXZ(), ScaleToMeanBoneLength(), PutOnGround()],
+    ids=["centre", "scale", "ground"],
+)
+def test_geometry_stages_invert_exactly(stage):
+    source = _rigid()
+    params = stage.fit(source, resolved=None)
+    restored = stage.invert(stage.apply(source, params), params)
+
+    np.testing.assert_allclose(restored.translations, source.translations, atol=1e-12)
+    np.testing.assert_allclose(restored.offsets, source.offsets, atol=1e-12)
+
+
+def test_enforce_rigid_records_the_source_channel_layout():
+    """The values are lost; the channel DECLARATION is not, so a source rig
+    that gave six channels per joint gets six channels back."""
+    from poseydon.io.bvh import BVH
+
+    source = _rigid()
+    moving = source.translations.copy()
+    moving[:, 1] += np.array([0.0, 0.1, 0.0])
+    source = Animation(
+        rotations=source.rotations, translations=moving, offsets=source.offsets,
+        parents=source.parents, names=source.names, fps=source.fps,
+    )
+
+    stage = EnforceRigid()
+    params = stage.fit(source, resolved=None)
+    rigid = stage.apply(source, params)
+    restored = stage.invert(rigid, params)
+
+    assert rigid.is_rigid()
+    written = BVH.from_animation(restored, channels=params["source_channels"])
+    assert "Xposition" in written.channels[1]

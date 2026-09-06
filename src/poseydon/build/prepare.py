@@ -21,8 +21,9 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from poseydon.core.animation import Animation, rest_geometry
+from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
 from poseydon.core.rotations import quat_apply, quat_inverse, quat_mul
+from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig
 
 RIG = "rig"
@@ -240,3 +241,146 @@ class FaceAxis(PrepareStage):
 
     def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
         return rotate_rig(anim, quat_inverse(params["rotation"]))
+
+
+def _with_root(anim: RigidBodyAnimation, root_pos: np.ndarray) -> RigidBodyAnimation:
+    return RigidBodyAnimation.from_root_motion(
+        rotations=anim.rotations,
+        root_pos=root_pos,
+        offsets=anim.offsets,
+        parents=anim.parents,
+        names=anim.names,
+        fps=anim.fps,
+    )
+
+
+@dataclass(frozen=True)
+class EnforceRigid(PrepareStage):
+    """Impose the rigid-bone assumption, recording the source channel layout.
+
+    Features, the IK solver and the topology augmentations all assume constant
+    bone lengths, so this is where a corpus that animates per-joint translation
+    stops doing so. The motion discarded is real -- roughly 10% of skeleton size
+    on raw Truebones -- which is why the stage is explicit rather than something
+    the parser does silently.
+
+    ``invert`` is the identity on the animation, because a rigid animation
+    already carries its offsets in every translation slot. What has to be put
+    back is the FILE's channel declaration, and that is the writer's job:
+    ``BVH.from_animation(anim, channels=params["source_channels"])``.
+    """
+
+    joint_translation: str = "drop"
+
+    name: ClassVar[str] = "enforce_rigid"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        moves = ~np.all(
+            np.isclose(anim.translations, anim.offsets[np.newaxis], atol=1e-9), axis=(0, 2)
+        )
+        # A childless joint is written as an End Site, which declares an OFFSET
+        # and no CHANNELS -- so it gets the empty tuple, matching what BVH.read
+        # produces for one. Anything else would not be the source's own layout.
+        has_child = np.zeros(anim.n_joints, dtype=bool)
+        real = anim.parents >= 0
+        has_child[anim.parents[real]] = True
+
+        channels = tuple(
+            ()
+            if not has_child[joint]
+            else (
+                "Xposition", "Yposition", "Zposition", "Zrotation", "Xrotation", "Yrotation"
+            )
+            if joint == 0 or moves[joint]
+            else ("Zrotation", "Xrotation", "Yrotation")
+            for joint in range(anim.n_joints)
+        )
+        # Build the object array explicitly: np.array() on ragged tuples has
+        # shape-inference heuristics that differ with the data.
+        stored = np.empty(anim.n_joints, dtype=object)
+        stored[:] = channels
+        return {"source_channels": stored}
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return anim.as_rigid_body(joint_translation=self.joint_translation)
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return anim
+
+
+@dataclass(frozen=True)
+class CentreXZ(PrepareStage):
+    """Translate so the root sits at the XZ origin on the rest pose's first frame."""
+
+    name: ClassVar[str] = "centre_xz"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        return {"root_xz": anim.translations[0, 0] * np.array([1.0, 0.0, 1.0])}
+
+    def apply(self, anim, params):
+        return _with_root(anim, anim.root_pos - params["root_xz"])
+
+    def invert(self, anim, params):
+        return _with_root(anim, anim.root_pos + params["root_xz"])
+
+
+@dataclass(frozen=True)
+class ScaleToMeanBoneLength(PrepareStage):
+    """Uniformly scale so the rig's MEAN bone length equals ``target``.
+
+    ``target`` defaults to the mean of the 21 SMPL bone lengths, which is what
+    the reference scales every character to so a scorpion and an elephant occupy
+    comparable numeric ranges.
+    """
+
+    target: float = HML_MEAN_BONE_LENGTH
+
+    name: ClassVar[str] = "scale"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        mean_length = float(np.linalg.norm(anim.offsets[1:], axis=-1).mean())
+        if mean_length < 1e-12:
+            raise ValueError("skeleton has zero mean bone length; cannot scale")
+        return {"factor": np.float64(self.target / mean_length)}
+
+    def apply(self, anim, params):
+        factor = float(params["factor"])
+        return RigidBodyAnimation.from_root_motion(
+            rotations=anim.rotations, root_pos=anim.root_pos * factor,
+            offsets=anim.offsets * factor, parents=anim.parents,
+            names=anim.names, fps=anim.fps,
+        )
+
+    def invert(self, anim, params):
+        factor = float(params["factor"])
+        return RigidBodyAnimation.from_root_motion(
+            rotations=anim.rotations, root_pos=anim.root_pos / factor,
+            offsets=anim.offsets / factor, parents=anim.parents,
+            names=anim.names, fps=anim.fps,
+        )
+
+
+@dataclass(frozen=True)
+class PutOnGround(PrepareStage):
+    """Translate in Y so the rest pose's lowest joint sits at ``y = 0``.
+
+    Rig-scoped deliberately: fitting per clip would ground a flying creature and
+    flatten the height difference between a crouch and a stand.
+    """
+
+    name: ClassVar[str] = "ground"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        return {"height": np.float64(anim.global_positions()[..., 1].min())}
+
+    def apply(self, anim, params):
+        shift = np.array([0.0, float(params["height"]), 0.0])
+        return _with_root(anim, anim.root_pos - shift)
+
+    def invert(self, anim, params):
+        shift = np.array([0.0, float(params["height"]), 0.0])
+        return _with_root(anim, anim.root_pos + shift)
