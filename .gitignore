@@ -222,15 +222,26 @@ external/
 
 # Ingest output: derived from source BVHs, regenerate with `poseydon ingest`
 data/*/aligned/
-data/*/index.jsonl
 
 # Raw corpora and preprocessing output. All derived or downloaded, and large
 # (source 2.9G, fbx 1.7G, bvh 275M): regenerate with
 # `scripts/process_dataset_truebones.py` and `scripts/process_dataset_truebones_fbx.py`.
-data/truebones/source/
-data/truebones/bvh/
-data/truebones/clips/
-data/truebones/fbx/
+#
+# Matched by EXTENSION, not by directory: authored files (manifest.yaml,
+# <action>.yaml) and derived ones (prepare.npz, mesh.npz, the prepared
+# BVH/FBX, index.jsonl) interleave under rigs/<Rig>/ and clips/<Rig>/, so a
+# directory-level rule either tracks derived binaries or ignores authored
+# ones depending on which files happen to exist when the rule was written.
+data/*/source/
+data/**/*.npz
+data/**/*.bvh
+data/**/*.fbx
+data/**/index.jsonl
+
+# Legacy pre-migration output (Truebone_Z-OO/, translated/): predates the
+# rigs/<Rig>/, clips/<Rig>/ layout above and holds formats (.obj) the
+# extension rules don't name. Not read by anything in poseydon; left ignored
+# by directory rather than folded into the current data model.
 data/truebones/mesh/
 data/truebones/translated/
 assets/

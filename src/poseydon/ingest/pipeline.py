@@ -34,9 +34,12 @@ def available_rigs(rig_root: str | Path) -> list[str]:
     authored a manifest for it. Longest first matters -- given both `Goat`
     and `GoatKid`, a clip named `GoatKid_walk` must match `GoatKid`.
     """
+    root = Path(rig_root)
+    if not root.is_dir():
+        return []
     names = [
         path.name
-        for path in Path(rig_root).iterdir()
+        for path in root.iterdir()
         if path.is_dir() and (path / "manifest.yaml").is_file()
     ]
     return sorted(names, key=lambda name: (-len(name), name))
