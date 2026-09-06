@@ -360,3 +360,12 @@ def test_rig_transform_reports_an_unknown_clip_clearly(tmp_path):
     transform.save(tmp_path / "prepare.npz")
     with pytest.raises(KeyError, match="jump"):
         RigTransform.load(tmp_path / "prepare.npz").params_for("jump")
+
+
+def test_rig_transform_rejects_a_clip_name_that_would_corrupt_the_keys(tmp_path):
+    """Clip names become npz key segments, so a slash would misparse on load."""
+    transform = RigTransform(
+        rig_params={}, clip_params={"walk/take1": {"double": {"factor": np.float64(2.0)}}}
+    )
+    with pytest.raises(ValueError, match="walk/take1"):
+        transform.save(tmp_path / "prepare.npz")

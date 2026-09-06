@@ -419,6 +419,15 @@ class RigTransform:
             for key, value in params.items():
                 arrays[f"rig/{stage}/{key}"] = np.asarray(value)
         for clip, stages in self.clip_params.items():
+            # Clip names become path segments in the npz keys, and `load`
+            # splits on "/" to recover the nesting. A name containing one
+            # would misparse into the wrong shape -- silently, in the file
+            # that is the only record of how to undo this corpus.
+            if "/" in clip:
+                raise ValueError(
+                    f"clip name `{clip}` contains `/`, which is the separator "
+                    "used inside prepare.npz keys; clip names must not contain it"
+                )
             for stage, params in stages.items():
                 for key, value in params.items():
                     arrays[f"clip/{clip}/{stage}/{key}"] = np.asarray(value)
