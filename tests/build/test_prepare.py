@@ -368,6 +368,23 @@ def test_enforce_rigid_records_the_source_channel_layout():
     assert written.channels[-1] == ()
 
 
+def test_enforce_rigid_records_an_explicit_source_channels_verbatim():
+    """A caller with the source file to hand should not get the inferred
+    layout -- a static rest pose under-declares (root only), and the file's
+    own `.channels` is authoritative. `fit` must record it unchanged."""
+    source = _rigid()
+    explicit = (
+        ("Xposition", "Yposition", "Zposition", "Zrotation", "Xrotation", "Yrotation"),
+        ("Xposition", "Yposition", "Zposition", "Zrotation", "Xrotation", "Yrotation"),
+        (),
+    )
+
+    stage = EnforceRigid(source_channels=explicit)
+    params = stage.fit(source, resolved=None)
+
+    assert tuple(params["source_channels"]) == explicit
+
+
 def test_rig_transform_round_trips_through_a_file(tmp_path):
     chain = PrepareChain((Shift(), Double()))
     source = _anim()

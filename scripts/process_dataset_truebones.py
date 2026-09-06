@@ -42,16 +42,24 @@ DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 
-CHAIN = PrepareChain(
-    (
-        RestRelative(),
-        FaceAxis(axis=TARGET_AXIS),
-        EnforceRigid(joint_translation="drop"),
-        CentreXZ(),
-        ScaleToMeanBoneLength(),
-        PutOnGround(),
+def _chain_for(source_channels: tuple[tuple[str, ...], ...]) -> PrepareChain:
+    """Build the chain with `EnforceRigid` recording THIS rig's real channels.
+
+    The layout differs per rig, so it cannot live on a module-level constant;
+    `EnforceRigid.fit` records `source_channels` verbatim when given one rather
+    than inferring a layout from the (often single-frame, under-declaring)
+    rest pose -- see `EnforceRigid`'s docstring.
+    """
+    return PrepareChain(
+        (
+            RestRelative(),
+            FaceAxis(axis=TARGET_AXIS),
+            EnforceRigid(joint_translation="drop", source_channels=source_channels),
+            CentreXZ(),
+            ScaleToMeanBoneLength(),
+            PutOnGround(),
+        )
     )
-)
 
 
 def find_tpose(clip_paths: list[Path]) -> Path | None:
@@ -99,14 +107,8 @@ def process_species(
 
     rest_bvh = BVH.read(rest_path)
     rest = rest_bvh.to_animation()
-    rig_params = CHAIN.fit_rig(rest, resolve(manifest, rest.names))
-    # EnforceRigid infers the channel layout from observed motion, but it is
-    # fitted against a rest pose that is often a single static frame, so it
-    # under-declares. The file's own declaration is authoritative and is what
-    # the inverse must restore.
-    channels = np.empty(len(rest_bvh.channels), dtype=object)
-    channels[:] = rest_bvh.channels
-    rig_params["enforce_rigid"]["source_channels"] = channels
+    chain = _chain_for(rest_bvh.channels)
+    rig_params = chain.fit_rig(rest, resolve(manifest, rest.names))
 
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -128,12 +130,12 @@ def process_species(
                     f"{source.fps:.4f}"
                 )
             resolved = resolve(manifest, source.names)
-            prepared, params = CHAIN.apply(source, resolved, rig_params)
+            prepared, params = chain.apply(source, resolved, rig_params)
 
             action = strip_skeleton_prefix(action_slug(clip_path.stem), manifest.name)
             BVH.from_animation(prepared).write(clips_dir / f"{action}.bvh")
             clip_params[action] = {
-                stage.name: params[stage.name] for stage in CHAIN.stages
+                stage.name: params[stage.name] for stage in chain.stages
                 if stage.scope == CLIP
             }
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus

@@ -270,14 +270,33 @@ class EnforceRigid(PrepareStage):
     already carries its offsets in every translation slot. What has to be put
     back is the FILE's channel declaration, and that is the writer's job:
     ``BVH.from_animation(anim, channels=params["source_channels"])``.
+
+    ``fit`` infers a channel layout from the observed motion, but that
+    inference is fitted against the rest pose, which is often a single static
+    frame -- so it under-declares (root only) for exactly the files where the
+    real answer matters. A caller with the source file to hand should pass its
+    real ``.channels`` through ``source_channels`` rather than rely on the
+    inference; this is a second, independent copy of the layout rule ``BVH``
+    itself applies on read, and letting a fitted guess silently replace a
+    known-correct answer is the wrong default for a production pipeline.
     """
 
     joint_translation: str = "drop"
+    #: The source file's real channel layout, when known. Recorded verbatim by
+    #: `fit` in preference to inferring one from observed motion -- see the
+    #: class docstring. `None` falls back to the inference, for callers with no
+    #: file to hand (tests, synthetic rigs).
+    source_channels: tuple[tuple[str, ...], ...] | None = None
 
     name: ClassVar[str] = "enforce_rigid"
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        if self.source_channels is not None:
+            stored = np.empty(len(self.source_channels), dtype=object)
+            stored[:] = list(self.source_channels)
+            return {"source_channels": stored}
+
         moves = ~np.all(
             np.isclose(anim.translations, anim.offsets[np.newaxis], atol=1e-9), axis=(0, 2)
         )
