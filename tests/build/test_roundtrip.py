@@ -163,6 +163,12 @@ def test_prepared_clips_face_plus_z_and_stand_on_the_ground(rig, raw_clips):
     )[0]
     np.testing.assert_allclose(np.abs(residual), QUAT_IDENTITY, atol=1e-9)
 
+    # ScaleToMeanBoneLength fits its factor over non-degenerate bones only
+    # (build/prepare.py); averaging over the full offset block, End Sites
+    # included, would restate that exclusion's inverse rather than test it --
+    # every rig would trivially fail or pass depending on how many End Sites it
+    # happens to declare. So measure the same set the stage measures.
     lengths = np.linalg.norm(prepared.offsets[1:], axis=-1)
-    assert lengths.mean() == pytest.approx(0.20921428571428569, rel=1e-9)
+    real_lengths = lengths[lengths > 1e-8]
+    assert real_lengths.mean() == pytest.approx(0.20921428571428569, rel=1e-9)
     assert prepared.global_positions()[..., 1].min() == pytest.approx(0.0, abs=1e-9)

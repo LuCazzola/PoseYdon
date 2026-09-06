@@ -338,14 +338,23 @@ class ScaleToMeanBoneLength(PrepareStage):
     """
 
     target: float = HML_MEAN_BONE_LENGTH
+    #: Bones at or below this length are zero-length End Sites, not bones. They
+    #: must not enter the mean: they contribute nothing to the numerator and one
+    #: to the denominator, so including them inflates the factor by
+    #: (J_all - 1) / (J_real - 1) -- a rig-dependent number, which is exactly the
+    #: cross-rig inconsistency this stage exists to remove. Matches the tolerance
+    #: `features.reduce` uses to identify the same joints.
+    tolerance: float = 1e-8
 
     name: ClassVar[str] = "scale"
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
-        mean_length = float(np.linalg.norm(anim.offsets[1:], axis=-1).mean())
-        if mean_length < 1e-12:
+        lengths = np.linalg.norm(anim.offsets[1:], axis=-1)
+        real = lengths[lengths > self.tolerance]
+        if real.size == 0:
             raise ValueError("skeleton has zero mean bone length; cannot scale")
+        mean_length = float(real.mean())
         return {"factor": np.float64(self.target / mean_length)}
 
     def apply(self, anim, params):

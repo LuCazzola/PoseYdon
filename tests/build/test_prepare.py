@@ -284,6 +284,38 @@ def test_scale_makes_the_mean_bone_length_the_target():
     assert lengths.mean() == pytest.approx(HML_MEAN_BONE_LENGTH)
 
 
+def test_scale_ignores_zero_length_end_sites():
+    """A rig differing only in how many End Sites it declares must come out the
+    same size. Averaging over them makes the factor depend on joint count."""
+    bare = _rigid()
+    stage = ScaleToMeanBoneLength()
+    scaled_bare = stage.apply(bare, stage.fit(bare, resolved=None))
+
+    # The same skeleton with two extra zero-length End Sites hung off its leaf.
+    offsets = np.concatenate([bare.offsets, np.zeros((2, 3))])
+    n_frames = bare.n_frames
+    padded = Animation(
+        rotations=np.concatenate(
+            [bare.rotations, np.tile(QUAT_IDENTITY, (n_frames, 2, 1))], axis=1
+        ),
+        translations=np.concatenate(
+            [bare.translations, np.zeros((n_frames, 2, 3))], axis=1
+        ),
+        offsets=offsets,
+        parents=np.array([*list(bare.parents), 2, 2], dtype=np.int32),
+        names=(*bare.names, "tip_end", "tip_end2"),
+        fps=bare.fps,
+    )
+    scaled_padded = stage.apply(padded, stage.fit(padded, resolved=None))
+
+    real = slice(1, bare.n_joints)
+    np.testing.assert_allclose(
+        np.linalg.norm(scaled_padded.offsets[real], axis=-1),
+        np.linalg.norm(scaled_bare.offsets[real], axis=-1),
+        rtol=1e-12,
+    )
+
+
 def test_ground_puts_the_lowest_joint_at_zero():
     stage = PutOnGround()
     source = _rigid()
