@@ -625,6 +625,22 @@ authored per-rig alias map from FBX filename to BVH action, not a cleverer
 slug function; BrownBear, Elephant and Fox are the confirmed cases, and the
 corpus has not been swept exhaustively for others.
 
+**BVH and FBX still disagree on rest geometry at shared joints, residually.**
+`ScaleToMeanBoneLength` averaging over zero-length End Sites (fixed above)
+was the dominant cause of an earlier, larger disagreement — up to 8.1e-1 bone
+lengths on Flamingo — and fixing it cut the error roughly tenfold. What
+remains is real and unexplained: at the rig's own T-pose clip, the worst
+per-rig disagreement is Flamingo 6.8e-2, BrownBear 5.5e-2 and Scorpion 3.3e-2
+bone lengths, against Crab's 2.0e-5 (which passes; its BVH T-pose has exactly
+one zero-length bone, so it was never much affected by the scale bug either).
+A coordinate-frame mismatch was ruled out by measuring parent-local and
+world-space forms and finding them identical to 1e-7.
+`test_bvh_and_fbx_agree_on_rest_geometry` records this as an `xfail` with the
+current numbers rather than resolving it — it matters for a later phase,
+where `mesh.npz` skin weights are indexed by the FBX joint order and would be
+applied to BVH-driven motion, so the disagreement means weights deforming
+wrongly. Needs both bind poses inspected side by side in Blender.
+
 ## Phasing
 
 Each phase leaves the repository working and is reviewable on its own.

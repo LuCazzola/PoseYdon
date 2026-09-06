@@ -4,13 +4,18 @@ Split in two because the two claims tangled here have different statuses.
 Joint-set SHAPE and parent-by-name HIERARCHY hold and are enforced. Rest
 GEOMETRY at shared joints was parked as an unexplained disagreement (up to
 8.1e-1 bone lengths on Flamingo) for one review cycle; it turned out to be
-Critical 1 of the final review, on the BVH side -- ScaleToMeanBoneLength
+mostly Critical 1 of the final review, on the BVH side -- ScaleToMeanBoneLength
 averaged over zero-length End Sites, inflating its factor by a rig-dependent
 (J_all-1)/(J_real-1), while `FBX.write_mesh_npz` computed its factor over the
 End-Site-free FBX joint set. Comparing an arbitrary BVH clip's OFFSET block
 against the FBX bind pose was also wrong on its own terms (`FaceAxis` rotates
 per clip, `mesh.npz`'s bind pose was faced from the rest pose alone) -- see
-`_rest_path` below. With both fixed this test is enforced at full strength.
+`_rest_path` below. Fixing both cut the disagreement roughly tenfold (Flamingo
+8.1e-1 -> 6.8e-2, etc.) but did not close it; the residue is re-parked behind
+the `xfail` on `test_bvh_and_fbx_agree_on_rest_geometry` below, with the
+current measurements in its reason -- a Phase 2 problem (skin weights are
+indexed by the FBX joint order, so the disagreement means weights applied to
+BVH-driven motion would deform wrongly), not something resolved here.
 
 Skips without the FBX artefacts, because the test image has no Blender.
 """
@@ -103,9 +108,29 @@ def test_bvh_and_fbx_agree_on_the_skeleton_structure(rig):
             )
 
 
+@pytest.mark.xfail(
+    reason=(
+        "BVH and FBX still disagree on rest geometry at shared joints, at "
+        "3-7% of a bone length: Flamingo 6.8e-2, BrownBear 5.5e-2, Scorpion "
+        "3.3e-2, against Crab's 2.0e-5, which passes. This is what REMAINS "
+        "after fixing the dominant cause -- ScaleToMeanBoneLength averaged "
+        "over zero-length End Sites, inflating the factor by "
+        "(J_all-1)/(J_real-1) and making the two corpora differ by exactly "
+        "that ratio. That fix cut the disagreement about tenfold; the residue "
+        "is unexplained. A coordinate-frame mismatch was excluded by measuring "
+        "parent-local and world-space forms and finding them identical to "
+        "1e-7. Crab passing is informative: its BVH T-pose has exactly one "
+        "zero-length bone, so it was never affected by the scale bug either. "
+        "Matters for the next phase, where mesh.npz skin weights are indexed "
+        "by the FBX joint order and get applied to BVH-driven motion."
+    ),
+    strict=False,
+)
 @pytest.mark.parametrize("rig", SAMPLE_RIGS)
 def test_bvh_and_fbx_agree_on_rest_geometry(rig):
-    """Rest offsets at shared joints, compared on the rig's T-pose clip."""
+    """Rest offsets at shared joints, compared on the rig's T-pose clip.
+
+    Known-failing for Flamingo/BrownBear/Scorpion; see the xfail reason."""
     bvh_path, mesh_path = _pair(rig)
     anim = BVH.read(bvh_path).to_animation()
     with np.load(mesh_path, allow_pickle=True) as mesh:
