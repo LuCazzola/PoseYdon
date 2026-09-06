@@ -13,6 +13,10 @@ def _anim(n_frames: int = 3, n_joints: int = 2) -> Animation:
     rotations = np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (n_frames, n_joints, 1))
     offsets = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     translations = np.broadcast_to(offsets, (n_frames, n_joints, 3)).copy()
+    # A non-zero root trajectory, so `Shift` is not a no-op. With a zero root
+    # the order tests below cannot tell reverse-order inversion from
+    # forward-order inversion: adding zero commutes with everything.
+    translations[:, 0] = np.array([5.0, 2.0, -3.0])
     return Animation(
         rotations=rotations,
         translations=translations,
@@ -92,15 +96,26 @@ def test_apply_then_invert_is_the_identity():
 
 
 def test_invert_runs_stages_in_reverse_order():
-    """Shift-then-double is not double-then-shift; a chain that inverted in
-    forward order would still round-trip each stage but not the composition."""
+    """Shift-then-Double does not commute. Unwinding in the wrong order divides
+    the restored root trajectory by two, so the correct order recovers the
+    source and the swapped order must not."""
     chain = PrepareChain((Shift(), Double()))
     source = _anim()
     rig = chain.fit_rig(source, resolved=None)
     prepared, params = chain.apply(source, resolved=None, rig_params=rig)
 
-    # The root moved to the origin BEFORE doubling, so doubling cannot move it.
-    np.testing.assert_allclose(prepared.translations[:, 0], 0.0, atol=1e-12)
+    restored = chain.invert(prepared, params)
+    np.testing.assert_allclose(
+        restored.translations[:, 0], source.translations[:, 0], atol=1e-12
+    )
+
+    # The same stages unwound forward instead of reversed must NOT recover it.
+    wrong = prepared
+    for stage in chain.stages:
+        wrong = stage.invert(wrong, params[stage.name])
+    assert not np.allclose(
+        wrong.translations[:, 0], source.translations[:, 0], atol=1e-9
+    )
 
 
 def test_a_clip_scoped_stage_refits_on_each_animation():
