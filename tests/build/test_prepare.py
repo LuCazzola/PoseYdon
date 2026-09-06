@@ -325,3 +325,11 @@ def test_enforce_rigid_records_the_source_channel_layout():
     assert rigid.is_rigid()
     written = BVH.from_animation(restored, channels=params["source_channels"])
     assert "Xposition" in written.channels[1]
+
+    # The leaf is written as an End Site, which declares an OFFSET and no
+    # CHANNELS -- so the fitted layout must record the empty tuple for it,
+    # matching what BVH.read produces. This is the whole point of the stage
+    # recording a layout at all: an approximation of the source's declaration
+    # is not the source's declaration.
+    assert params["source_channels"][-1] == ()
+    assert written.channels[-1] == ()
