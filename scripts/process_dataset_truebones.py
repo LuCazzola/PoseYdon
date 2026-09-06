@@ -1,19 +1,12 @@
-"""Raw Truebones BVH -> T-pose-relative, +Z-facing clips, native hierarchy kept.
+"""Raw Truebones BVH -> canonical, invertible clips under the entity-first layout.
 
-For every skeleton with a manifest in ``--manifest-dir`` (the hand-authored
-subset under ``data/truebones/skeletons/``), reads every raw ``.bvh`` clip
-under ``--raw-root/<Skeleton>/``, removes that rig's baked-in bind rotation
-(:func:`poseydon.preproc.rest_pose.make_anim_rest_relative` against a T-pose-derived
-rest reference), rotates the whole rig so its facing direction points +Z
-(:func:`poseydon.ingest.align.rotate_to_face_axis`, using the manifest's
-``facing`` joint pairs), and writes the result back out as an ordinary BVH under
-``--out-dir/<Skeleton>/`` (default ``data/truebones/bvh``), same filename,
-joint count, names and parents as the source.
-
-No joint drop/merge/retarget, scaling, centring or grounding happens here --
-those are separate concerns from bind-pose removal and facing alignment.
-Y+-up needs no transform: BVH and ``Anim`` are already Y-up throughout this
-codebase.
+For every rig with a manifest under ``--out-root/rigs/<Rig>/manifest.yaml``,
+reads every raw ``.bvh`` clip under ``--raw-root/<Rig>/``, runs it through
+:class:`poseydon.build.prepare.PrepareChain` (bind-rotation removal, facing
+alignment, rigid-bone enforcement, XZ centring, uniform scaling, grounding),
+and writes the result to ``--out-root/clips/<Rig>/<action>.bvh``. The fitted
+transform is recorded to ``--out-root/rigs/<Rig>/prepare.npz`` so the corpus
+can be turned back into what it came from.
 
 Run inside the test container:
     docker compose run --rm test python scripts/process_dataset_truebones.py
@@ -27,33 +20,38 @@ from pathlib import Path
 
 import numpy as np
 
-from poseydon.core.animation import Animation
+from poseydon.build.prepare import (
+    CLIP,
+    CentreXZ,
+    EnforceRigid,
+    FaceAxis,
+    PrepareChain,
+    PutOnGround,
+    RestRelative,
+    RigTransform,
+    ScaleToMeanBoneLength,
+)
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
-from poseydon.ingest.align import rotate_to_face_axis
+from poseydon.ingest.index import action_slug, strip_skeleton_prefix
+from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.bvh import BVH
-from poseydon.build.prepare import RestRelative
 
-
-def load_raw_clip(path: Path) -> Animation:
-    """One raw Biped clip, with its per-joint translation kept.
-
-    These rigs animate joint translation as well as rotation, and it is real
-    motion: measured against the same clips read through Blender, dropping it
-    moves joints by ~10% of skeleton size, while keeping it agrees to 0.2%.
-    So the corpus keeps it and stays faithful to the source; the rigid-bone
-    assumption is applied where it is actually required, at ingest, by an
-    explicit ``as_rigid_body(joint_translation="drop")``.
-    """
-    return BVH.read(path).to_animation()
-
-DEFAULT_RAW_ROOT = Path("data/truebones/Truebone_Z-OO")
-DEFAULT_MANIFEST_DIR = Path("data/truebones/skeletons")
-DEFAULT_OUT_DIR = Path("data/truebones/bvh")
+DEFAULT_RAW_ROOT = Path("data/truebones/source")
+DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 
-
+CHAIN = PrepareChain(
+    (
+        RestRelative(),
+        FaceAxis(axis=TARGET_AXIS),
+        EnforceRigid(joint_translation="drop"),
+        CentreXZ(),
+        ScaleToMeanBoneLength(),
+        PutOnGround(),
+    )
+)
 
 
 def find_tpose(clip_paths: list[Path]) -> Path | None:
@@ -78,28 +76,10 @@ def find_tpose(clip_paths: list[Path]) -> Path | None:
     return None
 
 
-def resolve_rest_anim(
-    clip_paths: list[Path],
-) -> tuple[Animation, Path, bool]:
-    """The single-frame rest reference to remove every clip's bind rotation against.
-
-    Prefers the raw T-pose file, recovered exactly via ``establish_rest_pose``.
-    Falls back to frame 0 of the first clip when the species has no T-pose
-    file -- an approximation (that frame need not be a true rest pose),
-    flagged by the returned bool.
-    """
-    tpose_path = find_tpose(clip_paths)
-    if tpose_path is not None:
-        return establish_rest_pose(tpose_path), tpose_path, False
-
-    fallback_path = clip_paths[0]
-    return load_raw_clip(fallback_path).slice(0, 1), fallback_path, True
-
-
 def process_species(
-    manifest: SkeletonManifest, raw_root: Path, out_dir: Path
+    manifest: SkeletonManifest, raw_root: Path, out_root: Path
 ) -> tuple[int, list[str]]:
-    """Process every raw clip for one skeleton. Returns (n_written, warnings)."""
+    """Prepare every raw clip for one rig. Returns (n_written, warnings)."""
     warnings: list[str] = []
     species_dir = raw_root / manifest.name
     if not species_dir.is_dir():
@@ -109,41 +89,53 @@ def process_species(
     if not clip_paths:
         return 0, [f"{manifest.name}: no .bvh files found in {species_dir}, skipped"]
 
-    rest_anim, rest_source, is_fallback = resolve_rest_anim(clip_paths)
-    if is_fallback:
+    rest_path = find_tpose(clip_paths)
+    if rest_path is None:
+        rest_path = clip_paths[0]
         warnings.append(
-            f"{manifest.name}: no T-pose file found; using frame 0 of "
-            f"{rest_source.name} as an approximate rest pose"
+            f"{manifest.name}: no T-pose file found; using {rest_path.name} as an "
+            "approximate rest pose"
         )
 
-    dest_dir = out_dir / manifest.name
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    rest_bvh = BVH.read(rest_path)
+    rest = rest_bvh.to_animation()
+    rig_params = CHAIN.fit_rig(rest, resolve(manifest, rest.names))
+    # EnforceRigid infers the channel layout from observed motion, but it is
+    # fitted against a rest pose that is often a single static frame, so it
+    # under-declares. The file's own declaration is authoritative and is what
+    # the inverse must restore.
+    channels = np.empty(len(rest_bvh.channels), dtype=object)
+    channels[:] = rest_bvh.channels
+    rig_params["enforce_rigid"]["source_channels"] = channels
 
+    clips_dir = out_root / "clips" / manifest.name
+    clips_dir.mkdir(parents=True, exist_ok=True)
+
+    clip_params: dict[str, dict] = {}
     n_written = 0
     for clip_path in clip_paths:
         # One bad clip must not cost a whole species. Some Truebones species
         # ship clips rigged differently from their own T-pose (Elephant's
-        # __Take_001 has 43 joints against the T-pose's 51), so the manifest
-        # cannot name joints that exist in both; those clips are reported and
-        # skipped rather than aborting the other twenty.
+        # __Take_001 has 43 joints against the T-pose's 51); those are reported
+        # and skipped rather than aborting the other twenty.
         try:
-            anim = load_raw_clip(clip_path)
-            # Catch a stray frame rate here, where the file it came from is
-            # still named, rather than letting it reach ingest. Relative
-            # tolerance because a BVH stores frame TIME, so 30 fps is a
-            # rounded repeating decimal on disk (0.033333 -> 30.00003).
+            source = BVH.read(clip_path).to_animation()
             if manifest.fps is not None and not math.isclose(
-                manifest.fps, anim.fps, rel_tol=1e-3
+                manifest.fps, source.fps, rel_tol=1e-3
             ):
                 raise ValueError(
-                    f"manifest requires {manifest.fps} fps but this clip is {anim.fps:.4f}"
+                    f"manifest requires {manifest.fps} fps but this clip is "
+                    f"{source.fps:.4f}"
                 )
-            anim = make_anim_rest_relative(anim, rest_anim)
-            resolved = resolve(manifest, anim.names)
-            anim = rotate_to_face_axis(
-                anim, resolved.facing_indices, TARGET_AXIS, manifest.extra_yaw_deg
-            )
-            BVH.from_animation(anim).write(dest_dir / clip_path.name)
+            resolved = resolve(manifest, source.names)
+            prepared, params = CHAIN.apply(source, resolved, rig_params)
+
+            action = strip_skeleton_prefix(action_slug(clip_path.stem), manifest.name)
+            BVH.from_animation(prepared).write(clips_dir / f"{action}.bvh")
+            clip_params[action] = {
+                stage.name: params[stage.name] for stage in CHAIN.stages
+                if stage.scope == CLIP
+            }
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus
             warnings.append(
                 f"{manifest.name}/{clip_path.name}: {type(error).__name__}: {error}"
@@ -151,30 +143,15 @@ def process_species(
             continue
         n_written += 1
 
-    warnings.extend(_sanity_check(manifest, dest_dir, rest_source, is_fallback))
+    RigTransform(rig_params=rig_params, clip_params=clip_params).save(
+        out_root / "rigs" / manifest.name / "prepare.npz"
+    )
+    warnings.extend(_sanity_check(manifest, clips_dir, rest_path))
     return n_written, warnings
 
 
-def rest_skeleton_positions(anim: Animation) -> np.ndarray:
-    """``(J, 3)`` joint positions of the REST skeleton: OFFSETs, no rotations.
-
-    This is what a DCC tool draws for the bind/rest pose -- Blender's Edit
-    Mode -- and it reads the ``OFFSET`` block ONLY. Checking it is not the
-    same as checking ``Anim.global_positions()``, which applies the motion
-    channels on top; a rig whose rest geometry and motion disagree passes
-    the second check and fails this one.
-    """
-    positions = np.zeros((anim.n_joints, 3))
-    for joint in range(1, anim.n_joints):
-        positions[joint] = positions[anim.parents[joint]] + anim.offsets[joint]
-    return positions
-
-
 def _sanity_check(
-    manifest: SkeletonManifest,
-    dest_dir: Path,
-    rest_source: Path,
-    is_fallback: bool,
+    manifest: SkeletonManifest, clips_dir: Path, rest_source: Path
 ) -> list[str]:
     """Print diagnostics for the written files; warn (not fail) if one looks off.
 
@@ -182,11 +159,18 @@ def _sanity_check(
     anything the write/read round trip itself breaks shows up here too.
     """
     warnings: list[str] = []
-    written = sorted(dest_dir.glob("*.bvh"))
+    written = sorted(clips_dir.glob("*.bvh"))
     if not written:
         return warnings
 
-    subject = dest_dir / rest_source.name if not is_fallback else written[0]
+    # The identity check below only holds at the rest frame itself, so this
+    # must read back the rest source's own written clip -- not just any
+    # clip -- by the same action-slug it was written under.
+    rest_action = strip_skeleton_prefix(action_slug(rest_source.stem), manifest.name)
+    subject = clips_dir / f"{rest_action}.bvh"
+    if not subject.is_file():
+        subject = written[0]
+
     anim = BVH.read(subject).to_animation()
     resolved = resolve(manifest, anim.names)
     label = f"  [{manifest.name}] {subject.name}"
@@ -202,26 +186,36 @@ def _sanity_check(
         forward = np.cross(np.array([0.0, 1.0, 0.0]), across)
         return float(np.dot(forward / np.linalg.norm(forward), _TARGET_FORWARD))
 
+    def rest_skeleton_positions(anim) -> np.ndarray:
+        """``(J, 3)`` joint positions of the REST skeleton: OFFSETs, no rotations."""
+        positions = np.zeros((anim.n_joints, 3))
+        for joint in range(1, anim.n_joints):
+            positions[joint] = positions[anim.parents[joint]] + anim.offsets[joint]
+        return positions
+
     posed_dot = facing_dot(anim.global_positions()[0], resolved.facing_indices)
     rest_dot = facing_dot(rest_skeleton_positions(anim), resolved.facing_indices)
-    print(f"{label} frame-0 forward . +Z = {posed_dot:.4f}   rest-skeleton forward . +Z = {rest_dot:.4f}")
+    print(
+        f"{label} frame-0 forward . +Z = {posed_dot:.4f}   "
+        f"rest-skeleton forward . +Z = {rest_dot:.4f}"
+    )
     for what, value in (("frame-0 pose", posed_dot), ("rest skeleton", rest_dot)):
         if value < 0.99:
             warnings.append(
-                f"{manifest.name}: {what} is not aligned to +Z ({value:.4f}) in {subject.name}"
+                f"{manifest.name}: {what} is not aligned to +Z ({value:.4f}) in "
+                f"{subject.name}"
             )
 
-    if is_fallback:
-        return warnings
-
-    # With the whole rig rotated (rotate_to_face_axis), EVERY joint --
-    # the root included -- reads as identity at the rest frame.
-    identity_err = float(np.abs(np.abs((anim.rotations[0] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max())
+    # With the whole rig rotated (FaceAxis), EVERY joint -- the root included --
+    # reads as identity at the rest frame.
+    identity_err = float(
+        np.abs(np.abs((anim.rotations[0] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max()
+    )
     print(f"{label} T-pose frame max |1 - dot(rot, identity)| = {identity_err:.4f}")
     if identity_err > 1e-3:
         warnings.append(
-            f"{manifest.name}: T-pose frame does not read as identity after bind removal "
-            f"(max deviation {identity_err:.4f})"
+            f"{manifest.name}: T-pose frame does not read as identity after bind "
+            f"removal (max deviation {identity_err:.4f})"
         )
 
     return warnings
@@ -230,36 +224,31 @@ def _sanity_check(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
-    parser.add_argument("--manifest-dir", type=Path, default=DEFAULT_MANIFEST_DIR)
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
     parser.add_argument(
-        "--skeletons",
+        "--rigs",
         nargs="*",
         default=None,
-        help="Skeleton names to process (default: every manifest in --manifest-dir)",
+        help="Rig names to process (default: every rig under --out-root/rigs)",
     )
     args = parser.parse_args()
 
-    # `_`-prefixed files are shared fragments pulled in via `base:`, not
-    # skeletons -- the same convention `ingest.pipeline.available_skeletons` uses.
-    manifest_paths = sorted(
-        p for p in args.manifest_dir.glob("*.yaml") if not p.stem.startswith("_")
-    )
-    if args.skeletons is not None:
-        wanted = set(args.skeletons)
-        manifest_paths = [p for p in manifest_paths if p.stem in wanted]
+    rig_names = available_rigs(args.out_root / "rigs")
+    if args.rigs is not None:
+        wanted = set(args.rigs)
+        rig_names = [name for name in rig_names if name in wanted]
 
     total_written = 0
     all_warnings: list[str] = []
-    for manifest_path in manifest_paths:
-        manifest = SkeletonManifest.load(manifest_path)
+    for rig_name in rig_names:
+        manifest = SkeletonManifest.load(args.out_root / "rigs" / rig_name / "manifest.yaml")
         print(f"{manifest.name}:")
-        n_written, warnings = process_species(manifest, args.raw_root, args.out_dir)
-        print(f"  wrote {n_written} clips -> {args.out_dir / manifest.name}")
+        n_written, warnings = process_species(manifest, args.raw_root, args.out_root)
+        print(f"  wrote {n_written} clips -> {args.out_root / 'clips' / manifest.name}")
         total_written += n_written
         all_warnings.extend(warnings)
 
-    print(f"\ntotal: {total_written} clips written across {len(manifest_paths)} skeletons")
+    print(f"\ntotal: {total_written} clips written across {len(rig_names)} rigs")
     if all_warnings:
         print(f"\n{len(all_warnings)} warning(s):")
         for warning in all_warnings:

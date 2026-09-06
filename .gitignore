@@ -225,10 +225,11 @@ data/*/aligned/
 data/*/index.jsonl
 
 # Raw corpora and preprocessing output. All derived or downloaded, and large
-# (Truebone_Z-OO 2.9G, fbx 1.7G, bvh 275M): regenerate with
+# (source 2.9G, fbx 1.7G, bvh 275M): regenerate with
 # `scripts/process_dataset_truebones.py` and `scripts/process_dataset_truebones_fbx.py`.
-data/truebones/Truebone_Z-OO/
+data/truebones/source/
 data/truebones/bvh/
+data/truebones/clips/
 data/truebones/fbx/
 data/truebones/mesh/
 data/truebones/translated/
