@@ -9,8 +9,13 @@ FROM debian:bookworm-slim
 
 # Blender links against the system Python, so manifest parsing needs the
 # distro's PyYAML rather than a pip install into a bundled interpreter.
+# python3-numpy and python3-scipy are needed transitively: the FBX script now
+# imports poseydon.ingest.pipeline and poseydon.core.skeleton to share the
+# entity-first layout and manifest handling with the BVH script, and that
+# drags in poseydon.core.animation (numpy) and poseydon.core.rotations
+# (scipy). FBX's own mesh.npz writer uses numpy directly too.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      blender python3-yaml \
+      blender python3-yaml python3-numpy python3-scipy \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

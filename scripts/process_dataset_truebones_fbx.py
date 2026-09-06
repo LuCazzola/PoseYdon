@@ -1,9 +1,10 @@
-"""Raw Truebones FBX -> +Z-facing clips with skin intact, plus one bind-pose OBJ per character.
+"""Raw Truebones FBX -> +Z-facing clips with skin intact, plus one mesh.npz per rig.
 
 The FBX counterpart to ``process_dataset_truebones.py``: same corpus, same
-manifests, same +Z facing convention, but carrying the mesh and skinning
-through, which BVH cannot represent at all. The FBX reading and writing
-itself lives in :mod:`poseydon.io.fbx`, beside :mod:`poseydon.io.bvh`.
+manifests, same entity-first layout, same +Z facing convention, but carrying
+the mesh and skinning through, which BVH cannot represent at all. The FBX
+reading and writing itself lives in :mod:`poseydon.io.fbx`, beside
+:mod:`poseydon.io.bvh`.
 
 Two things the BVH path works for come free here:
 
@@ -17,19 +18,28 @@ Two things the BVH path works for come free here:
   space, so turning the rig turns every deformed vertex with it.
 
 Verified against the BVH pipeline on the same clips: joint positions agree
-to 0.0000 at frame 0 and 0.2% of skeleton size across interpolated frames.
-The two differ only in how they STORE a rotation -- each expresses a joint
-in its own local bone frame, a constant per-joint offset -- so compare them
-through world space, never by raw quaternion values.
+to 0.0000 at frame 0 and 0.2% of skeleton size across interpolated frames --
+now a test, ``tests/build/test_bvh_fbx_agreement.py``, rather than only a
+claim in a commit message. The two differ only in how they STORE a
+rotation -- each expresses a joint in its own local bone frame, a constant
+per-joint offset -- so compare them through world space, never by raw
+quaternion values.
 
-Outputs, alongside the BVH pipeline's ``data/truebones/bvh/``:
+Outputs, alongside the BVH pipeline's ``data/truebones/clips/``:
 
-    data/truebones/fbx/<Species>/<clip>.fbx   facing +Z, skin and curves intact
-    data/truebones/mesh/<Species>.obj         the character in BIND pose, faced +Z
+    data/truebones/clips/<Rig>/<action>.fbx   facing +Z, skin and curves intact
+    data/truebones/rigs/<Rig>/mesh.npz        mesh + skin weights + rest skeleton,
+                                               faced +Z, bound to the same joints
+
+``action`` is derived exactly as the BVH script derives it --
+``strip_skeleton_prefix(action_slug(path.stem), rig)`` -- so the two
+corpora share basenames; the agreement test and later consumers depend on
+this. ``--write-obj`` additionally writes a bind-pose OBJ per rig, geometry
+only, for quick inspection in a mesh viewer.
 
 Run inside the fbx container:
     docker compose run --rm fbx blender --background \\
-        --python scripts/process_dataset_truebones_fbx.py
+        --python scripts/process_dataset_truebones_fbx.py -- --rigs Goat Crab Flamingo
 """
 
 from __future__ import annotations
@@ -38,28 +48,25 @@ import argparse
 import sys
 from pathlib import Path
 
-import yaml
-
+from poseydon.core.skeleton import SkeletonManifest
+from poseydon.ingest.index import action_slug, strip_skeleton_prefix
+from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
 
-DEFAULT_RAW_ROOT = Path("data/truebones/Truebone_Z-OO")
-DEFAULT_MANIFEST_DIR = Path("data/truebones/skeletons")
-DEFAULT_FBX_DIR = Path("data/truebones/fbx")
-DEFAULT_MESH_DIR = Path("data/truebones/mesh")
+DEFAULT_RAW_ROOT = Path("data/truebones/source")
+DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 
 
-def facing_pairs(manifest: dict) -> list[tuple[str, str]]:
-    facing = manifest["facing"]
-    return [
-        (facing["hips"]["right"], facing["hips"]["left"]),
-        (facing["shoulders"]["right"], facing["shoulders"]["left"]),
-    ]
+def facing_pairs(manifest: SkeletonManifest) -> list[tuple[str, str]]:
+    return [(pair.right, pair.left) for pair in manifest.facing]
 
 
-def process_species(manifest: dict, raw_root: Path, fbx_dir: Path, mesh_dir: Path):
-    """Process every FBX of one species. Returns (n_written, warnings)."""
-    species = manifest["skeleton"]
+def process_species(
+    manifest: SkeletonManifest, raw_root: Path, out_root: Path, write_obj: bool
+) -> tuple[int, list[str]]:
+    """Process every FBX of one rig. Returns (n_written, warnings)."""
+    species = manifest.name
     warnings: list[str] = []
     species_dir = raw_root / species
     if not species_dir.is_dir():
@@ -70,6 +77,8 @@ def process_species(manifest: dict, raw_root: Path, fbx_dir: Path, mesh_dir: Pat
         return 0, [f"{species}: no .fbx files in {species_dir}"]
 
     pairs = facing_pairs(manifest)
+    clips_dir = out_root / "clips" / species
+    rig_dir = out_root / "rigs" / species
     n_written = 0
     mesh_written = False
 
@@ -91,22 +100,26 @@ def process_species(manifest: dict, raw_root: Path, fbx_dir: Path, mesh_dir: Pat
             if dot < 0.99:
                 warnings.append(f"{species}/{source.name}: facing is {dot:.4f}, not +Z")
 
-            scene.write(fbx_dir / species / source.name)
+            action_name = strip_skeleton_prefix(action_slug(source.stem), species)
+            scene.write(clips_dir / f"{action_name}.fbx")
             n_written += 1
 
             # One mesh per character, from the first file that carries one.
             # It has no frame to be faced from, so face the BIND pose: the
-            # mesh is a per-character reference, not a clip.
+            # mesh is a per-rig reference, not a clip.
             if not mesh_written and scene.meshes:
                 scene.rotate(scene.facing_rotation(pairs, TARGET_AXIS, rest=True))
-                scene.write_bind_pose_obj(mesh_dir / f"{species}.obj")
+                rig_dir.mkdir(parents=True, exist_ok=True)
+                scene.write_mesh_npz(rig_dir / "mesh.npz")
+                if write_obj:
+                    scene.write_bind_pose_obj(rig_dir / "mesh.obj")
                 mesh_written = True
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus
             warnings.append(f"{species}/{source.name}: {type(error).__name__}: {error}")
             continue
 
     if not mesh_written:
-        warnings.append(f"{species}: no mesh found in any FBX, no OBJ written")
+        warnings.append(f"{species}: no mesh found in any FBX, no mesh.npz written")
     return n_written, warnings
 
 
@@ -114,32 +127,37 @@ def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser(description="Process raw Truebones FBX files.")
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
-    parser.add_argument("--manifest-dir", type=Path, default=DEFAULT_MANIFEST_DIR)
-    parser.add_argument("--fbx-dir", type=Path, default=DEFAULT_FBX_DIR)
-    parser.add_argument("--mesh-dir", type=Path, default=DEFAULT_MESH_DIR)
-    parser.add_argument("--skeletons", nargs="*", default=None)
+    parser.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
+    parser.add_argument(
+        "--rigs",
+        nargs="*",
+        default=None,
+        help="Rig names to process (default: every rig under --out-root/rigs)",
+    )
+    parser.add_argument(
+        "--write-obj",
+        action="store_true",
+        help="Also write a geometry-only bind-pose OBJ per rig, for quick inspection.",
+    )
     args = parser.parse_args(argv)
 
-    # `_`-prefixed files are shared fragments pulled in via `base:`, not
-    # skeletons -- the same convention ingest and the BVH script use.
-    manifests = sorted(
-        p for p in args.manifest_dir.glob("*.yaml") if not p.stem.startswith("_")
-    )
-    if args.skeletons is not None:
-        wanted = set(args.skeletons)
-        manifests = [p for p in manifests if p.stem in wanted]
+    rig_names = available_rigs(args.out_root / "rigs")
+    if args.rigs is not None:
+        wanted = set(args.rigs)
+        rig_names = [name for name in rig_names if name in wanted]
 
     total = 0
     all_warnings: list[str] = []
-    for path in manifests:
-        manifest = yaml.safe_load(path.read_text())
-        written, warnings = process_species(manifest, args.raw_root, args.fbx_dir, args.mesh_dir)
-        print(f"{manifest['skeleton']}: wrote {written} fbx", flush=True)
+    for rig_name in rig_names:
+        manifest = SkeletonManifest.load(args.out_root / "rigs" / rig_name / "manifest.yaml")
+        written, warnings = process_species(
+            manifest, args.raw_root, args.out_root, args.write_obj
+        )
+        print(f"{manifest.name}: wrote {written} fbx", flush=True)
         total += written
         all_warnings.extend(warnings)
 
-    print(f"\ntotal: {total} fbx across {len(manifests)} skeletons")
-    print(f"meshes: {len(list(args.mesh_dir.glob('*.obj')))} obj -> {args.mesh_dir}")
+    print(f"\ntotal: {total} fbx across {len(rig_names)} rigs")
     if all_warnings:
         print(f"\n{len(all_warnings)} warning(s):")
         for warning in all_warnings:
