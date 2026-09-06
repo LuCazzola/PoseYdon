@@ -1,9 +1,0 @@
-base: _base.yaml
-skeleton: Alligator
-facing:
-  hips:      {right: R_momo, left: L_momo}
-  shoulders: {right: R_hiji, left: L_hiji}
-foot_joints:
-  - R_ashi
-  - L_ashi
-tags: [quadruped]

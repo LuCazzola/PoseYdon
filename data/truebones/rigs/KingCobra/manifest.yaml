@@ -1,0 +1,26 @@
+base: ../_base.yaml
+skeleton: KingCobra
+facing:
+  hips:      {right: BN__Neck_R_01, left: BN__Neck_L_01}
+  shoulders: {right: BN__Neck_R_01, left: BN__Neck_L_01}
+foot_joints:
+  - Hips
+  - BN_Spine_01
+  - BN_Spine_02
+  - BN_Spine_03
+  - BN__Neck_01
+  - BN__Neck_02
+  - BN__Neck_R_01
+  - BN__Neck_L_01
+  - BN_Head_01
+  - BN_Mouth_01
+  - BN_Tongue_01
+  - BN_Tongue_02
+  - BN_Tail_01
+  - BN_Tail_02
+  - BN_Tail_03
+  - BN_Tail_04
+  - BN_Tail_05
+  - BN_Tail_06
+  - BN_Tail_07
+tags: [snake]

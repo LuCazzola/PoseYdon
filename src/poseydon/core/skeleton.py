@@ -31,7 +31,6 @@ _KNOWN_KEYS = frozenset(
         "scale",
         "contact",
         "tags",
-        "strip_joint_prefix",
     }
 )
 
@@ -73,7 +72,6 @@ class SkeletonManifest:
     fps: float | None = None
     mean_bone_length: float | None = None
     tags: tuple[str, ...] = ()
-    strip_joint_prefix: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> SkeletonManifest:
@@ -176,9 +174,6 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
         fps=None if data.get("fps") is None else float(data["fps"]),
         mean_bone_length=None if mean_bone_length is None else float(mean_bone_length),
         tags=tuple(str(t) for t in (data.get("tags") or ())),
-        strip_joint_prefix=(
-            None if data.get("strip_joint_prefix") is None else str(data["strip_joint_prefix"])
-        ),
     )
 
 
@@ -223,16 +218,3 @@ def resolve(manifest: SkeletonManifest, names: Sequence[str]) -> ResolvedSkeleto
         for joint in manifest.foot_joints
     )
     return ResolvedSkeleton(manifest=manifest, facing_indices=facing, foot_indices=feet)
-
-
-def strip_prefix(names: Sequence[str], prefix: str | None) -> tuple[str, ...]:
-    """Drop a dataset-specific joint-name prefix, e.g. ``mixamorig:``."""
-    if not prefix:
-        return tuple(names)
-    stripped = tuple(n.removeprefix(prefix) for n in names)
-    if len(set(stripped)) != len(stripped):
-        raise ManifestError(
-            f"stripping prefix `{prefix}` makes joint names collide; "
-            "remove the prefix from the manifest or rename the joints"
-        )
-    return stripped

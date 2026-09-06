@@ -1,0 +1,7 @@
+base: ../_base.yaml
+skeleton: Scorpion-2
+facing:
+  hips:      {right: jt_HindLeg1_R, left: jt_HindLeg1_L}
+  shoulders: {right: jt_FrontLeg2_R, left: jt_FrontLeg2_L}
+foot_joints: []   # the reference's heuristic finds none for this rig
+tags: [milliped]

@@ -1,0 +1,25 @@
+base: ../_base.yaml
+skeleton: Centipede
+facing:
+  hips:      {right: BN_Thigh_R_01, left: BN_Thigh_L_01}
+  shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
+foot_joints:
+  - BN_Foot_L01
+  - BN_Toe0_L_01
+  - BN_Toe01_L_01
+  - BN_Foot_R_01
+  - BN_Toe0_R_01
+  - BN_Toe01_R_01
+  - BN_Foot_R_02
+  - BN_Foot_L_02
+  - Bip01_R_Foot
+  - Bip01_R_Toe0
+  - Bip01_R_Toe01
+  - Bip01_R_Toe0Nub
+  - Bip01_L_Foot
+  - Bip01_L_Toe0
+  - Bip01_L_Toe01
+  - Bip01_L_Toe0Nub
+  - BN_Foot_R_03
+  - BN_Foot_L_03
+tags: [milliped]
