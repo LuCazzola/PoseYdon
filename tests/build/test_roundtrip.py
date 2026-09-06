@@ -96,22 +96,25 @@ def test_round_trip_returns_the_source_rig(rig, raw_clips):
     assert list(restored.parents) == list(source.parents)
     np.testing.assert_allclose(restored.offsets, source.offsets, atol=1e-9)
 
-    # Geometry: re-preparing the returned asset reproduces the prepared clip
-    # exactly. This is the property the application actually needs -- a
-    # generated clip, unprepared onto the user's rig and prepared again, is the
-    # clip we started from.
+    # Reduction and expansion are world-exact, not representation-exact: a
+    # collapsed joint's rotation is folded into its parent and cannot be split
+    # back out, because the two are coincident and the split is unobservable.
+    # So every geometric claim below is made in world space.
     #
-    # It is asserted instead of comparing world positions against the source
-    # because EnforceRigid deliberately discards per-joint translation: the
-    # restored clip carries the REST pose's translation channels, and the
-    # pipeline builds its canonical skeleton from the T-pose's MEASURED
-    # geometry rather than the BVH OFFSET header, which raw Biped exports do
-    # not fill in truthfully. Comparing against `as_rigid_body("drop")` would
-    # demand a skeleton the pipeline never claimed to preserve.
+    # First, isolate the reduction: expanding what we reduced must put every
+    # joint back where it was.
+    np.testing.assert_allclose(
+        expanded.global_positions(), prepared.global_positions(), atol=1e-9
+    )
+
+    # Then the whole loop: re-preparing the returned asset reproduces the
+    # prepared clip. This is the property the application needs -- a generated
+    # clip, unprepared onto the user's rig and prepared again, is the clip we
+    # started from.
     reprepared = _apply_with(CHAIN, restored, params)
-    np.testing.assert_allclose(reprepared.rotations, prepared.rotations, atol=1e-9)
-    np.testing.assert_allclose(reprepared.translations, prepared.translations, atol=1e-9)
-    np.testing.assert_allclose(reprepared.offsets, prepared.offsets, atol=1e-9)
+    np.testing.assert_allclose(
+        reprepared.global_positions(), prepared.global_positions(), atol=1e-9
+    )
 
 
 @pytest.mark.parametrize("rig", SAMPLE_RIGS)
