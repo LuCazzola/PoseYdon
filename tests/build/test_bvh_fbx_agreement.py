@@ -25,6 +25,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 from poseydon.io.bvh import BVH
 from tests.conftest import CORPUS, SAMPLE_RIGS
 
@@ -153,6 +154,33 @@ def test_bvh_and_fbx_agree_on_rest_geometry(rig):
     assert worst < 1e-3 * scale, (
         f"{rig}: worst rest-offset disagreement {worst / scale:.2e} bone lengths "
         f"at `{worst_name}`"
+    )
+
+
+@pytest.mark.parametrize("rig", SAMPLE_RIGS)
+def test_mesh_npz_mean_bone_length_matches_target(rig):
+    """``write_mesh_npz`` must scale to HML_MEAN_BONE_LENGTH like the BVH side.
+
+    Regression for the bug where the mean was taken over EVERY entry of
+    ``offsets[1:]``, including zero-length End-Site-equivalent joints, which
+    inflates the factor by a rig-dependent (J_all-1)/(J_real-1) -- the same
+    bug ``ScaleToMeanBoneLength.fit`` was fixed for on the BVH side. Only
+    Crab has no zero-length bone in its FBX skeleton, so it is the only rig
+    this passed for before the fix.
+    """
+    mesh_path = CORPUS / "rigs" / rig / "mesh.npz"
+    if not mesh_path.is_file():
+        pytest.skip(f"{rig}: no mesh.npz -- run the fbx container")
+
+    with np.load(mesh_path, allow_pickle=True) as mesh:
+        offsets = mesh["joint_offsets"]
+
+    lengths = np.linalg.norm(offsets[1:], axis=-1)
+    real = lengths[lengths > 1e-8]
+    mean_length = float(real.mean())
+    assert mean_length == pytest.approx(HML_MEAN_BONE_LENGTH, rel=1e-4), (
+        f"{rig}: non-degenerate mean bone length {mean_length} != "
+        f"HML_MEAN_BONE_LENGTH {HML_MEAN_BONE_LENGTH}"
     )
 
 

@@ -406,14 +406,25 @@ class FBX:
         factor -- these corpora do not even share a unit convention).
         Rescaling here by that SAME target, computed from this rig's OWN bind
         pose the same way ``ScaleToMeanBoneLength`` computes it from a BVH
-        T-pose, is what makes the two corpora comparable at all; the agreement
-        test in ``tests/build/test_bvh_fbx_agreement.py`` depends on it,
-        confirmed to 2e-5 of a bone length against a rig with a genuine BVH
-        T-pose reference (Crab).
+        T-pose -- including that stage's exclusion of zero-length bones from
+        the mean, which this method must mirror exactly or the two computed
+        factors disagree by a rig-dependent (J_all-1)/(J_real-1) -- is what
+        makes the two corpora comparable at all; the agreement test in
+        ``tests/build/test_bvh_fbx_agreement.py`` depends on it, confirmed to
+        2e-5 of a bone length against Crab, the one sample rig whose FBX
+        skeleton happens to have no zero-length bone (so the exclusion is a
+        no-op for it and it would have agreed either way -- it is not general
+        evidence the unfiltered mean was fine).
         """
         vertices, faces, weights, joints = self.bind_pose_arrays()
         offsets = self.joint_offsets
-        mean_length = float(np.linalg.norm(offsets[1:], axis=-1).mean())
+        # Bones at or below this tolerance are zero-length End-Site-equivalent
+        # joints, not real bones; including them in the mean inflates the
+        # factor. Matches ScaleToMeanBoneLength.tolerance in
+        # poseydon.build.prepare, which this method must stay in step with.
+        lengths = np.linalg.norm(offsets[1:], axis=-1)
+        real_lengths = lengths[lengths > 1e-8]
+        mean_length = float(real_lengths.mean()) if real_lengths.size else 0.0
         factor = target_mean_bone_length / mean_length if mean_length > 1e-12 else 1.0
 
         np.savez_compressed(
