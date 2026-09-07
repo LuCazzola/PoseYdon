@@ -105,6 +105,7 @@ def process_species(
             if action is not None:
                 scene.set_frame(scene.frame_range()[0])
             scene.rotate(scene.facing_rotation(pairs, TARGET_AXIS))
+            scene.scale_to_mean_bone_length()
 
             dot = scene.facing_dot(pairs)
             if dot < 0.99:

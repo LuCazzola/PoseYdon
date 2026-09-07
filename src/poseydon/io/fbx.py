@@ -255,6 +255,55 @@ class FBX:
         bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
         bpy.context.view_layer.update()
 
+    def scale_to_mean_bone_length(self, target: float = HML_MEAN_BONE_LENGTH) -> float:
+        """Uniformly scale the rig so its BIND-pose mean bone length equals ``target``.
+
+        Modelled on :meth:`rotate`, for the same reason: the object transform
+        is what actually moves the rest pose and the animation together, and
+        ``transform_apply`` then bakes the factor into the armature's bones
+        and the meshes' vertices rather than leaving it on the object
+        transform, which is what a viewer sees and what the exporter would
+        otherwise re-derive as a scale curve.
+
+        Without this, ``write`` exports the clip in raw Blender/FBX units
+        (centimeters for most of this corpus) while ``write_mesh_npz``
+        rescales the mesh to ``target`` -- so a rig's exported ``.fbx`` clips
+        and its ``mesh.npz`` sit in different unit systems, and both disagree
+        with the BVH pipeline's own ``ScaleToMeanBoneLength``, which scales
+        every BVH clip to the same target. BVH is the primary corpus; this
+        brings FBX into the same units rather than the reverse.
+
+        The factor is computed from the bind pose (:attr:`joint_offsets`),
+        excluding zero-length bones the same way ``ScaleToMeanBoneLength``
+        and :meth:`write_mesh_npz` do -- so a rig scaled once here and then
+        fed through ``write_mesh_npz`` gets a second factor of ~1.0, not a
+        double scale.
+
+        Returns the factor applied, ``1.0`` if the bind pose has no
+        non-degenerate bone.
+        """
+        offsets = self.joint_offsets
+        lengths = np.linalg.norm(offsets[1:], axis=-1)
+        real_lengths = lengths[lengths > 1e-8]
+        mean_length = float(real_lengths.mean()) if real_lengths.size else 0.0
+        factor = target / mean_length if mean_length > 1e-12 else 1.0
+
+        scale = Matrix.Scale(factor, 4)
+        self.armature.matrix_world = scale @ self.armature.matrix_world
+        for mesh in self.meshes:
+            if mesh.parent is None:
+                mesh.matrix_world = scale @ mesh.matrix_world
+        bpy.context.view_layer.update()
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in (self.armature, *self.meshes):
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = self.armature
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        bpy.context.view_layer.update()
+
+        return factor
+
     # ----------------------------------------------------------------- write
 
     def write(self, path: str | Path) -> None:
