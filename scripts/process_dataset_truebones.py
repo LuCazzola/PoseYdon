@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -62,18 +63,13 @@ def _chain_for(source_channels: tuple[tuple[str, ...], ...]) -> PrepareChain:
     )
 
 
-def find_tpose(clip_paths: list[Path]) -> Path | None:
-    """The species' rest-pose file, by the reference's ``find_tpos_path`` rule.
+def _pick_by_name(clip_paths: list[Path]) -> Path | None:
+    """The reference's ``find_tpos_path`` naming rule, applied within a set.
 
     Matches ``"tpos"`` rather than ``"tpose"`` (Truebones spells it ``Tpose``,
     ``TPOSE`` and ``Tpos``), then falls back to an ``idle`` clip, whose first
-    frame is a far better rest approximation than an arbitrary one.
-
-    This must stay in step with the same rule in
-    ``tools/reference/generate_truebones_manifests.py``: that tool reads a
-    species' facing joints out of whichever file it calls the T-pose, so a
-    manifest built from one file and applied against another would resolve
-    joint names that were never checked together.
+    frame is a far better rest approximation than an arbitrary one, then the
+    first file in the set.
     """
     for path in clip_paths:
         if "tpos" in path.name.lower():
@@ -81,7 +77,50 @@ def find_tpose(clip_paths: list[Path]) -> Path | None:
     for path in clip_paths:
         if path.name.lower().lstrip("_").startswith("idle"):
             return path
-    return None
+    return clip_paths[0] if clip_paths else None
+
+
+def find_tpose(clip_paths: list[Path]) -> tuple[Path | None, list[str]]:
+    """The species' rest-pose file, chosen from the MODAL joint set.
+
+    The naming rule alone (``_pick_by_name`` over every clip, unfiltered)
+    just takes whichever file happens to be named ``tpos``/``idle`` first,
+    with no regard for whether that file's SKELETON agrees with the rest of
+    the corpus. For four rigs (Ant, Crab, Deer, Jaguar) the named T-pose file
+    is a minority outlier -- it disagrees with almost every clip, and every
+    disagreeing clip is then rejected by ``RestRelative``. The file's NAME is
+    not evidence of anything; its joint set, compared against the corpus, is.
+
+    So: compute every clip's joint-name tuple (via ``BVH.read_names``, which
+    parses only the HIERARCHY block -- reading every clip in full just for
+    this would double the parse cost of the whole build), take the most
+    common one, and apply the naming rule only among the files that carry it.
+    A rig whose OWN majority disagrees with its T-pose file (a genuine corpus
+    oddity, distinct from the four above) gets a warning naming both.
+
+    Returns ``(chosen_path, warnings)``; ``chosen_path`` is ``None`` only when
+    ``clip_paths`` is empty.
+    """
+    warnings: list[str] = []
+    if not clip_paths:
+        return None, warnings
+
+    names_by_path = {path: BVH.read_names(path) for path in clip_paths}
+    counts = Counter(names_by_path.values())
+    modal_names, _ = counts.most_common(1)[0]
+    modal_paths = [path for path in clip_paths if names_by_path[path] == modal_names]
+
+    old_pick = _pick_by_name(clip_paths)
+    chosen = _pick_by_name(modal_paths)
+
+    if old_pick is not None and chosen is not None and old_pick != chosen:
+        warnings.append(
+            f"rest-pose file chosen by name ({old_pick.name}) is not in the modal "
+            f"joint set ({len(modal_paths)}/{len(clip_paths)} clips); using "
+            f"{chosen.name} instead"
+        )
+
+    return chosen, warnings
 
 
 def process_species(
@@ -97,7 +136,8 @@ def process_species(
     if not clip_paths:
         return 0, [f"{manifest.name}: no .bvh files found in {species_dir}, skipped"]
 
-    rest_path = find_tpose(clip_paths)
+    rest_path, tpose_warnings = find_tpose(clip_paths)
+    warnings.extend(f"{manifest.name}: {message}" for message in tpose_warnings)
     if rest_path is None:
         rest_path = clip_paths[0]
         warnings.append(

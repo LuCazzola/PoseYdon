@@ -203,6 +203,24 @@ class BVH:
     fps: float
 
     @classmethod
+    def read_names(cls, path: str | Path) -> tuple[str, ...]:
+        """Just the joint-name tuple, parsing only the HIERARCHY block.
+
+        The same first step as :meth:`read` -- ``text.partition("MOTION")``
+        then ``_parse_hierarchy(head)`` -- stopped short of the MOTION block,
+        which is where a full parse spends nearly all its time. For a caller
+        that only needs to compare joint sets across a large corpus (choosing
+        a rest reference by modal skeleton, say), this is a small honest
+        reuse rather than a second parser.
+        """
+        text = Path(path).read_text()
+        head, marker, _motion = text.partition("MOTION")
+        if not marker:
+            raise BvhParseError(f"{path}: no MOTION block found")
+        names, _parents, _offsets, _channels = _parse_hierarchy(head)
+        return names
+
+    @classmethod
     def read(cls, path: str | Path) -> BVH:
         """Parse a BVH file. Never rejects a legal file."""
         text = Path(path).read_text()
