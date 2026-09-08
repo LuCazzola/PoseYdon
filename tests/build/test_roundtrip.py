@@ -195,12 +195,15 @@ def test_round_trip_through_features_returns_the_source_rig(rig, raw_clips):
     # actually stood. Every joint, every frame, is carried along by that same
     # constant XZ shift -- rotation and relative motion are unaffected -- so
     # subtracting it is the documented loss, not slack in the tolerance.
-    xz_shift = np.zeros(3)
-    xz_shift[[0, 2]] = (want[0, 0] - got[0, 0])[[0, 2]]
-    # Height is not part of that loss -- it comes back exactly (root_trajectory).
-    assert xz_shift[1] == 0.0
-    np.testing.assert_allclose(got[0, 0, 1], want[0, 0, 1], rtol=0, atol=1e-9)
-    np.testing.assert_allclose(got + xz_shift, want, rtol=0, atol=1e-6)
+    shift = want[0, 0] - got[0, 0]
+    # Height is not part of that loss -- it comes back exactly (root_trajectory
+    # stores it per frame rather than integrating it away). Measure the Y
+    # component of the SAME data-derived shift used for X/Z: a non-zero value
+    # here would mean height failed to come back exactly, which is a real
+    # defect this assertion must be able to catch.
+    np.testing.assert_allclose(shift[1], 0.0, rtol=0, atol=1e-9)
+    xz_shift = np.array([shift[0], 0.0, shift[2]])
+    np.testing.assert_allclose(got + xz_shift, want, rtol=0, atol=1e-9)
 
 
 @pytest.mark.parametrize("rig", SAMPLE_RIGS)
