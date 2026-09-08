@@ -537,3 +537,76 @@ def test_promote_root_refuses_an_unknown_target():
     stage = PromoteRoot(target="NoSuchJoint")
     with pytest.raises(ValueError, match="NoSuchJoint"):
         stage.fit(anim, None)
+
+
+def _long_name_locator_rig(n_frames: int = 3) -> Animation:
+    """A one-joint locator chain whose names are real, differing lengths.
+
+    ``_00`` (3 chars) is Crow's real root; ``Sabrecat__pelv_`` (15 chars) is
+    SabreToothTiger's real promotion target. A fixed-width unicode array built
+    from the WRONG element (e.g. sized off the shortest name) would silently
+    truncate the long one -- this is what closes that gap.
+    """
+    names = ("_00", "Sabrecat__pelv_", "LeftLeg", "RightLeg")
+    parents = np.array([-1, 0, 1, 1], dtype=np.int32)
+    offsets = np.array(
+        [[0.0, 0.0, 0.0], [0.0, 3.0, 0.0], [-1.0, -1.0, 0.0], [1.0, -1.0, 0.0]]
+    )
+    rng = np.random.default_rng(1)
+    rotations = rng.normal(size=(n_frames, len(names), 4))
+    rotations /= np.linalg.norm(rotations, axis=-1, keepdims=True)
+
+    translations = np.broadcast_to(offsets, (n_frames, len(names), 3)).copy()
+    translations[:, 0] = rng.normal(size=(n_frames, 3))
+    return Animation(
+        rotations=rotations, translations=translations, offsets=offsets,
+        parents=parents, names=names, fps=30.0,
+    )
+
+
+def test_promote_root_names_survive_a_real_rig_transform_round_trip(tmp_path):
+    """`PromoteRoot`'s fitted `names` must round-trip through an actual
+    `RigTransform.save`/`load` npz file without truncation, and the params
+    read back from disk must still drive a correct `invert` -- the property
+    Task 9's real `prepare.npz` files depend on.
+    """
+    target = "Sabrecat__pelv_"
+    anim = _long_name_locator_rig()
+    stage = PromoteRoot(target=target)
+    params = stage.fit(anim, None)
+
+    path = tmp_path / "prepare.npz"
+    RigTransform(rig_params={"promote_root": params}, clip_params={"someclip": {}}).save(
+        path
+    )
+    loaded = RigTransform.load(path)
+    loaded_params = loaded.rig_params["promote_root"]
+
+    # No truncation: every string comes back exactly, and the array itself is
+    # the exact length it started as.
+    original_names = [str(n) for n in params["names"]]
+    loaded_names = [str(n) for n in loaded_params["names"]]
+    assert loaded_names == original_names
+    for original, restored in zip(original_names, loaded_names, strict=True):
+        assert len(restored) == len(original), f"{original!r} truncated to {restored!r}"
+    assert target in loaded_names
+
+    assert int(loaded_params["n_removed"]) == int(params["n_removed"])
+    np.testing.assert_allclose(loaded_params["offsets"], params["offsets"], atol=1e-12)
+
+    # The params read back from disk -- not the in-memory ones -- must still
+    # drive a correct apply/invert round trip.
+    promoted = stage.apply(anim, loaded_params)
+    restored = stage.invert(promoted, loaded_params)
+
+    assert restored.names == anim.names
+    assert list(restored.parents) == list(anim.parents)
+    np.testing.assert_allclose(restored.offsets, anim.offsets, atol=1e-12)
+
+    before = anim.global_positions()
+    after = restored.global_positions()
+    for name in (target, "LeftLeg", "RightLeg"):
+        index = anim.names.index(name)
+        np.testing.assert_allclose(
+            after[:, index], before[:, index], atol=1e-9, err_msg=f"{name} moved"
+        )
