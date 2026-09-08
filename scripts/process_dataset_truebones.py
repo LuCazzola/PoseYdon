@@ -63,64 +63,59 @@ def _chain_for(source_channels: tuple[tuple[str, ...], ...]) -> PrepareChain:
     )
 
 
-def _pick_by_name(clip_paths: list[Path]) -> Path | None:
-    """The reference's ``find_tpos_path`` naming rule, applied within a set.
+def rest_action(manifest: SkeletonManifest) -> str:
+    """The prepared-clip action slug for this rig's declared rest pose.
 
-    Matches ``"tpos"`` rather than ``"tpose"`` (Truebones spells it ``Tpose``,
-    ``TPOSE`` and ``Tpos``), then falls back to an ``idle`` clip, whose first
-    frame is a far better rest approximation than an arbitrary one, then the
-    first file in the set.
+    Consumers working on `clips/<Rig>/` need the slug, not the raw filename;
+    deriving it here keeps one source of truth in the manifest.
     """
-    for path in clip_paths:
-        if "tpos" in path.name.lower():
-            return path
-    for path in clip_paths:
-        if path.name.lower().lstrip("_").startswith("idle"):
-            return path
-    return clip_paths[0] if clip_paths else None
+    if manifest.rest_pose is None:
+        raise ValueError(f"{manifest.name}: manifest declares no `rest_pose`")
+    stem = Path(manifest.rest_pose).stem
+    return strip_skeleton_prefix(action_slug(stem), manifest.name)
 
 
-def find_tpose(clip_paths: list[Path]) -> tuple[Path | None, list[str]]:
-    """The species' rest-pose file, chosen from the MODAL joint set.
+def rest_source(manifest: SkeletonManifest, clip_paths: list[Path]) -> Path:
+    """The raw file supplying this rig's rest pose, validated against the corpus.
 
-    The naming rule alone (``_pick_by_name`` over every clip, unfiltered)
-    just takes whichever file happens to be named ``tpos``/``idle`` first,
-    with no regard for whether that file's SKELETON agrees with the rest of
-    the corpus. For four rigs (Ant, Crab, Deer, Jaguar) the named T-pose file
-    is a minority outlier -- it disagrees with almost every clip, and every
-    disagreeing clip is then rejected by ``RestRelative``. The file's NAME is
-    not evidence of anything; its joint set, compared against the corpus, is.
+    The choice is authored -- it is a judgement about which clip's first frame
+    is a neutral pose, and no rule gets that right (matching "idle" as a
+    substring picks Lion's __DeathIdle.bvh, Jaguar's __LieIdle.bvh and Trex's
+    __idle_attack.bvh). But an authored value never overrides the corpus's own
+    evidence: the declared file must carry the rig's MODAL joint set, because
+    a rest pose disagreeing with the clips makes `RestRelative` reject every
+    one of them. Trex is why this guard is not ceremony -- its natural neutral
+    pick, __STILL.bvh, is that rig's outlier file (66 joints against 78).
 
-    So: compute every clip's joint-name tuple (via ``BVH.read_names``, which
-    parses only the HIERARCHY block -- reading every clip in full just for
-    this would double the parse cost of the whole build), take the most
-    common one, and apply the naming rule only among the files that carry it.
-    A rig whose OWN majority disagrees with its T-pose file (a genuine corpus
-    oddity, distinct from the four above) gets a warning naming both.
-
-    Returns ``(chosen_path, warnings)``; ``chosen_path`` is ``None`` only when
-    ``clip_paths`` is empty.
+    Raises rather than falling back. A rig whose rest pose cannot be resolved
+    is a data error the build must stop on; the previous behaviour returned
+    "the first file in the modal set", which is what gave Crab a rest geometry
+    fitted from __Attack1.bvh.
     """
-    warnings: list[str] = []
-    if not clip_paths:
-        return None, warnings
-
-    names_by_path = {path: BVH.read_names(path) for path in clip_paths}
-    counts = Counter(names_by_path.values())
-    modal_names, _ = counts.most_common(1)[0]
-    modal_paths = [path for path in clip_paths if names_by_path[path] == modal_names]
-
-    old_pick = _pick_by_name(clip_paths)
-    chosen = _pick_by_name(modal_paths)
-
-    if old_pick is not None and chosen is not None and old_pick != chosen:
-        warnings.append(
-            f"rest-pose file chosen by name ({old_pick.name}) is not in the modal "
-            f"joint set ({len(modal_paths)}/{len(clip_paths)} clips); using "
-            f"{chosen.name} instead"
+    if manifest.rest_pose is None:
+        raise ValueError(
+            f"{manifest.name}: manifest declares no `rest_pose`; every rig must "
+            "name the clip whose first frame is its rest pose"
         )
 
-    return chosen, warnings
+    by_name = {path.name: path for path in clip_paths}
+    chosen = by_name.get(manifest.rest_pose)
+    if chosen is None:
+        raise ValueError(
+            f"{manifest.name}: declared rest_pose `{manifest.rest_pose}` is not "
+            f"among this rig's {len(clip_paths)} raw clips"
+        )
+
+    names_by_path = {path: BVH.read_names(path) for path in clip_paths}
+    modal_names, modal_count = Counter(names_by_path.values()).most_common(1)[0]
+    if names_by_path[chosen] != modal_names:
+        raise ValueError(
+            f"{manifest.name}: declared rest_pose `{manifest.rest_pose}` has "
+            f"{len(names_by_path[chosen])} joints but the rig's modal skeleton "
+            f"has {len(modal_names)} ({modal_count}/{len(clip_paths)} clips); "
+            "a rest pose disagreeing with the clips rejects every one of them"
+        )
+    return chosen
 
 
 def process_species(
@@ -136,14 +131,10 @@ def process_species(
     if not clip_paths:
         return 0, [f"{manifest.name}: no .bvh files found in {species_dir}, skipped"]
 
-    rest_path, tpose_warnings = find_tpose(clip_paths)
-    warnings.extend(f"{manifest.name}: {message}" for message in tpose_warnings)
-    if rest_path is None:
-        rest_path = clip_paths[0]
-        warnings.append(
-            f"{manifest.name}: no T-pose file found; using {rest_path.name} as an "
-            "approximate rest pose"
-        )
+    try:
+        rest_path = rest_source(manifest, clip_paths)
+    except ValueError as error:
+        return 0, [f"{manifest.name}: {error}"]
 
     rest_bvh = BVH.read(rest_path)
     rest = rest_bvh.to_animation()

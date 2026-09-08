@@ -24,28 +24,28 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scripts.process_dataset_truebones import rest_action
 
-from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
+from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH, SkeletonManifest
 from poseydon.io.bvh import BVH
 from tests.conftest import CORPUS, SAMPLE_RIGS
 
 
 def _rest_path(bvhs):
-    """The rig's rest-pose clip, by the same rule as test_roundtrip._rest_path.
+    """The rig's prepared rest clip, named by its manifest.
 
-    `FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion,
-    so every prepared clip carries a differently-rotated offset block --
-    comparing an arbitrary clip against `mesh.npz`'s bind pose (faced from the
-    REST pose) cannot agree even when the two corpora describe the same
-    skeleton. Only the T-pose clip's offsets correspond to the bind pose.
+    `FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion, so
+    every prepared clip carries a differently-rotated offset block -- only the
+    rest clip's offsets correspond to mesh.npz's bind pose. Matching on the
+    filename was a stale copy of a rule that no longer holds: Crab's rest clip
+    is `walk`.
     """
-    for path in bvhs:
-        if "tpos" in path.name.lower():
-            return path
-    for path in bvhs:
-        if path.name.lower().lstrip("_").startswith("idle"):
-            return path
-    return None
+    rig = bvhs[0].parent.name
+    manifest = SkeletonManifest.load(CORPUS / "rigs" / rig / "manifest.yaml")
+    path = bvhs[0].parent / f"{rest_action(manifest)}.bvh"
+    if not path.is_file():
+        pytest.skip(f"{rig}: declared rest clip {path.name} is not in the prepared corpus")
+    return path
 
 
 def _pair(rig: str):

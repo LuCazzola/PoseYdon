@@ -1,17 +1,21 @@
-"""``find_tpose`` must choose the MODAL skeleton, not whichever file is named a T-pose.
+"""A rig's rest pose is declared in its manifest and validated against the corpus.
 
-For four real rigs (Ant, Crab, Deer, Jaguar) the file named `tpos`/`idle`
-disagrees with almost every clip's joint set, and every disagreeing clip is
-then rejected by `RestRelative` downstream. The fix picks the rest reference
-from the most common joint-name tuple across the rig's clips, applying the
-old naming preference only within that modal set.
+The manifest names the raw clip whose first frame is this rig's rest pose. That
+choice is authored -- no naming rule can pick it reliably, since matching
+"idle" as a substring picks Lion's __DeathIdle.bvh, Jaguar's __LieIdle.bvh and
+Trex's __idle_attack.bvh. But an authored value must never override the
+corpus's own evidence: the declared file must carry the rig's MODAL joint set,
+because a rest pose disagreeing with the clips makes `RestRelative` reject
+every one of them. `rest_source` enforces that, and raises rather than falling
+back -- a rig whose rest pose cannot be resolved is a data error that must
+stop the build, not one that quietly gets an arbitrary rest geometry.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.process_dataset_truebones import find_tpose
+import pytest
 
 _HEADER_TAIL = "MOTION\nFrames: 1\nFrame Time: 0.0083333\n0.0\n"
 
@@ -41,21 +45,102 @@ def _write(tmp_path: Path, name: str, joint_names: list[str]) -> Path:
     return path
 
 
-def test_rest_selection_picks_modal_skeleton_not_the_named_tpose_file(tmp_path):
-    majority_joints = ["Hips", "Spine", "Head"]
-    minority_joints = ["Root", "Chest", "Skull", "Tail"]
+def test_manifest_round_trips_rest_pose(tmp_path):
+    """A rig's rest pose is data about the rig, so it lives in the manifest."""
+    from poseydon.core.skeleton import SkeletonManifest
 
-    tpose = _write(tmp_path, "__TPOSE.bvh", minority_joints)
-    walk = _write(tmp_path, "__Walk.bvh", majority_joints)
-    run = _write(tmp_path, "__Run.bvh", majority_joints)
-    idle = _write(tmp_path, "__Idle.bvh", majority_joints)
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "rest_pose: __IdleLoop.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    assert SkeletonManifest.load(path).rest_pose == "__IdleLoop.bvh"
 
-    clip_paths = sorted([tpose, walk, run, idle])
-    chosen, warnings = find_tpose(clip_paths)
 
-    assert chosen in (walk, run, idle)
-    assert chosen != tpose
+def test_the_dead_tpose_key_is_gone(tmp_path):
+    """`tpose` was parsed, read by two consumers, and declared by no manifest,
+    so both consumers silently took their fallback forever. A key that reads as
+    working is worse than one that is obviously dead."""
+    from poseydon.core.skeleton import ManifestError, SkeletonManifest
 
-    assert any(
-        "__TPOSE.bvh" in message and chosen.name in message for message in warnings
-    ), f"expected a warning naming both files, got: {warnings}"
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "tpose: ../tposes/Testy.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    with pytest.raises(ManifestError, match="tpose"):
+        SkeletonManifest.load(path)
+
+
+def test_rest_source_refuses_a_rig_that_declares_nothing(tmp_path):
+    """No silent fallback. A rig with no declared rest pose is a data error
+    that must stop the build, not a rig that quietly gets an arbitrary one."""
+    from scripts.process_dataset_truebones import rest_source
+
+    from poseydon.core.skeleton import SkeletonManifest
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    manifest = SkeletonManifest.load(path)
+    clip = _write(tmp_path, "__Walk.bvh", ["Hips", "Spine", "Head"])
+    with pytest.raises(ValueError, match="declares no `rest_pose`"):
+        rest_source(manifest, [clip])
+
+
+def test_rest_source_refuses_a_declaration_outside_the_modal_set(tmp_path):
+    """Trex's natural neutral pick, __STILL.bvh, IS that rig's outlier file.
+    An authored value must never override the corpus's own evidence."""
+    from scripts.process_dataset_truebones import rest_source
+
+    from poseydon.core.skeleton import SkeletonManifest
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "rest_pose: __Odd.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    manifest = SkeletonManifest.load(path)
+    majority = ["Hips", "Spine", "Head"]
+    clips = [
+        _write(tmp_path, "__Walk.bvh", majority),
+        _write(tmp_path, "__Run.bvh", majority),
+        _write(tmp_path, "__Odd.bvh", ["Hips", "Spine"]),
+    ]
+    with pytest.raises(ValueError, match="modal"):
+        rest_source(manifest, clips)
+
+
+def test_rest_source_returns_the_declared_file(tmp_path):
+    from scripts.process_dataset_truebones import rest_source
+
+    from poseydon.core.skeleton import SkeletonManifest
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "rest_pose: __Run.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    manifest = SkeletonManifest.load(path)
+    majority = ["Hips", "Spine", "Head"]
+    clips = [
+        _write(tmp_path, "__Walk.bvh", majority),
+        _write(tmp_path, "__Run.bvh", majority),
+    ]
+    assert rest_source(manifest, clips).name == "__Run.bvh"

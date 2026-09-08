@@ -85,17 +85,13 @@ def skeleton_alignment_params(
     fallback: RigidBodyAnimation,
     resolved: ResolvedSkeleton,
 ) -> AlignmentParams:
-    """Alignment constants for a skeleton, from its T-pose where one is named.
+    """Alignment constants for a skeleton, from the first frame of its first clip.
 
-    Falling back to a motion clip is what the reference does too when no
-    ``tpos`` file exists, but it is a fallback: the constants then depend on
-    which clip happened to come first, so a manifest should name a T-pose.
+    ``SkeletonManifest.tpose`` used to be consulted here, but no manifest ever
+    declared it, so this fallback has always been the only path -- a guard
+    that reads as working is worse than no guard.
     """
-    if manifest.tpose is not None and manifest.tpose.is_file():
-        reference = BVH.read(manifest.tpose).to_animation().as_rigid_body(joint_translation="drop")
-        resolved = resolve(manifest, reference.names)
-    else:
-        reference = fallback
+    reference = fallback
     return compute_alignment_params(reference, resolved)
 
 

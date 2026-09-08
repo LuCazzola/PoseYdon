@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scripts.process_dataset_truebones import rest_source
 
 from poseydon.build.prepare import (
     CentreXZ,
@@ -59,13 +60,17 @@ def _manifest(rig: str) -> SkeletonManifest:
 
 
 def _rest_path(clips):
-    for path in clips:
-        if "tpos" in path.name.lower():
-            return path
-    for path in clips:
-        if path.name.lower().lstrip("_").startswith("idle"):
-            return path
-    pytest.skip("no rest-pose file for this rig")
+    """The rig's rest-pose file, from its manifest.
+
+    This used to carry its own copy of a filename-matching rule -- the rule
+    b2b0151 fixed in the script and not here. Crab therefore resolved to its
+    54-joint __TPOSE.bvh, every 64-joint clip disagreed, and the case skipped.
+    """
+    return rest_source(_manifest(_rig_of(clips)), list(clips))
+
+
+def _rig_of(clips) -> str:
+    return clips[0].parent.name
 
 
 def _apply_with(chain, anim, params):

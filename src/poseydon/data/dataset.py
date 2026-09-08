@@ -134,22 +134,18 @@ class MotionDataset:
     ) -> np.ndarray:
         """One frame describing the skeleton, cached per skeleton.
 
-        From the manifest's T-pose when it names one, otherwise the first frame
-        of the skeleton's first clip -- the same fallback the reference takes.
+        The first frame of the skeleton's first clip. `SkeletonManifest.tpose`
+        used to be consulted here, but no manifest ever declared it, so this
+        fallback has always been the only path -- a guard that reads as working
+        is worse than no guard. A3 replaces this with the rest frame recorded in
+        `rigs/<Rig>/stats.npz`, chosen by `manifest.rest_pose`.
         """
         skeleton = record.skeleton
         if skeleton in self._rest_frames:
             return self._rest_frames[skeleton]
 
-        manifest = self._manifest(skeleton)
-        if manifest.tpose is not None and manifest.tpose.is_file():
-            from poseydon.io.bvh import BVH
-
-            anim = BVH.read(manifest.tpose).to_animation().as_rigid_body(joint_translation="drop")
-            raw, _ = extract_features(anim, resolve(manifest, anim.names), self.features)
-        else:
-            first = next(r for r in self.records if r.skeleton == skeleton)
-            raw, _ = self._extract(first)
+        first = next(r for r in self.records if r.skeleton == skeleton)
+        raw, _ = self._extract(first)
 
         frame = normalizer.normalize(raw[:1])[0]
         self._rest_frames[skeleton] = frame

@@ -24,7 +24,7 @@ _KNOWN_KEYS = frozenset(
     {
         "base",
         "skeleton",
-        "tpose",
+        "rest_pose",
         "facing",
         "foot_joints",
         "fps",
@@ -66,7 +66,12 @@ class SkeletonManifest:
     facing: tuple[FacingPair, ...]
     contact: ContactParams
     source: Path
-    tpose: Path | None = None
+    #: Filename of the clip whose first frame is this rig's rest pose, relative
+    #: to the rig's RAW source directory -- e.g. "__IdleLoop.bvh". A filename
+    #: rather than a path because consumers resolve it in different domains:
+    #: stage 1 wants `source/<Rig>/<file>`, everything downstream wants the
+    #: prepared clip `clips/<Rig>/<action>.bvh`.
+    rest_pose: str | None = None
     extra_yaw_deg: float = 0.0
     foot_joints: tuple[str, ...] = ()
     fps: float | None = None
@@ -160,15 +165,14 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
     scale_raw = data.get("scale") or {}
     mean_bone_length = scale_raw.get("mean_bone_length")
 
-    tpose = data.get("tpose")
-    tpose_path = (source.parent / str(tpose)).resolve() if tpose else None
+    rest_pose = data.get("rest_pose")
 
     return SkeletonManifest(
         name=name,
         facing=tuple(pairs),
         contact=contact,
         source=source,
-        tpose=tpose_path,
+        rest_pose=None if rest_pose is None else str(rest_pose),
         extra_yaw_deg=extra_yaw,
         foot_joints=tuple(str(j) for j in (data.get("foot_joints") or ())),
         fps=None if data.get("fps") is None else float(data["fps"]),
