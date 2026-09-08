@@ -35,7 +35,7 @@ training loop); a full-corpus stage-1 rebuild; an aarch64 CUDA training image an
 a `train` compose service; wandb logging; a `Retarget` operation and the
 `LatentPin` control it needs; a `RetargetValidation` callback generating
 artifacts and metrics for three fixed pairs; a `poseydon retarget` CLI sharing
-the same code path; nine tests.
+the same code path; ten tests.
 
 **Out.** A held-out validation split and val loss — every index row is still
 `split: train`. Text conditioning (T5 stays behind the `poseydon[text]` extra).
@@ -103,14 +103,55 @@ Measured across all 73 rigs (`tools/probe_jointset_spread.py`):
   above); for the other four the T-pose agrees with the majority and one genuine
   clip is odd. Either way exactly one file per rig is lost, correctly.
 - **13 rigs have no T-pose file at all** — Anaconda, Bird, Camel, Cricket, Dog,
-  Goat, Lion, Monkey, Pteranodon, Rat, SabreToothTiger, Scorpion-2, Trex. This is
-  harmless: their clips agree, so the modal rule picks one and the fitted rest is
-  self-consistent. Goat is in this group and already prepares cleanly, which is
-  the proof.
+  Goat, Lion, Monkey, Pteranodon, Rat, SabreToothTiger, Scorpion-2, Trex. Their
+  clips agree with each other, so any of them yields a self-consistent fit, but
+  *which* one is chosen decides the rig's canonical rest geometry. §1.1 replaces
+  today's "first file in the modal set" with an authored choice.
 
 Expected yield: **~1145 clips over 73 rigs**, against 1153 raw and the 81-row
 index on disk. The parity spec predicted 64 rejections across 8 rigs; the modal
 fix reduces that to 8.
+
+### 1.1 · The rest pose is authored where it cannot be found
+
+`find_tpose` resolves the rest-pose file in preference order: **T-pose, then
+idle, then walk** — or fly, for a flying creature. The first is discovered by
+name; the last two are *authored per rig*, because both cheap alternatives fail.
+
+Matching `idle` as a substring picks Lion's `__DeathIdle.bvh`, Jaguar's
+`__LieIdle.bvh` and Trex's `__idle_attack.bvh` — a dying pose, a lying pose and a
+crouched attack, which are the exact poses this rule exists to avoid. And today's
+final fallback, "first file in the modal set", is arbitrary: it is what gave Crab
+a rest geometry fitted from `__Attack1.bvh`.
+
+So the 17 rigs whose named T-pose is missing or unusable get an explicit entry:
+
+| rig | rest file | why |
+|---|---|---|
+| Anaconda | `__Idle.bvh` | |
+| Ant | `__Idle.bvh` | T-pose is a minority skeleton |
+| Bird | `__IdleLoop.bvh` | |
+| Camel | `__IdleLoop.bvh` | |
+| Crab | `__Walk.bvh` | T-pose is a minority skeleton; no idle clip |
+| Cricket | `__Idle.bvh` | |
+| Deer | `__Idle.bvh` | T-pose is a minority skeleton |
+| Dog | `__Idle.bvh` | |
+| Goat | `__Idle.bvh` | |
+| Jaguar | `__Idle.bvh` | T-pose is a minority skeleton; `__LieIdle.bvh` is the trap |
+| Lion | `__SlowIdle.bvh` | `__DeathIdle.bvh` is the trap |
+| Monkey | `__Idle1.bvh` | |
+| Pteranodon | `__FlyLoop.bvh` | no idle clip; flying creature |
+| Rat | `__Trottle.bvh` | no idle clip; trot is its nearest gait |
+| SabreToothTiger | `__Startwalk.bvh` | no idle clip among 44; frame 0 is the standing start |
+| Scorpion-2 | `__Idle.bvh` | |
+| Trex | `__walk_loop.bvh` | every `idle_*` clip is idle-plus-action; see below |
+
+**The modal-set check stays as the outer guard, and it is not ceremony.** Trex's
+natural neutral pick, `__STILL.bvh`, *is* that rig's outlier file — 66 joints
+against the modal 78. An authored table trusted on its own would have silently
+destroyed the largest rig in the corpus. Every entry above is verified to sit in
+its rig's modal joint set (`tools/probe_rest_override.py`); an entry that does
+not must fail the build loudly rather than fall back.
 
 **`docker-compose.yml` must be fixed first.** It sets `user: "${UID:-1000}:${GID:-1000}"`,
 but bash does not export `UID`, so the fallback always wins and every container
@@ -142,9 +183,9 @@ Two amendments the modal-set fix forces:
 spec §3 established that prepared clips of one rig do not share an OFFSET block —
 each carries its own facing correction — so rig-level `offsets` in `skeleton.npz`
 have to come from the rest-pose clip specifically. With `find_tpose` now choosing
-by modal joint set, that file is a *derived* choice and is frequently not named
-`tpose`: for Crab it is `attack1.bvh`, for Ant, Deer and Jaguar it is `idle.bvh`,
-and thirteen rigs have no T-pose file to name at all. A stage 2 that looks for
+by modal joint set and then by §1.1's authored table, that file is frequently not
+named `tpose`: for Crab it is `walk.bvh`, for Ant, Deer and Jaguar `idle.bvh`,
+for Trex `walk_loop.bvh`, and thirteen rigs have no T-pose file at all. A stage 2 that looks for
 `tpose.bvh` gets a differently-rotated skeleton, silently, and forward kinematics
 in `features/reconstruct.py` is then wrong by `R_rest · R_clip⁻¹`. Stage 1 records
 the choice; stage 2 reads it.
@@ -364,7 +405,7 @@ augmentation already uses.
 
 ## 8 · Tests
 
-Nine, split by plan.
+Ten, split by plan.
 
 **Plan A**
 
@@ -380,20 +421,24 @@ Nine, split by plan.
 4. **The recovered rigs stay recovered.** Ant, Crab, Deer and Jaguar keep
    17/10/20/13 clips through stage 1. `b2b0151` is guarded by nothing today, and
    a regression in `find_tpose` would quietly cost 60 clips again.
+5. **Every authored rest file is real and in its modal set.** §1.1's table is
+   checked entry by entry: the file exists, and its joint set is the rig's modal
+   one. This is the test that would have caught `Trex/__STILL.bvh`, and it is
+   also the test that fails loudly when someone adds a rig to the table by eye.
 
 **Plan B**
 
-5. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
+6. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
    the output carries the target's joint count and the target's bone lengths.
    The test the whole feature rests on.
-6. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
+7. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
    present, and the injected latent is what reaches the decoder.
-7. **Callback contract.** Fires at the right steps, writes all three artifact
+8. **Callback contract.** Fires at the right steps, writes all three artifact
    types, logs five scalars per pair, restores `train()` mode, and leaves the
    training RNG stream untouched.
-8. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
+9. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
    scores ~zero bone-length drift and ~zero IK residual.
-9. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
+10. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
    reproduces the reconstruction method and feature schema it was trained with,
    and an override touching the data path is rejected.
 
@@ -413,12 +458,20 @@ metric means those three clips got better, which is weaker than it sounds.
 are seen as often as BrownBear's 22 — with far less variety behind them. Their
 retarget outputs will be the least reliable of the three pairs.
 
-**The rest-pose file is derived, and that is now load-bearing.** Thirteen rigs
-have no T-pose file and four have one that disagrees with their own clips, so
-`find_tpose`'s modal rule decides the canonical rest geometry for 17 of 73 rigs.
-The rule is measured and tested, but it is a heuristic over data, not a
-guarantee, and a rig whose clips split evenly between two joint sets has no
-defensible modal answer.
+**The rest pose is authored for 17 of 73 rigs, and that is load-bearing.**
+§1.1's table decides canonical rest geometry for those rigs, and it is a
+judgement about animation content that no test can confirm — the modal-set guard
+proves an entry is *usable*, not that it is *neutral*. Three of the seventeen
+(Crab, SabreToothTiger, Trex) rest on a gait clip rather than a still pose, so
+their rig identity is a mid-stride stance; Rat rests on a trot. That is what the
+`tpose` conditioner shows the model as those characters' identity. It is still
+better than the alternative it replaces — Crab was resting on an attack frame —
+but it is a choice, not a derivation, and it should be revisited by eye in a DCC
+tool rather than trusted because it passes.
+
+Separately, the modal rule itself is a heuristic over data: a rig whose clips
+split evenly between two joint sets has no defensible modal answer. None do
+today; the closest is Trex at 70/71.
 
 **BVH and FBX still disagree on rest geometry**, 3–7% of a bone length at the
 worst rigs, cause unknown; a coordinate-frame mismatch was ruled out to 1e-7.
@@ -438,10 +491,10 @@ representation, and the reason the stage is explicit rather than silent.
 **Plan A — get it training.** aarch64 CUDA spike; `.env` and the compose `UID`
 fix; full-corpus stage 1; stage 2 and the build package; the read path; the
 training loop, wandb and the train service. Ends at a running job logging loss
-curves. Tests 1–4.
+curves. Tests 1–5.
 
 **Plan B — validate it.** `LatentPin`, `Retarget`, `poseydon retarget`, the
 `RetargetValidation` callback and its five metrics, landed on a run that already
-works. Tests 5–9.
+works. Tests 6–10.
 
 Each leaves the repository working and is reviewable on its own, as Phase 1 was.
