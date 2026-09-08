@@ -53,6 +53,7 @@ here but not fixed.
 | validation cadence | every 25 000 steps, plus once at step 0; one sample per pair |
 | validation output | `.npz` + `.bvh` + `.mp4` per pair, plus five scalars |
 | reconstruction | `positions_ik` — positions fitted back onto the rigid skeleton |
+| rest pose | declared per rig as `rest_pose:` in its manifest; no runtime discovery |
 | root promotion | hardcoded per-rig table in stage 1, for the 14 ground-locator rigs |
 | wandb | project `poseydon`, entity and key from `.env` |
 
@@ -107,7 +108,7 @@ Measured across all 73 rigs (`tools/probe_jointset_spread.py`):
   Goat, Lion, Monkey, Pteranodon, Rat, SabreToothTiger, Scorpion-2, Trex. Their
   clips agree with each other, so any of them yields a self-consistent fit, but
   *which* one is chosen decides the rig's canonical rest geometry. §1.1 replaces
-  today's "first file in the modal set" with an authored choice.
+  today's "first file in the modal set" with a per-rig manifest declaration.
 
 Expected yield: **~1145 clips over 73 rigs**, against 1153 raw and the 81-row
 index on disk. The parity spec predicted 64 rejections across 8 rigs; the modal
@@ -115,17 +116,38 @@ fix reduces that to 8.
 
 ### 1.1 · The rest pose is authored where it cannot be found
 
-`find_tpose` resolves the rest-pose file in preference order: **T-pose, then
-idle, then walk** — or fly, for a flying creature. The first is discovered by
-name; the last two are *authored per rig*, because both cheap alternatives fail.
+**Every rig declares its rest pose in its own manifest**, as
+`rest_pose: <filename>` naming the raw clip whose first frame is that rig's rest
+pose. Nothing is discovered at runtime, and a rig that declares nothing is a
+build error rather than a rig that quietly receives an arbitrary pose.
 
-Matching `idle` as a substring picks Lion's `__DeathIdle.bvh`, Jaguar's
-`__LieIdle.bvh` and Trex's `__idle_attack.bvh` — a dying pose, a lying pose and a
-crouched attack, which are the exact poses this rule exists to avoid. And today's
-final fallback, "first file in the modal set", is arbitrary: it is what gave Crab
-a rest geometry fitted from `__Attack1.bvh`.
+A rule cannot do this. Matching `idle` as a substring picks Lion's
+`__DeathIdle.bvh`, Jaguar's `__LieIdle.bvh` and Trex's `__idle_attack.bvh` — a
+dying pose, a lying pose and a crouched attack, which are the exact poses the
+choice exists to avoid. And today's final fallback, "first file in the modal
+set", is arbitrary: it is what gave Crab a rest geometry fitted from
+`__Attack1.bvh`.
 
-So the 17 rigs whose named T-pose is missing or unusable get an explicit entry:
+The manifest is also where this belongs for reuse. The selection rule currently
+exists in three copies — the stage-1 script, `test_roundtrip.py` and
+`test_bvh_fbx_agreement.py` — and only the script carries `b2b0151`'s modal-set
+fix, which is why the round trip has been silently skipping Crab. One
+declaration, read by every consumer, removes the class of bug rather than one
+instance of it.
+
+**There is already a manifest key for this, and it is a trap.**
+`SkeletonManifest.tpose` is parsed and read by `ingest/pipeline.py:94` and
+`data/dataset.py:145`, both guarded by `if manifest.tpose is not None and
+manifest.tpose.is_file()` — and **no manifest declares it**. Both consumers have
+always taken their silent fallback, so the rest frame the model is shown as a
+rig's identity is the first frame of an arbitrary clip, for all 73 rigs. It is
+also the wrong shape: it resolves relative to the manifest, while stage 1 needs
+a raw source file and everything downstream needs the prepared clip. It is
+removed rather than populated, and `rest_pose` holds a filename that each
+consumer resolves in its own domain.
+
+56 rigs declare their T-pose. The 17 whose named T-pose is missing or unusable
+declare these:
 
 | rig | rest file | why |
 |---|---|---|
@@ -147,12 +169,13 @@ So the 17 rigs whose named T-pose is missing or unusable get an explicit entry:
 | Scorpion-2 | `__Idle.bvh` | |
 | Trex | `__walk_loop.bvh` | every `idle_*` clip is idle-plus-action; see below |
 
-**The modal-set check stays as the outer guard, and it is not ceremony.** Trex's
-natural neutral pick, `__STILL.bvh`, *is* that rig's outlier file — 66 joints
-against the modal 78. An authored table trusted on its own would have silently
-destroyed the largest rig in the corpus. Every entry above is verified to sit in
-its rig's modal joint set (`tools/probe_rest_override.py`); an entry that does
-not must fail the build loudly rather than fall back.
+**The modal-set check stays as the guard over the declaration, and it is not
+ceremony.** Trex's natural neutral pick, `__STILL.bvh`, *is* that rig's outlier
+file — 66 joints against the modal 78. A declaration trusted on its own would
+have silently destroyed the largest rig in the corpus. An authored value is a
+judgement about pose content and no test can confirm it; what is confirmed is
+that the named file exists and carries the rig's modal joint set, and a
+declaration failing that stops the build rather than falling back.
 
 ### 1.2 · The root is promoted where it is a ground locator
 
@@ -549,10 +572,11 @@ not a parallel suite.
    BrownBear named explicitly, since their chains carry a real offset -- promotion
    is a no-op. The world-position half is the assertion that matters: a
    joint-count check would restate the table.
-6. **Every authored rest file is real and in its modal set.** §1.1's table is
-   checked entry by entry: the file exists, and its joint set is the rig's modal
-   one. This is the test that would have caught `Trex/__STILL.bvh`, and the one
-   that fails loudly when someone adds a rig to the table by eye.
+6. **Every rig declares a rest pose that exists and is modal.** Every manifest
+   is checked: it declares `rest_pose`, the named file exists, and its joint set
+   is the rig's modal one. This is the test that would have caught
+   `Trex/__STILL.bvh`, and the one that fails loudly when someone edits a
+   manifest by eye.
 7. **The recovered rigs stay recovered.** Ant, Crab, Deer and Jaguar keep
    17/10/20/13 clips through stage 1. `b2b0151` is guarded by nothing today, and
    a regression in `find_tpose` would quietly cost 60 clips again.
@@ -650,8 +674,8 @@ metric means those three clips got better, which is weaker than it sounds.
 are seen as often as BrownBear's 22 — with far less variety behind them. Their
 retarget outputs will be the least reliable of the three pairs.
 
-**The rest pose is authored for 17 of 73 rigs, and that is load-bearing.**
-§1.1's table decides canonical rest geometry for those rigs, and it is a
+**The rest pose is authored for every rig, and for 17 that is load-bearing.**
+§1.1's declarations decide canonical rest geometry, and for those 17 it is a
 judgement about animation content that no test can confirm — the modal-set guard
 proves an entry is *usable*, not that it is *neutral*. Three of the seventeen
 (Crab, SabreToothTiger, Trex) rest on a gait clip rather than a still pose, so

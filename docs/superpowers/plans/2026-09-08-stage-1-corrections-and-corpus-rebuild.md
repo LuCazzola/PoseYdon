@@ -4,7 +4,7 @@
 
 **Goal:** Correct stage-1 preparation — authored rest poses, root promotion, and the round-trip test gaps — then rebuild the full 73-rig corpus.
 
-**Architecture:** Two hardcoded Truebones tables enter `scripts/process_dataset_truebones.py`: which file supplies a rig's rest pose when the named T-pose is missing or unusable, and which joint to promote to root for the 14 rigs that root at a ground locator. Promotion is a new `PrepareStage` in `src/poseydon/build/prepare.py`, placed second in the chain. The round-trip test is extended through feature extraction and reconstruction, and the rest-pose selection rule — currently duplicated in three places, fixed in one — is consolidated onto a value recorded in `prepare.npz`.
+**Architecture:** Each rig's manifest gains a `rest_pose` declaration, replacing a selection rule duplicated across three files and fixed in one — which is why the round trip has been silently skipping Crab. A single hardcoded table stays in `scripts/process_dataset_truebones.py`: which joint to promote to root for the 14 rigs that root at a ground locator. Promotion is a new `PrepareStage` in `src/poseydon/build/prepare.py`, placed second in the chain. The round-trip test is extended through feature extraction and reconstruction.
 
 **Tech Stack:** Python 3.12, NumPy, pytest, Hydra, Docker Compose. No new dependencies.
 
@@ -107,9 +107,12 @@ failure the service comment warns about."
 
 ---
 
-### Task 2: Record the rest clip, and consolidate rest selection
+### Task 2: Declare the rest pose in the manifest
 
-The rule that picks a rig's rest-pose file exists in **three** copies, and only one has the `b2b0151` modal-set fix:
+A rig's rest pose is a fact about the rig, so it belongs in the rig's manifest —
+not in a table inside one script, and not re-derived by each consumer. Today it
+is re-derived by three copies of one rule, and only the script has `b2b0151`'s
+modal-set fix:
 
 | location | rule | consequence |
 |---|---|---|
@@ -117,338 +120,548 @@ The rule that picks a rig's rest-pose file exists in **three** copies, and only 
 | `tests/build/test_roundtrip.py::_rest_path` | name only | **Crab skips today** |
 | `tests/build/test_bvh_fbx_agreement.py::_rest_path` | name only | will skip once Crab's rest clip is `walk.bvh` |
 
-Duplicating a decision is what made this possible. The fix records the choice where every consumer can read it: `prepare.npz` gains a `rig/rest/clip` entry naming the action slug stage 1 actually fitted. Spec §2 requires this independently — stage 2 must read rig-level offsets from the rest clip, and after Task 3 that file is frequently not named `tpose`.
+There is already a manifest key for this, and it is a trap. `SkeletonManifest.tpose`
+is parsed, and read by `ingest/pipeline.py:94` and `data/dataset.py:145` — both
+guarded by `if manifest.tpose is not None and manifest.tpose.is_file()`. **No
+manifest declares it.** So both consumers have always taken their silent
+fallback: `_rest_frame` uses "the first frame of the skeleton's first clip",
+which means the rest frame the model is shown as a rig's identity is arbitrary
+for all 73 rigs. The key reads as working, which is worse than the dead
+`strip_joint_prefix` the parity spec removed.
+
+`tpose` is also the wrong shape. It resolves relative to the manifest
+(`source.parent / tpose`), but stage 1 needs a **raw source** file while stage 2
+and the dataset need the **prepared** clip. So the manifest declares a
+*filename* and each consumer resolves it in its own domain.
 
 **Files:**
-- Modify: `scripts/process_dataset_truebones.py` — `process_species`, to record the chosen rest action
-- Modify: `tests/build/test_roundtrip.py:60-68` — `_rest_path` reads the recording
-- Modify: `tests/build/test_bvh_fbx_agreement.py:33-48` — same
+- Modify: `src/poseydon/core/skeleton.py` — add `rest_pose`, remove `tpose`
+- Modify: `src/poseydon/ingest/pipeline.py:94-95` — drop the dead branch
+- Modify: `src/poseydon/data/dataset.py:145-148` — drop the dead branch
+- Modify: `scripts/process_dataset_truebones.py` — `find_tpose` becomes `rest_source`
+- Modify: `tests/build/test_roundtrip.py`, `tests/build/test_bvh_fbx_agreement.py`
 - Test: `tests/build/test_rest_selection.py`
 
 **Interfaces:**
-- Consumes: `find_tpose(clip_paths: list[Path]) -> tuple[Path | None, list[str]]`, `RigTransform.rig_params`.
-- Produces: `prepare.npz` carries `rig/rest/clip` — a 0-d object array holding the action slug (e.g. `"walk"` for Crab). Read with `RigTransform.load(path).rig_params["rest"]["clip"]`. A2 reads the same key.
+- Consumes: `SkeletonManifest.load(path) -> SkeletonManifest`, `BVH.read_names(path)`.
+- Produces:
+  - `SkeletonManifest.rest_pose: str | None` — a bare filename, e.g. `"__IdleLoop.bvh"`, relative to the rig's raw source directory.
+  - `rest_source(manifest: SkeletonManifest, clip_paths: list[Path]) -> Path` in `scripts/process_dataset_truebones.py`. Raises `ValueError` when the manifest declares nothing, when the named file is absent, or when it does not carry the rig's modal skeleton. Never returns a fallback.
+  - `rest_action(manifest: SkeletonManifest) -> str` — the prepared-clip action slug for that rest pose, for consumers working on `clips/<Rig>/`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Append to `tests/build/test_rest_selection.py`:
+Replace the contents of `tests/build/test_rest_selection.py` below its existing synthetic test with:
 
 ```python
-def test_the_chosen_rest_clip_is_recorded_in_prepare_npz(tmp_path):
-    """Stage 1's rest choice must be readable downstream, not re-derived.
+def test_manifest_round_trips_rest_pose(tmp_path):
+    """A rig's rest pose is data about the rig, so it lives in the manifest."""
+    from poseydon.core.skeleton import SkeletonManifest
 
-    Three consumers picked the rest file independently and two of them had a
-    stale copy of the rule. The choice is data, so it is recorded.
-    """
-    from poseydon.build.prepare import RigTransform
-
-    transform = RigTransform(
-        rig_params={"rest": {"clip": np.array("walk", dtype=object)}},
-        clip_params={"walk": {}},
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "rest_pose: __IdleLoop.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
     )
-    path = tmp_path / "prepare.npz"
-    transform.save(path)
+    assert SkeletonManifest.load(path).rest_pose == "__IdleLoop.bvh"
 
-    assert str(RigTransform.load(path).rig_params["rest"]["clip"]) == "walk"
+
+def test_the_dead_tpose_key_is_gone(tmp_path):
+    """`tpose` was parsed, read by two consumers, and declared by no manifest,
+    so both consumers silently took their fallback forever. A key that reads as
+    working is worse than one that is obviously dead."""
+    from poseydon.core.skeleton import ManifestError, SkeletonManifest
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "tpose: ../tposes/Testy.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    with pytest.raises(ManifestError, match="tpose"):
+        SkeletonManifest.load(path)
+
+
+def test_rest_source_refuses_a_rig_that_declares_nothing(tmp_path):
+    """No silent fallback. A rig with no declared rest pose is a data error
+    that must stop the build, not a rig that quietly gets an arbitrary one."""
+    from poseydon.core.skeleton import SkeletonManifest
+    from scripts.process_dataset_truebones import rest_source
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    manifest = SkeletonManifest.load(path)
+    clip = _write(tmp_path, "__Walk.bvh", ["Hips", "Spine", "Head"])
+    with pytest.raises(ValueError, match="declares no `rest_pose`"):
+        rest_source(manifest, [clip])
+
+
+def test_rest_source_refuses_a_declaration_outside_the_modal_set(tmp_path):
+    """Trex's natural neutral pick, __STILL.bvh, IS that rig's outlier file.
+    An authored value must never override the corpus's own evidence."""
+    from poseydon.core.skeleton import SkeletonManifest
+    from scripts.process_dataset_truebones import rest_source
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "rest_pose: __Odd.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    manifest = SkeletonManifest.load(path)
+    majority = ["Hips", "Spine", "Head"]
+    clips = [
+        _write(tmp_path, "__Walk.bvh", majority),
+        _write(tmp_path, "__Run.bvh", majority),
+        _write(tmp_path, "__Odd.bvh", ["Hips", "Spine"]),
+    ]
+    with pytest.raises(ValueError, match="modal"):
+        rest_source(manifest, clips)
+
+
+def test_rest_source_returns_the_declared_file(tmp_path):
+    from poseydon.core.skeleton import SkeletonManifest
+    from scripts.process_dataset_truebones import rest_source
+
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        "skeleton: Testy\n"
+        "rest_pose: __Run.bvh\n"
+        "facing:\n"
+        "  hips: {right: R, left: L}\n"
+        "contact: {max_height: 0.3, max_speed: 0.04}\n"
+    )
+    manifest = SkeletonManifest.load(path)
+    majority = ["Hips", "Spine", "Head"]
+    clips = [
+        _write(tmp_path, "__Walk.bvh", majority),
+        _write(tmp_path, "__Run.bvh", majority),
+    ]
+    assert rest_source(manifest, clips).name == "__Run.bvh"
 ```
 
-Add `import numpy as np` to that file's imports.
+Add `import pytest` to that file's imports.
 
-- [ ] **Step 2: Run it to see it fail**
+- [ ] **Step 2: Run them to verify they fail**
 
 Run: `docker compose run --rm test pytest tests/build/test_rest_selection.py -v`
-Expected: FAIL — `RigTransform.save` writes object arrays but `load` may not round-trip a 0-d one. If it passes unchanged, the storage already works; proceed to Step 3, which is the real change.
+Expected: FAIL — `rest_pose` is an unknown manifest key, and `rest_source` does not exist.
 
-- [ ] **Step 3: Record the choice in `process_species`**
+- [ ] **Step 3: Add `rest_pose`, remove `tpose`**
 
-In `scripts/process_dataset_truebones.py::process_species`, after `rig_params = chain.fit_rig(...)` (around line 152), add:
+In `src/poseydon/core/skeleton.py`:
+
+In `_KNOWN_KEYS`, replace `"tpose"` with `"rest_pose"`.
+
+In `SkeletonManifest`, replace the `tpose` field:
 
 ```python
-    # The rest choice is data, not a rule to be re-derived. Three consumers
-    # picked this file independently and two carried a stale copy of the rule,
-    # so the round trip silently skipped Crab. Stage 2 needs it too: rig-level
-    # offsets must come from the rest clip, and after the authored table that
-    # file is frequently not named `tpose`.
-    rest_action = strip_skeleton_prefix(action_slug(rest_path.stem), manifest.name)
-    rig_params["rest"] = {"clip": np.array(rest_action, dtype=object)}
+    #: Filename of the clip whose first frame is this rig's rest pose, relative
+    #: to the rig's RAW source directory -- e.g. "__IdleLoop.bvh". A filename
+    #: rather than a path because consumers resolve it in different domains:
+    #: stage 1 wants `source/<Rig>/<file>`, everything downstream wants the
+    #: prepared clip `clips/<Rig>/<action>.bvh`.
+    rest_pose: str | None = None
 ```
 
-- [ ] **Step 4: Point the two test copies at the recording**
-
-In `tests/build/test_roundtrip.py`, replace `_rest_path` entirely:
+In `_build`, replace the `tpose` block:
 
 ```python
-def _rest_path(clips):
-    """The rig's rest-pose file, by the PRODUCTION rule.
+    rest_pose = data.get("rest_pose")
+```
 
-    This used to carry its own copy that matched on filename only -- the rule
-    b2b0151 fixed in the script and not here. Crab therefore resolved to its
-    54-joint __TPOSE.bvh, every 64-joint clip disagreed, and the case skipped.
-    Import the real thing rather than restate it.
+and the constructor argument `tpose=tpose_path,` with `rest_pose=None if rest_pose is None else str(rest_pose),`.
+
+- [ ] **Step 4: Delete the two dead branches**
+
+In `src/poseydon/ingest/pipeline.py`, remove lines 94-95 — the `if manifest.tpose ...` branch and its body — leaving whatever fallback follows as the only path. It already was the only path in practice.
+
+In `src/poseydon/data/dataset.py::_rest_frame`, remove the equivalent branch at 145-148. Update the docstring, which currently promises "From the manifest's T-pose when it names one":
+
+```python
+        """One frame describing the skeleton, cached per skeleton.
+
+        The first frame of the skeleton's first clip. `SkeletonManifest.tpose`
+        used to be consulted here, but no manifest ever declared it, so this
+        fallback has always been the only path -- a guard that reads as working
+        is worse than no guard. A3 replaces this with the rest frame recorded in
+        `rigs/<Rig>/stats.npz`, chosen by `manifest.rest_pose`.
+        """
+```
+
+- [ ] **Step 5: Replace `find_tpose` with `rest_source`**
+
+In `scripts/process_dataset_truebones.py`, delete `_pick_by_name` and `find_tpose`, and add:
+
+```python
+def rest_action(manifest: SkeletonManifest) -> str:
+    """The prepared-clip action slug for this rig's declared rest pose.
+
+    Consumers working on `clips/<Rig>/` need the slug, not the raw filename;
+    deriving it here keeps one source of truth in the manifest.
     """
-    chosen, _warnings = find_tpose(list(clips))
+    if manifest.rest_pose is None:
+        raise ValueError(f"{manifest.name}: manifest declares no `rest_pose`")
+    stem = Path(manifest.rest_pose).stem
+    return strip_skeleton_prefix(action_slug(stem), manifest.name)
+
+
+def rest_source(manifest: SkeletonManifest, clip_paths: list[Path]) -> Path:
+    """The raw file supplying this rig's rest pose, validated against the corpus.
+
+    The choice is authored -- it is a judgement about which clip's first frame
+    is a neutral pose, and no rule gets that right (matching "idle" as a
+    substring picks Lion's __DeathIdle.bvh, Jaguar's __LieIdle.bvh and Trex's
+    __idle_attack.bvh). But an authored value never overrides the corpus's own
+    evidence: the declared file must carry the rig's MODAL joint set, because
+    a rest pose disagreeing with the clips makes `RestRelative` reject every
+    one of them. Trex is why this guard is not ceremony -- its natural neutral
+    pick, __STILL.bvh, is that rig's outlier file (66 joints against 78).
+
+    Raises rather than falling back. A rig whose rest pose cannot be resolved
+    is a data error the build must stop on; the previous behaviour returned
+    "the first file in the modal set", which is what gave Crab a rest geometry
+    fitted from __Attack1.bvh.
+    """
+    if manifest.rest_pose is None:
+        raise ValueError(
+            f"{manifest.name}: manifest declares no `rest_pose`; every rig must "
+            "name the clip whose first frame is its rest pose"
+        )
+
+    by_name = {path.name: path for path in clip_paths}
+    chosen = by_name.get(manifest.rest_pose)
     if chosen is None:
-        pytest.skip("no rest-pose file for this rig")
+        raise ValueError(
+            f"{manifest.name}: declared rest_pose `{manifest.rest_pose}` is not "
+            f"among this rig's {len(clip_paths)} raw clips"
+        )
+
+    names_by_path = {path: BVH.read_names(path) for path in clip_paths}
+    modal_names, modal_count = Counter(names_by_path.values()).most_common(1)[0]
+    if names_by_path[chosen] != modal_names:
+        raise ValueError(
+            f"{manifest.name}: declared rest_pose `{manifest.rest_pose}` has "
+            f"{len(names_by_path[chosen])} joints but the rig's modal skeleton "
+            f"has {len(modal_names)} ({modal_count}/{len(clip_paths)} clips); "
+            "a rest pose disagreeing with the clips rejects every one of them"
+        )
     return chosen
 ```
 
-Add to that file's imports:
+Add `from poseydon.core.skeleton import SkeletonManifest, resolve` if `SkeletonManifest` is not already imported, and `from pathlib import Path` if absent.
+
+In `process_species`, replace the `find_tpose` call and its fallback block with:
 
 ```python
-from scripts.process_dataset_truebones import find_tpose
+    rest_path = rest_source(manifest, clip_paths)
 ```
 
-In `tests/build/test_bvh_fbx_agreement.py`, replace its `_rest_path` body — this one selects among *prepared* clips, so it reads the recorded action rather than re-running `find_tpose` on raw files:
+Delete the `if rest_path is None:` fallback that followed — there is no fallback any more. Keep `warnings` as a list; `rest_source` raises instead of warning, and `process_species`'s caller reports the exception per rig.
+
+Wrap the call so one bad manifest does not abort the corpus, matching how clip errors are already handled:
+
+```python
+    try:
+        rest_path = rest_source(manifest, clip_paths)
+    except ValueError as error:
+        return 0, [f"{manifest.name}: {error}"]
+```
+
+- [ ] **Step 6: Point the two test copies at the manifest**
+
+In `tests/build/test_roundtrip.py`, replace `_rest_path`:
+
+```python
+def _rest_path(clips):
+    """The rig's rest-pose file, from its manifest.
+
+    This used to carry its own copy of a filename-matching rule -- the rule
+    b2b0151 fixed in the script and not here. Crab therefore resolved to its
+    54-joint __TPOSE.bvh, every 64-joint clip disagreed, and the case skipped.
+    """
+    return rest_source(_manifest(_rig_of(clips)), list(clips))
+
+
+def _rig_of(clips) -> str:
+    return clips[0].parent.name
+```
+
+Add `from scripts.process_dataset_truebones import rest_source`.
+
+In `tests/build/test_bvh_fbx_agreement.py`, replace its `_rest_path` — this one selects among *prepared* clips, so it uses the slug:
 
 ```python
 def _rest_path(bvhs):
-    """The rig's prepared rest clip, read from what stage 1 recorded.
+    """The rig's prepared rest clip, named by its manifest.
 
-    `FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion,
-    so every prepared clip carries a differently-rotated offset block --
-    only the rest clip's offsets correspond to mesh.npz's bind pose. Which
-    clip that is, is recorded; matching on the filename was a stale copy of
-    a rule that no longer holds (Crab's rest clip is `walk`).
+    `FaceAxis` is clip-scoped and `rotate_rig` turns OFFSETS with the motion, so
+    every prepared clip carries a differently-rotated offset block -- only the
+    rest clip's offsets correspond to mesh.npz's bind pose. Matching on the
+    filename was a stale copy of a rule that no longer holds: Crab's rest clip
+    is `walk`.
     """
     rig = bvhs[0].parent.name
-    prepare = CORPUS / "rigs" / rig / "prepare.npz"
-    if not prepare.is_file():
-        pytest.skip(f"{rig}: no prepare.npz -- run stage 1")
-    action = str(RigTransform.load(prepare).rig_params["rest"]["clip"])
-    path = bvhs[0].parent / f"{action}.bvh"
+    manifest = SkeletonManifest.load(CORPUS / "rigs" / rig / "manifest.yaml")
+    path = bvhs[0].parent / f"{rest_action(manifest)}.bvh"
     if not path.is_file():
-        pytest.skip(f"{rig}: recorded rest clip {action}.bvh is not on disk")
+        pytest.skip(f"{rig}: declared rest clip {path.name} is not in the prepared corpus")
     return path
 ```
 
-Add to its imports:
+Add `from poseydon.core.skeleton import SkeletonManifest` and `from scripts.process_dataset_truebones import rest_action`.
 
-```python
-from poseydon.build.prepare import RigTransform
-```
+- [ ] **Step 7: Run the tests**
 
-- [ ] **Step 5: Run the tests**
+Run: `docker compose run --rm test pytest tests/build/ tests/features/ -v -rs`
 
-Run: `docker compose run --rm test pytest tests/build/ -v -rs`
+Expected: `test_rest_selection.py` passes. Every `test_roundtrip.py` case now **errors or fails** with "declares no `rest_pose`" — that is correct and expected, because no manifest declares one yet. Task 3 populates them. Do not add a fallback to make this green.
 
-Expected: `test_rest_selection.py` passes. `test_roundtrip.py::test_round_trip_returns_the_source_rig[Crab]` still **skips** — but now with a different reason: `find_tpose` picks Crab's `__Attack1.bvh` (its modal-set rest file), the clip loop then picks the first non-rest clip, and that clip agrees, so it should now **pass**. If it still skips, read the skip reason before proceeding; the `_rest_path(clips)` call inside the test body is invoked twice and must return the same path both times.
-
-`test_bvh_fbx_agreement.py` cases will skip with "no prepare.npz" or "recorded rest clip not on disk" until Task 9 rebuilds — that is correct, and Task 9 verifies they stop skipping.
-
-- [ ] **Step 6: Verify Crab actually round-trips now**
-
-Run: `docker compose run --rm test pytest "tests/build/test_roundtrip.py::test_round_trip_returns_the_source_rig[Crab]" -v -rs`
-Expected: PASSED, not SKIPPED. This is the whole point of the task.
-
-- [ ] **Step 7: `ruff` and commit**
+- [ ] **Step 8: `ruff` and commit**
 
 ```bash
 docker compose run --rm test ruff check .
-git add scripts/process_dataset_truebones.py tests/build/test_roundtrip.py tests/build/test_bvh_fbx_agreement.py tests/build/test_rest_selection.py
-git commit -m "fix(test): read the recorded rest clip instead of re-deriving it
+git add src/poseydon/core/skeleton.py src/poseydon/ingest/pipeline.py src/poseydon/data/dataset.py scripts/process_dataset_truebones.py tests/build/
+git commit -m "feat(manifest): declare the rest pose per rig, and delete the dead tpose key
 
-The rest-selection rule existed in three copies and only the script had the
-modal-set fix from b2b0151. test_roundtrip._rest_path matched on filename, so
-Crab resolved to its 54-joint __TPOSE.bvh, every 64-joint clip disagreed, and
-the round trip -- the test the application story rests on -- silently skipped
-for the milliped SAMPLE_RIGS exists to cover.
+A rig's rest pose is a fact about the rig, so it belongs in the manifest rather
+than in three copies of a selection rule -- of which only the script carried
+b2b0151's modal-set fix, which is why the round trip silently skipped Crab.
 
-prepare.npz now records the action slug stage 1 fitted, under rig/rest/clip,
-and every consumer reads it. Stage 2 needs the same value: rig-level offsets
-must come from the rest clip, which after the authored table is frequently
-not named tpose."
+SkeletonManifest.tpose was parsed and read by two consumers, and declared by
+none of the 73 manifests, so both had always taken their fallback: the rest
+frame the model sees as a rig identity has been the first frame of an arbitrary
+clip. A key that reads as working is worse than one that is obviously dead, so
+it is removed rather than populated -- it also resolved relative to the
+manifest, while stage 1 needs a raw file and everything downstream needs the
+prepared clip.
+
+rest_source raises instead of falling back. The modal-set check stays as the
+guard over the authored value: Trex's natural pick, __STILL.bvh, is that rig's
+outlier file."
 ```
 
 ---
 
-### Task 3: Author the rest-pose file for the 17 rigs that need one
+### Task 3: Populate `rest_pose` in all 73 manifests
 
-Spec §1.1. `find_tpose` resolves T-pose → idle → walk (fly for flying creatures). The first is discovered; the last two are authored, because matching `idle` as a substring picks Lion's `__DeathIdle.bvh`, Jaguar's `__LieIdle.bvh` and Trex's `__idle_attack.bvh` — a dying pose, a lying pose and a crouched attack.
+Spec §1.1. Every rig declares its rest pose; nothing is discovered at runtime.
+Fourteen land on an idle clip, three on a gait because they have no idle at all,
+two on a fly loop, and the remaining 56 on their T-pose.
 
 **Files:**
-- Modify: `scripts/process_dataset_truebones.py` — add `REST_POSE_FILE`, consult it inside `find_tpose`
+- Create: `tools/write_rest_pose.py`
+- Modify: `data/truebones/rigs/*/manifest.yaml` (73 files)
 - Test: `tests/build/test_rest_selection.py`
 
 **Interfaces:**
-- Consumes: `find_tpose(clip_paths) -> tuple[Path | None, list[str]]`, `BVH.read_names(path) -> tuple[str, ...]`.
-- Produces: `REST_POSE_FILE: dict[str, str]` mapping rig name to raw filename. Task 5's promotion table sits beside it.
+- Consumes: `rest_source`, `SkeletonManifest`, `BVH.read_names`.
+- Produces: every manifest carries `rest_pose: <filename>`. Task 5's promotion test and Task 9 read it.
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/build/test_rest_selection.py`:
 
 ```python
-def test_every_authored_rest_file_exists_and_carries_the_modal_skeleton():
-    """The authored table is a judgement about content; this pins what it can.
-
-    Trex is why the modal-set guard stays outside the table: its natural
-    neutral pick, __STILL.bvh, IS that rig's outlier file (66 joints against
-    the modal 78), so a table trusted on its own would have silently destroyed
-    the largest rig in the corpus.
-    """
-    from collections import Counter
-
-    from scripts.process_dataset_truebones import REST_POSE_FILE
+def test_every_rig_declares_a_rest_pose_that_exists_and_is_modal():
+    """The declaration is a judgement about pose content and cannot be tested.
+    What can be: it exists, and it agrees with the rig's own clips."""
+    from poseydon.core.skeleton import SkeletonManifest
+    from scripts.process_dataset_truebones import rest_source
 
     source = CORPUS / "source"
     if not source.is_dir():
         pytest.skip("Truebones corpus not present")
 
-    for rig, filename in sorted(REST_POSE_FILE.items()):
-        rig_dir = source / rig
-        assert rig_dir.is_dir(), f"{rig}: no source directory"
-        path = rig_dir / filename
-        assert path.is_file(), f"{rig}: authored rest file {filename} does not exist"
+    manifests = sorted((CORPUS / "rigs").glob("*/manifest.yaml"))
+    assert manifests, "no rig manifests found"
 
-        names_by_path = {p: BVH.read_names(p) for p in sorted(rig_dir.glob("*.bvh"))}
-        modal, _count = Counter(names_by_path.values()).most_common(1)[0]
-        assert names_by_path[path] == modal, (
-            f"{rig}: authored rest file {filename} has {len(names_by_path[path])} "
-            f"joints but the rig's modal skeleton has {len(modal)}"
-        )
+    for path in manifests:
+        manifest = SkeletonManifest.load(path)
+        rig_dir = source / manifest.name
+        if not rig_dir.is_dir():
+            continue
+        clips = sorted(rig_dir.glob("*.bvh"))
+        if not clips:
+            continue
+        # Raises on: no declaration, missing file, or non-modal skeleton.
+        rest_source(manifest, clips)
 ```
 
-Add to that file's imports:
-
-```python
-import pytest
-
-from poseydon.io.bvh import BVH
-from tests.conftest import CORPUS
-```
+Add `from tests.conftest import CORPUS` to that file's imports.
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `docker compose run --rm test pytest tests/build/test_rest_selection.py::test_every_authored_rest_file_exists_and_carries_the_modal_skeleton -v`
-Expected: FAIL with `ImportError: cannot import name 'REST_POSE_FILE'`.
+Run: `docker compose run --rm test pytest tests/build/test_rest_selection.py -k every_rig -v`
+Expected: FAIL — `Alligator: manifest declares no rest_pose`.
 
-- [ ] **Step 3: Add the table**
+- [ ] **Step 3: Write the generator**
 
-In `scripts/process_dataset_truebones.py`, after the imports and before `_pick_by_name`:
+Create `tools/write_rest_pose.py`:
 
 ```python
-#: Rest-pose file for rigs whose named T-pose is missing or unusable.
-#:
-#: Preference is T-pose, then idle, then a walk (or a fly, for a flying
-#: creature). The last two are authored rather than matched, because matching
-#: "idle" as a substring picks Lion's __DeathIdle.bvh, Jaguar's __LieIdle.bvh
-#: and Trex's __idle_attack.bvh -- a dying pose, a lying pose and a crouched
-#: attack, which are the poses this rule exists to avoid. The previous
-#: fallback was worse still: "first file in the modal set" is what gave Crab a
-#: rest geometry fitted from __Attack1.bvh.
-#:
-#: An entry here is a JUDGEMENT about animation content and cannot be verified
-#: by test. What IS verified is that the file exists and carries the rig's
-#: modal skeleton -- see test_rest_selection.py. Trex is why that guard is not
-#: ceremony: its natural pick, __STILL.bvh, is the rig's outlier file.
-REST_POSE_FILE: dict[str, str] = {
-    # No T-pose file at all.
+"""Emit a `rest_pose:` line for every rig, for review before it is applied.
+
+The rule is T-pose, then idle, then walk -- or fly, for a flying creature --
+applied WITHIN the rig's modal joint set. The 17 rigs whose named T-pose is
+missing or unusable are listed explicitly below, because no rule gets them
+right: matching "idle" as a substring picks Lion's __DeathIdle.bvh, Jaguar's
+__LieIdle.bvh and Trex's __idle_attack.bvh.
+
+Run, review the output, then re-run with --apply.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+from pathlib import Path
+
+from poseydon.io.bvh import BVH
+
+RAW = Path("data/truebones/source")
+RIGS = Path("data/truebones/rigs")
+
+#: Rigs whose named T-pose is absent or declares a minority skeleton.
+AUTHORED: dict[str, str] = {
     "Anaconda": "__Idle.bvh",
+    "Ant": "__Idle.bvh",
     "Bird": "__IdleLoop.bvh",
     "Camel": "__IdleLoop.bvh",
+    "Crab": "__Walk.bvh",
     "Cricket": "__Idle.bvh",
+    "Deer": "__Idle.bvh",
     "Dog": "__Idle.bvh",
     "Goat": "__Idle.bvh",
-    "Lion": "__SlowIdle.bvh",          # __DeathIdle.bvh is the trap
+    "Jaguar": "__Idle.bvh",
+    "Lion": "__SlowIdle.bvh",
     "Monkey": "__Idle1.bvh",
-    "Pteranodon": "__FlyLoop.bvh",     # no idle clip; flying creature
-    "Rat": "__Trottle.bvh",            # no idle clip; trot is its nearest gait
-    "SabreToothTiger": "__Startwalk.bvh",  # no idle among 44; frame 0 stands
+    "Pteranodon": "__FlyLoop.bvh",
+    "Rat": "__Trottle.bvh",
+    "SabreToothTiger": "__Startwalk.bvh",
     "Scorpion-2": "__Idle.bvh",
-    "Trex": "__walk_loop.bvh",         # every idle_* clip is idle-plus-action
-    # T-pose file exists but declares a minority skeleton.
-    "Ant": "__Idle.bvh",
-    "Crab": "__Walk.bvh",              # no idle clip
-    "Deer": "__Idle.bvh",
-    "Jaguar": "__Idle.bvh",            # __LieIdle.bvh is the trap
+    "Trex": "__walk_loop.bvh",
 }
-```
 
-- [ ] **Step 4: Consult the table inside `find_tpose`**
 
-`find_tpose` currently takes only `clip_paths`. Give it the rig name so it can look the rig up, keeping the modal-set guard *outside* the table. Replace the body between `modal_paths = ...` and `old_pick = ...`:
+def choose(rig: str) -> tuple[str | None, str]:
+    rig_dir = RAW / rig
+    bvhs = sorted(rig_dir.glob("*.bvh"))
+    if not bvhs:
+        return None, "no raw clips"
 
-```python
-    names_by_path = {path: BVH.read_names(path) for path in clip_paths}
-    counts = Counter(names_by_path.values())
-    modal_names, _ = counts.most_common(1)[0]
-    modal_paths = [path for path in clip_paths if names_by_path[path] == modal_names]
+    names = {p: BVH.read_names(p) for p in bvhs}
+    modal, count = Counter(names.values()).most_common(1)[0]
+    modal_paths = [p for p in bvhs if names[p] == modal]
 
-    # An authored choice wins over the naming rule, but never over the modal
-    # set: the table is a judgement about pose content, and the modal check is
-    # what stops a plausible-looking pick from destroying a rig. Trex's
-    # __STILL.bvh is exactly that case.
-    authored = REST_POSE_FILE.get(rig)
+    authored = AUTHORED.get(rig)
     if authored is not None:
-        matches = [path for path in modal_paths if path.name == authored]
-        if matches:
-            return matches[0], warnings
-        warnings.append(
-            f"authored rest file {authored} is absent or not in the modal joint "
-            f"set ({len(modal_paths)}/{len(clip_paths)} clips); falling back to "
-            "the naming rule"
-        )
+        match = next((p for p in modal_paths if p.name == authored), None)
+        if match is None:
+            return None, f"AUTHORED {authored} absent or non-modal"
+        return match.name, f"authored ({count}/{len(bvhs)} modal)"
 
-    old_pick = _pick_by_name(clip_paths)
-    chosen = _pick_by_name(modal_paths)
+    for key in ("tpos",):
+        for p in modal_paths:
+            if key in p.name.lower():
+                return p.name, f"tpose ({count}/{len(bvhs)} modal)"
+    return None, "no T-pose in the modal set and no authored entry"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args()
+
+    problems = []
+    for manifest_path in sorted(RIGS.glob("*/manifest.yaml")):
+        rig = manifest_path.parent.name
+        filename, why = choose(rig)
+        print(f"{rig:<18} {str(filename):<24} {why}")
+        if filename is None:
+            problems.append(rig)
+            continue
+        if not args.apply:
+            continue
+        text = manifest_path.read_text()
+        if "rest_pose:" in text:
+            continue
+        lines = text.splitlines()
+        # After `skeleton:`, so the file reads identity-first.
+        at = next(i for i, line in enumerate(lines) if line.startswith("skeleton:"))
+        lines.insert(at + 1, f"rest_pose: {filename}")
+        manifest_path.write_text("\n".join(lines) + "\n")
+
+    if problems:
+        print(f"\nUNRESOLVED: {problems}")
+
+
+if __name__ == "__main__":
+    main()
 ```
 
-Change the signature and the docstring's `Returns` line:
-
-```python
-def find_tpose(clip_paths: list[Path], rig: str = "") -> tuple[Path | None, list[str]]:
-```
-
-Update the one production call site in `process_species`:
-
-```python
-    rest_path, tpose_warnings = find_tpose(clip_paths, manifest.name)
-```
-
-The `rig=""` default keeps `test_rest_selection.py`'s existing synthetic test and `test_roundtrip.py::_rest_path` working unchanged — neither names a real rig.
-
-- [ ] **Step 5: Run the tests**
-
-Run: `docker compose run --rm test pytest tests/build/test_rest_selection.py -v`
-Expected: all pass, including the new table check across all 17 rigs.
-
-- [ ] **Step 6: Confirm the four recovered rigs still recover**
+- [ ] **Step 4: Review the proposed values**
 
 ```bash
-docker compose run --rm test python scripts/process_dataset_truebones.py \
-    --out-root /tmp/probe_out --rigs Crab Ant Deer Jaguar 2>&1 | tail -20
+docker compose run --rm test python tools/write_rest_pose.py
 ```
 
-This needs manifests under `/tmp/probe_out/rigs/`; create them first:
+Expected: 73 lines, no `UNRESOLVED`. Check that the 17 authored rigs show `authored` and the rest show `tpose`. If any rig is unresolved, it needs an `AUTHORED` entry — decide it by looking at that rig's clip list, and do not let the generator invent one.
+
+- [ ] **Step 5: Apply**
 
 ```bash
-docker compose run --rm test sh -c '
-  for r in Crab Ant Deer Jaguar; do
-    mkdir -p /tmp/probe_out/rigs/$r
-    cp data/truebones/rigs/$r/manifest.yaml /tmp/probe_out/rigs/$r/
-  done
-  cp data/truebones/rigs/_base.yaml /tmp/probe_out/rigs/ 2>/dev/null || true
-  python scripts/process_dataset_truebones.py --out-root /tmp/probe_out \
-      --rigs Crab Ant Deer Jaguar' 2>&1 | tail -20
+docker compose run --rm test python tools/write_rest_pose.py --apply
+git diff --stat data/truebones/rigs/
 ```
 
-Expected: `Crab 10 · Ant 17 · Deer 20 · Jaguar 13` clips written, and the rest file now reported as `__Walk.bvh` for Crab and `__Idle.bvh` for the other three — not `__Attack1.bvh`.
+Expected: 73 manifests changed, one line added each.
 
-- [ ] **Step 7: `ruff` and commit**
+- [ ] **Step 6: Spot-check the diff**
+
+```bash
+git diff data/truebones/rigs/Camel/manifest.yaml data/truebones/rigs/Crab/manifest.yaml data/truebones/rigs/Trex/manifest.yaml
+```
+
+Expected: `rest_pose: __IdleLoop.bvh`, `rest_pose: __Walk.bvh`, `rest_pose: __walk_loop.bvh` — and specifically **not** `__STILL.bvh` for Trex.
+
+- [ ] **Step 7: Run the tests**
+
+Run: `docker compose run --rm test pytest tests/build/ -v -rs`
+Expected: `test_rest_selection.py` fully green, and `test_roundtrip.py` back to passing — including `[Crab]`, which is the point of Task 2 and this one together.
+
+- [ ] **Step 8: Verify Crab actually round-trips**
+
+Run: `docker compose run --rm test pytest "tests/build/test_roundtrip.py::test_round_trip_returns_the_source_rig[Crab]" -v -rs`
+Expected: PASSED, not SKIPPED.
+
+- [ ] **Step 9: `ruff` and commit**
 
 ```bash
 docker compose run --rm test ruff check .
-git add scripts/process_dataset_truebones.py tests/build/test_rest_selection.py
-git commit -m "feat(prepare): author the rest-pose file for the 17 rigs needing one
+git add tools/write_rest_pose.py data/truebones/rigs tests/build/test_rest_selection.py
+git commit -m "feat(manifest): declare rest_pose for all 73 rigs
 
-find_tpose resolves T-pose, then idle, then walk -- or fly, for a flying
-creature. The last two are an authored table rather than a name match, because
-matching 'idle' as a substring picks Lion's __DeathIdle, Jaguar's __LieIdle and
-Trex's __idle_attack: a dying pose, a lying pose and a crouched attack.
+Nothing is discovered at runtime any more. 56 rigs land on their T-pose, 14 on
+an idle clip, three on a gait because they have no idle at all (Crab,
+SabreToothTiger, Rat) and two on a fly loop (Bird, Pteranodon).
 
-The modal-set check stays outside the table and earns its keep -- Trex's
-natural neutral pick, __STILL.bvh, is that rig's outlier file (66 joints
-against the modal 78)."
+The values are authored because no rule gets them right -- matching idle as a
+substring picks a dying pose, a lying pose and a crouched attack -- but every
+one is checked against its rig's modal joint set, which is what stops Trex
+resting on __STILL.bvh, its outlier file."
 ```
 
 ---
@@ -790,7 +1003,7 @@ Spec §1.2's table, and the contractual ordering: `PromoteRoot` is stage 2, afte
 - Test: `tests/build/test_promote_table.py` (create)
 
 **Interfaces:**
-- Consumes: `PromoteRoot(target=...)` from Task 4, `REST_POSE_FILE` from Task 3.
+- Consumes: `PromoteRoot(target=...)` from Task 4, `SkeletonManifest.rest_pose` from Tasks 2 and 3.
 - Produces: `PROMOTE_ROOT: dict[str, str]` mapping rig name to the joint promoted to root. `_chain_for(source_channels, rig)` gains a `rig` parameter.
 
 - [ ] **Step 1: Write the failing test**
@@ -809,13 +1022,12 @@ healthy rigs. They are asserted absent from the table explicitly.
 
 from __future__ import annotations
 
-from collections import Counter
-
 import numpy as np
 import pytest
 
+from poseydon.core.skeleton import SkeletonManifest
 from poseydon.io.bvh import BVH
-from scripts.process_dataset_truebones import PROMOTE_ROOT, REST_POSE_FILE
+from scripts.process_dataset_truebones import PROMOTE_ROOT, rest_source
 from tests.conftest import CORPUS
 
 LOCATOR_BAND = 0.05
@@ -826,15 +1038,8 @@ def _rest_anim(rig: str):
     if not rig_dir.is_dir():
         pytest.skip(f"{rig}: no source directory")
     bvhs = sorted(rig_dir.glob("*.bvh"))
-    named = REST_POSE_FILE.get(rig)
-    if named is not None:
-        path = rig_dir / named
-    else:
-        by_path = {p: BVH.read_names(p) for p in bvhs}
-        modal, _ = Counter(by_path.values()).most_common(1)[0]
-        modal_paths = [p for p in bvhs if by_path[p] == modal]
-        path = next((p for p in modal_paths if "tpos" in p.name.lower()), modal_paths[0])
-    return BVH.read(path).to_animation()
+    manifest = SkeletonManifest.load(CORPUS / "rigs" / rig / "manifest.yaml")
+    return BVH.read(rest_source(manifest, bvhs)).to_animation()
 
 
 def _height_fraction(anim, joint: int) -> float:
@@ -896,7 +1101,7 @@ Expected: FAIL with `ImportError: cannot import name 'PROMOTE_ROOT'`.
 
 - [ ] **Step 3: Add the table**
 
-In `scripts/process_dataset_truebones.py`, immediately after `REST_POSE_FILE`:
+In `scripts/process_dataset_truebones.py`, immediately after `rest_source`:
 
 ```python
 #: Joint promoted to root, for the 14 rigs that root at a ground locator.
@@ -1026,9 +1231,9 @@ Spec §8 test 3. None of Flamingo, BrownBear, Crab or Scorpion is a ground-locat
 # One biped, one quadruped, one milliped, the rig whose reduction differs from
 # the reference's (Scorpion keeps a zero-offset joint with siblings), and one
 # ground-locator rig. Camel covers both stage-1 tables at once: it has no
-# T-pose file, so REST_POSE_FILE authors __IdleLoop.bvh for it, and it is a
-# two-step promotion (Hips -> C_ctrl -> Bip01) rather than the single-step
-# majority.
+# T-pose file, so its manifest declares __IdleLoop.bvh as its rest_pose, and
+# it is a two-step promotion (Hips -> C_ctrl -> Bip01) rather than the
+# single-step majority.
 SAMPLE_RIGS = ("Flamingo", "BrownBear", "Crab", "Scorpion", "Camel")
 ```
 
@@ -1053,7 +1258,7 @@ git commit -m "test: add Camel to SAMPLE_RIGS so promotion is round-tripped
 
 None of the existing four is a ground-locator rig, so PromoteRoot was covered
 by unit tests only. Camel exercises both stage-1 tables at once: no T-pose
-file, so REST_POSE_FILE authors its rest pose, and a two-step promotion."
+file, so its manifest declares one, and a two-step promotion."
 ```
 
 ---
@@ -1326,7 +1531,7 @@ Create `tests/build/test_corpus_yield.py`:
 """The recovered rigs stay recovered, and the promoted rigs stay promoted.
 
 b2b0151 recovered 60 clips across four rigs by choosing the rest-pose file by
-modal joint set, and nothing guarded it. A regression in find_tpose would
+modal joint set, and nothing guarded it. A regression in rest selection would
 quietly cost them again -- quietly being the point: the clips are skipped with
 a warning, not an error.
 """
@@ -1425,6 +1630,6 @@ git commit -m "docs(plan): record the A1 outcome"
 
 Not covered here, by design: §8 tests 8–10 (golden feature parity, normalization policy, build-then-train smoke) belong to A2, which builds the artefacts they check.
 
-**Type consistency.** `find_tpose(clip_paths, rig="")` is used with two arguments in Task 3 Step 4 and one in `test_roundtrip._rest_path` (Task 2 Step 4) — the default covers it. `PromoteRoot(target=...)` is constructed in Task 4's tests, Task 5's chain and Task 5's test with the same keyword. `_chain_for(source_channels, rig="")` gains its parameter in Task 5 Step 4 and is called there. `prepare.npz`'s `rig/rest/clip` is written in Task 2 Step 3 and read in Task 2 Step 4 and Task 9's hazard check with the same key path.
+**Type consistency.** `rest_source(manifest, clip_paths) -> Path` is defined in Task 2 Step 5 and called in Task 2 Step 6, Task 3 Steps 1 and 3, and Task 5's `_rest_anim` — same two positional arguments throughout. `rest_action(manifest) -> str` is defined beside it and used only by `test_bvh_fbx_agreement._rest_path`. `SkeletonManifest.rest_pose` is added in Task 2 Step 3, populated in Task 3, and read in Tasks 2, 3 and 5. `PromoteRoot(target=...)` is constructed in Task 4's tests, Task 5's chain and Task 5's test with the same keyword. `_chain_for(source_channels, rig="")` gains its parameter in Task 5 Step 4 and is called there.
 
 **Known risk.** Task 7 Step 2 may reveal a real mismatch in the features leg — the manifest's facing and foot joints can be reduced away, and `resolve` on reduced names would then fail. The step says to diagnose rather than loosen the tolerance, and names `_reindex_resolved` as the likely tool. Task 8 Step 1 verifies the FBX module's actual entry points before the test assumes them.
