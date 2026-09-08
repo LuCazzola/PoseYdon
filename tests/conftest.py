@@ -13,9 +13,13 @@ import pytest
 
 CORPUS = Path("data/truebones")
 
-# One biped, one quadruped, one milliped, plus the rig whose reduction differs
-# from the reference's (Scorpion keeps a zero-offset joint with siblings).
-SAMPLE_RIGS = ("Flamingo", "BrownBear", "Crab", "Scorpion")
+# One biped, one quadruped, one milliped, the rig whose reduction differs
+# from the reference's (Scorpion keeps a zero-offset joint with siblings), and
+# Camel: the ground-locator rig (its root is promoted Hips -> C_ctrl -> Bip01,
+# a two-step promotion unlike the single-step majority of the 14), which also
+# has no T-pose file, so its manifest authors `rest_pose: __IdleLoop.bvh`.
+# Camel is the one rig that exercises both stage-1 tables at once.
+SAMPLE_RIGS = ("Flamingo", "BrownBear", "Crab", "Scorpion", "Camel")
 
 
 @pytest.fixture(scope="session")

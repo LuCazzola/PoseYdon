@@ -19,34 +19,14 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from scripts.process_dataset_truebones import rest_source
+from scripts.process_dataset_truebones import _chain_for, rest_source
 
-from poseydon.build.prepare import (
-    CentreXZ,
-    EnforceRigid,
-    FaceAxis,
-    PrepareChain,
-    PutOnGround,
-    RestRelative,
-    ScaleToMeanBoneLength,
-)
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.features.reduce import apply_reduction, build_reduction, invert_reduction
 from poseydon.ingest.align import axis_vector, facing_quats
 from poseydon.io.bvh import BVH
 from tests.conftest import CORPUS, SAMPLE_RIGS
-
-CHAIN = PrepareChain(
-    (
-        RestRelative(),
-        FaceAxis(axis="+Z"),
-        EnforceRigid(joint_translation="drop"),
-        CentreXZ(),
-        ScaleToMeanBoneLength(),
-        PutOnGround(),
-    )
-)
 
 
 def _manifest(rig: str) -> SkeletonManifest:
@@ -91,16 +71,22 @@ def _apply_with(chain, anim, params):
 def test_round_trip_returns_the_source_rig(rig, raw_clips):
     clips = raw_clips(rig)
     manifest = _manifest(rig)
-    rest = BVH.read(_rest_path(clips)).to_animation()
+    rest_bvh = BVH.read(_rest_path(clips))
+    rest = rest_bvh.to_animation()
     resolved = resolve(manifest, rest.names)
-    rig_params = CHAIN.fit_rig(rest, resolved)
+    # Use the production chain -- built with THIS rig's real BVH channel
+    # layout, exactly as scripts.process_dataset_truebones.process_species does
+    # -- so the round trip exercises PromoteRoot for the 14 ground-locator
+    # rigs (Camel among them) instead of a private copy that omits it.
+    chain = _chain_for(rest_bvh.channels, rig)
+    rig_params = chain.fit_rig(rest, resolved)
 
     source_bvh = BVH.read(next(p for p in clips if p != _rest_path(clips)))
     source = source_bvh.to_animation()
     if tuple(source.names) != tuple(rest.names):
         pytest.skip(f"{rig}: this clip is rigged differently from its own rest pose")
 
-    prepared, params = CHAIN.apply(source, resolve(manifest, source.names), rig_params)
+    prepared, params = chain.apply(source, resolve(manifest, source.names), rig_params)
 
     reduction = build_reduction(prepared)
     reduced = apply_reduction(prepared, reduction)
@@ -108,7 +94,7 @@ def test_round_trip_returns_the_source_rig(rig, raw_clips):
     # below unchanged.
     assert reduced.n_joints < prepared.n_joints
     expanded = invert_reduction(reduced, reduction)
-    restored = CHAIN.invert(expanded, params)
+    restored = chain.invert(expanded, params)
 
     # Structure: the rig comes back exactly as the user supplied it.
     assert restored.names == source.names
@@ -138,7 +124,7 @@ def test_round_trip_returns_the_source_rig(rig, raw_clips):
     # prepared clip. This is the property the application needs -- a generated
     # clip, unprepared onto the user's rig and prepared again, is the clip we
     # started from.
-    reprepared = _apply_with(CHAIN, restored, params)
+    reprepared = _apply_with(chain, restored, params)
     np.testing.assert_allclose(
         reprepared.global_positions(), prepared.global_positions(), rtol=0, atol=1e-9
     )
@@ -148,11 +134,13 @@ def test_round_trip_returns_the_source_rig(rig, raw_clips):
 def test_prepared_clips_face_plus_z_and_stand_on_the_ground(rig, raw_clips):
     clips = raw_clips(rig)
     manifest = _manifest(rig)
-    rest = BVH.read(_rest_path(clips)).to_animation()
+    rest_bvh = BVH.read(_rest_path(clips))
+    rest = rest_bvh.to_animation()
     resolved = resolve(manifest, rest.names)
-    rig_params = CHAIN.fit_rig(rest, resolved)
+    chain = _chain_for(rest_bvh.channels, rig)
+    rig_params = chain.fit_rig(rest, resolved)
 
-    prepared, _params = CHAIN.apply(rest, resolved, rig_params)
+    prepared, _params = chain.apply(rest, resolved, rig_params)
 
     # Facing cannot be checked by the round-trip test: FaceAxis.invert mirrors
     # whatever fit recorded, so a wrong facing rotation cancels between apply
