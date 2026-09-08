@@ -633,8 +633,8 @@ returned file carries:
 - the source's scale, world orientation and ground offset;
 - every joint in the source's coordinate convention.
 
-**What it does not promise** is that any particular number matches. Three
-documented losses sit inside the chain, and all three are value-level:
+**What it does not promise** is that any particular number matches. Four
+documented losses sit inside the chain, and all four are value-level:
 
 1. `EnforceRigid` returns per-joint translation channels holding the constant
    rest offsets rather than their animated content — roughly 10% of skeleton size
@@ -648,6 +648,23 @@ documented losses sit inside the chain, and all three are value-level:
    near rather than on. That is a reconstruction-quality choice about generated
    motion and is orthogonal to convertibility — the returned rig is structurally
    the user's either way.
+4. **The root's absolute horizontal position does not survive the feature
+   representation.** `features/recover.py::root_trajectory` is deliberately
+   root-invariant: it stores per-frame velocity, not absolute placement, "so the
+   same motion reads identically wherever it happens". Integrating it back gives
+   a trajectory that starts at the XZ origin with only its SHAPE preserved.
+   Height returns exactly, and so does every joint relative to the root; what is
+   gone is where in the world the clip sat. Measured in Task 7 of plan A1 as a
+   constant XZ shift with a zero vertical component and a ~1e-14 residual once
+   the shift is accounted for.
+
+   This is not a defect, but it is load-bearing for §7: a retargeted clip returns
+   at the origin rather than where the content motion was, so the validation
+   callback and `poseydon retarget` must either accept that or re-anchor the
+   output explicitly against the reference clip's starting position. §7 does not
+   currently say which. Decide it when Plan B builds `run_retarget`; the honest
+   default is to re-anchor, because a user retargeting their own clip expects it
+   to come back where they put it.
 
 This is why promotion needs no per-clip recording of the removed chain's
 rotations. Recording them would make a real clip's values recoverable too, but it
