@@ -35,7 +35,7 @@ training loop); a full-corpus stage-1 rebuild; an aarch64 CUDA training image an
 a `train` compose service; wandb logging; a `Retarget` operation and the
 `LatentPin` control it needs; a `RetargetValidation` callback generating
 artifacts and metrics for three fixed pairs; a `poseydon retarget` CLI sharing
-the same code path; a root-promotion stage; eleven tests.
+the same code path; a root-promotion stage; thirteen tests.
 
 **Out.** A held-out validation split and val loss — every index row is still
 `split: train`. Text conditioning (T5 stays behind the `poseydon[text]` extra).
@@ -235,6 +235,20 @@ restates `ScaleToMeanBoneLength`'s own definition will not notice. This is the
 same class of bug as the zero-length End Site scale error that survived all
 eleven Phase 1 tasks.
 
+**Ordering, exactly.** `PromoteRoot` is stage 2 of the chain:
+
+```
+RestRelative -> PromoteRoot -> FaceAxis -> EnforceRigid
+             -> CentreXZ -> ScaleToMeanBoneLength -> PutOnGround
+```
+
+After `RestRelative`, whose `_check` requires the clip to carry exactly the joints
+its rest pose declares and which a promoted clip would fail. Before
+`EnforceRigid`, so that the translation channel `EnforceRigid` preserves is the
+*promoted* root's rather than the locator's — otherwise promotion would have to
+re-create a channel that was just dropped. And before `ScaleToMeanBoneLength`,
+per the note above.
+
 **Structure.** This is the one preparation stage that changes structure rather
 than geometry, against the parity spec's *"preparation changes geometry and
 preserves structure"*. It earns the exception by being where Truebones-specific
@@ -242,6 +256,7 @@ knowledge lives and by making the prepared BVH uniform for a human opening it in
 a DCC tool, not only the features. It implements `apply` and `invert` like every
 other stage: `invert` re-inserts the removed chain at its recorded offsets with
 identity rotations, so a user's rig comes back with the hierarchy they supplied.
+§9 states what that does and does not promise.
 
 **`docker-compose.yml` must be fixed first.** It sets `user: "${UID:-1000}:${GID:-1000}"`,
 but bash does not export `UID`, so the fallback always wins and every container
@@ -495,27 +510,38 @@ augmentation already uses.
 
 ## 8 · Tests
 
-Eleven, split by plan.
+Thirteen, split by plan.
 
 **Plan A**
 
-1. **Golden feature parity.** Features reproduce the reference's `.npy` arrays
+1. **The full round trip, through features.** `source -> prepare -> reduce ->
+   features -> features -> expand -> unprepare -> source`, with the model stage
+   as identity, over one biped, one quadruped, one milliped and **one promoted
+   rig**. Asserts what §9 guarantees: joint count, names, parent array,
+   hierarchy order, per-joint channel layout, scale, world orientation and
+   ground offset all return to the source's. Extends the round-trip test Phase 1
+   landed, which stopped short of features. Runs in the normal test image on
+   every commit.
+2. **The round trip returns an FBX.** The same assertions through the FBX arm,
+   run against the `fbx` compose service and skipped when Blender is absent, as
+   `test_bvh_fbx_agreement.py` already does.
+3. **Golden feature parity.** Features reproduce the reference's `.npy` arrays
    block by block, foot contact bit-exact, over the joints the two
    representations share, matched by name.
-2. **Normalization policy.** Each `scale` mode produces statistics of the
+4. **Normalization policy.** Each `scale` mode produces statistics of the
    documented shape, and `joint_block` leaves a 6D row's recovered rotation
    unchanged under Gram-Schmidt. A property, not an example.
-3. **Build-then-train smoke.** `build_features` over a tiny fixture corpus, then
+5. **Build-then-train smoke.** `build_features` over a tiny fixture corpus, then
    two training steps: the loss is finite, and a schema mismatch between
    `features:` and `stats.npz` raises before the first step.
-4. **The recovered rigs stay recovered.** Ant, Crab, Deer and Jaguar keep
+6. **The recovered rigs stay recovered.** Ant, Crab, Deer and Jaguar keep
    17/10/20/13 clips through stage 1. `b2b0151` is guarded by nothing today, and
    a regression in `find_tpose` would quietly cost 60 clips again.
-5. **Every authored rest file is real and in its modal set.** §1.1's table is
+7. **Every authored rest file is real and in its modal set.** §1.1's table is
    checked entry by entry: the file exists, and its joint set is the rig's modal
    one. This is the test that would have caught `Trex/__STILL.bvh`, and it is
    also the test that fails loudly when someone adds a rig to the table by eye.
-6. **Root promotion is world-exact, and reaches exactly the right rigs.** For
+8. **Root promotion moves nothing, and reaches exactly the right rigs.** For
    each of the 14, every surviving joint's world position is unchanged by
    promotion, and the new root's height fraction clears the locator band. For the
    59 others — Lynx and BrownBear named explicitly, since their chains carry a
@@ -524,17 +550,17 @@ Eleven, split by plan.
 
 **Plan B**
 
-7. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
+9. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
    the output carries the target's joint count and the target's bone lengths.
    The test the whole feature rests on.
-8. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
+10. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
    present, and the injected latent is what reaches the decoder.
-9. **Callback contract.** Fires at the right steps, writes all three artifact
+11. **Callback contract.** Fires at the right steps, writes all three artifact
    types, logs five scalars per pair, restores `train()` mode, and leaves the
    training RNG stream untouched.
-10. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
+12. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
    scores ~zero bone-length drift and ~zero IK residual.
-11. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
+13. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
    reproduces the reconstruction method and feature schema it was trained with,
    and an override touching the data path is rejected.
 
@@ -542,6 +568,56 @@ Phase 1's retrospective is blunt that its plan's tests were its weakest part —
 four of eleven tasks shipped a wrong assertion, and in every case the production
 code was correct. Each test above measures output against an external definition
 rather than restating the implementation.
+
+## 9 · The round-trip contract
+
+Non-negotiable, and stated precisely so it can be tested rather than asserted.
+
+```
+source .fbx/.bvh -> prepare -> reduce -> features -> model -> features
+                                                                 |
+source .fbx/.bvh <- unprepare <-------- expand <-----------------+
+```
+
+**The guarantee is structure and reference frame, not motion values.** Whatever
+leaves the model — a user's own clip passed through, or motion generated from
+nothing — converts back into the convention the user supplied. Specifically, the
+returned file carries:
+
+- the source's joint count, names, parent array and hierarchy order;
+- the source's per-joint channel layout, in the source's declared order;
+- the source's scale, world orientation and ground offset;
+- every joint in the source's coordinate convention.
+
+**What it does not promise** is that any particular number matches. Three
+documented losses sit inside the chain, and all three are value-level:
+
+1. `EnforceRigid` returns per-joint translation channels holding the constant
+   rest offsets rather than their animated content — roughly 10% of skeleton size
+   on raw Truebones, intrinsic to a rotation-based representation.
+2. Reduction's collapse case, and now `PromoteRoot`, put a composed rotation on
+   one of several coincident joints and identity on the rest. The world pose is
+   identical and the hierarchy is identical; which joint stores the rotation is
+   not recovered, and for generated motion there was never an original split to
+   recover.
+3. `positions_ik` fits rotations to predicted positions with LBFGS, so it lands
+   near rather than on. That is a reconstruction-quality choice about generated
+   motion and is orthogonal to convertibility — the returned rig is structurally
+   the user's either way.
+
+This is why promotion needs no per-clip recording of the removed chain's
+rotations. Recording them would make a real clip's values recoverable too, but it
+would buy nothing the contract asks for, and generated motion — which has no
+recorded chain — would still need the identity path. One code path, not two.
+
+**Generated motion has no per-clip facing, and something must supply one.**
+`FaceAxis` is `CLIP`-scoped: it records the quaternion that turned *that clip's*
+frame 0 to +Z, and `invert` needs a value. A generated clip has no source
+orientation. For retargeting, `unprepare` uses **the reference clip's** facing —
+the clip that named the target skeleton — so the output returns in the same
+orientation as the rig identity the user pointed at. Rig-scoped parameters
+(`RestRelative`, `CentreXZ`, `ScaleToMeanBoneLength`, `PutOnGround`) need no such
+choice: they come from the target rig's own `prepare.npz`.
 
 ## Limitations
 
@@ -576,13 +652,14 @@ connector from that average is a correction, not a regression, but it means thos
 rigs' fitted scale differs from what today's code produces, and any checkpoint or
 `prepare.npz` from before the change is incomparable with one after it.
 
-**Promotion is world-exact but not representation-exact.** `R_root · … · R_b` can
-be split across the chain in infinitely many ways, so `invert` puts the whole
-product on the promoted joint and re-inserts the chain with identity rotations.
-Every joint returns with the right name, parent, offset and world position; what
-differs is which of several coincident joints stores the rotation. This is the
-limitation the parity spec already records for collapsed internal joints, and it
-applies here for the same reason.
+**Promotion returns structure, not the original rotation split.** Every joint of
+the removed chain has exactly one child, so their rotations turn the same subtree
+and only the product `R_root · … · R_b` is observable. `invert` puts that product
+on the promoted joint and re-inserts the chain with identity rotations. Under §9
+this satisfies the contract — hierarchy, names, offsets, channels and world pose
+all return — but a user who inspects the returned curves will find the motion on
+a different joint of that chain than they authored it on. Same limitation the
+parity spec records for collapsed internal joints, same reason.
 
 **One preparation stage changes structure.** The parity spec's clean split —
 preparation changes geometry, reduction changes structure — has exactly one
@@ -609,10 +686,10 @@ representation, and the reason the stage is explicit rather than silent.
 **Plan A — get it training.** aarch64 CUDA spike; `.env` and the compose `UID`
 fix; full-corpus stage 1; stage 2 and the build package; the read path; the
 training loop, wandb and the train service. Ends at a running job logging loss
-curves. Tests 1–6.
+curves. Tests 1–8.
 
 **Plan B — validate it.** `LatentPin`, `Retarget`, `poseydon retarget`, the
 `RetargetValidation` callback and its five metrics, landed on a run that already
-works. Tests 7–11.
+works. Tests 9–13.
 
 Each leaves the repository working and is reviewable on its own, as Phase 1 was.
