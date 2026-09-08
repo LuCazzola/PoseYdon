@@ -148,6 +148,7 @@ activemq-data/
 *.sage.py
 
 # Environments
+# Local container user and API keys. .env.example is committed; .env is not.
 .env
 .envrc
 .venv
