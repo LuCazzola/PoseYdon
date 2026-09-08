@@ -24,7 +24,7 @@ from typing import Any, ClassVar
 import numpy as np
 
 from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
-from poseydon.core.rotations import quat_apply, quat_inverse, quat_mul
+from poseydon.core.rotations import QUAT_IDENTITY, quat_apply, quat_inverse, quat_mul
 from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig
 
@@ -211,6 +211,149 @@ class RestRelative(PrepareStage):
             offsets=params["source_offsets"].copy(),
             parents=anim.parents,
             names=anim.names,
+            fps=anim.fps,
+        )
+
+
+@dataclass(frozen=True)
+class PromoteRoot(PrepareStage):
+    """Move the root from a ground locator onto the first real body joint.
+
+    14 of 73 Truebones rigs root the skeleton at a locator sitting at y=0 while
+    the body hangs 0.7-6.5 bone lengths above it. `ric_pos` is root-relative, so
+    those rigs hand the model every joint with a constant vertical bias, and
+    their root-trajectory block is a ground projection where the other 59 give a
+    body trajectory -- two conventions for one feature across 19% of the corpus.
+
+    ONLY the root can absorb an offset, which is what makes this principled
+    rather than an exception: `EnforceRigid` drops non-root translation, so no
+    other joint has a channel to put one in. That is exactly why the reduction
+    rule's collapse case requires a zero offset.
+
+    The joints above `target` form a single-child chain and hierarchy order is
+    depth-first, so they occupy indices 0..b-1 contiguously and every other
+    joint descends from `target`. Promotion is a slice.
+
+    `invert` re-inserts the chain with IDENTITY rotations and the composed
+    product left on the promoted joint. Every joint returns with its name,
+    parent and offset, and `target` and its descendants return to their exact
+    world positions; the locator joints above it do not, because the chain's
+    rotations all turn the same subtree and only their product was ever
+    observable. Spec §9 states this as the contract: structure and reference
+    frame, not motion values.
+    """
+
+    #: Joint to promote. ``None`` makes every method the identity, which is what
+    #: the 59 rigs not in the table get.
+    target: str | None = None
+
+    name: ClassVar[str] = "promote_root"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        if self.target is None:
+            return {
+                "n_removed": np.int64(0),
+                "names": np.empty(0, dtype=object),
+                "offsets": np.zeros((0, 3)),
+            }
+
+        names = list(anim.names)
+        if self.target not in names:
+            raise ValueError(
+                f"cannot promote `{self.target}`: this rig has no such joint "
+                f"(it has {len(names)}, starting {names[:3]})"
+            )
+        index = names.index(self.target)
+
+        # Every joint above the target must have exactly one child, or the
+        # joints being sliced away are not a chain and the slice would delete
+        # a sibling subtree.
+        for joint in range(index):
+            children = [k for k, p in enumerate(anim.parents) if p == joint]
+            if len(children) != 1:
+                raise ValueError(
+                    f"cannot promote `{self.target}`: joint `{names[joint]}` above "
+                    f"it has {len(children)} children, so the joints above the "
+                    "target are not a single-child chain"
+                )
+
+        chain = np.empty(index + 1, dtype=object)
+        chain[:] = names[: index + 1]
+        return {
+            "n_removed": np.int64(index),
+            "names": chain,
+            "offsets": anim.offsets[: index + 1].copy(),
+        }
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        index = int(params["n_removed"])
+        if index == 0:
+            return anim
+
+        positions, rotations_world = anim.global_transforms()
+
+        translations = anim.translations[:, index:].copy()
+        # The new root's translation slot holds a GLOBAL position (Animation's
+        # contract for joint 0), which is exactly where the target already is.
+        translations[:, 0] = positions[:, index]
+
+        rotations = anim.rotations[:, index:].copy()
+        # Its rotation absorbs the whole chain: with no ancestors left, its
+        # local rotation must equal what its world rotation was.
+        rotations[:, 0] = rotations_world[:, index]
+
+        parents = anim.parents[index:] - index
+        parents = parents.astype(np.int32, copy=True)
+        parents[0] = -1
+
+        return Animation(
+            rotations=rotations,
+            translations=translations,
+            offsets=anim.offsets[index:].copy(),
+            parents=parents,
+            names=tuple(anim.names[index:]),
+            fps=anim.fps,
+        )
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        index = int(params["n_removed"])
+        if index == 0:
+            return anim
+
+        chain_names = [str(n) for n in params["names"]]
+        chain_offsets = params["offsets"]
+        n_frames = anim.n_frames
+        n_joints = anim.n_joints + index
+
+        rotations = np.empty((n_frames, n_joints, 4))
+        rotations[:, :index] = QUAT_IDENTITY
+        rotations[:, index:] = anim.rotations
+
+        translations = np.empty((n_frames, n_joints, 3))
+        # Chain joints below the root sit at their own rest offsets; with
+        # identity rotations throughout, the old root's global position is the
+        # target's position minus the offsets accumulated down the chain.
+        translations[:, 1:index] = chain_offsets[1:index]
+        translations[:, 0] = anim.translations[:, 0] - chain_offsets[1 : index + 1].sum(
+            axis=0
+        )
+        translations[:, index:] = anim.translations
+        translations[:, index] = chain_offsets[index]
+
+        offsets = np.concatenate([chain_offsets, anim.offsets[1:]], axis=0)
+
+        parents = np.empty(n_joints, dtype=np.int32)
+        parents[0] = -1
+        parents[1 : index + 1] = np.arange(index, dtype=np.int32)
+        parents[index + 1 :] = anim.parents[1:] + index
+
+        return Animation(
+            rotations=rotations,
+            translations=translations,
+            offsets=offsets,
+            parents=parents,
+            names=tuple(chain_names[:index]) + tuple(anim.names),
             fps=anim.fps,
         )
 

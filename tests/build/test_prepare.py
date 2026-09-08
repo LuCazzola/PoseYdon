@@ -13,6 +13,7 @@ from poseydon.build.prepare import (
     FaceAxis,
     PrepareChain,
     PrepareStage,
+    PromoteRoot,
     PutOnGround,
     RestRelative,
     RigTransform,
@@ -418,3 +419,121 @@ def test_rig_transform_rejects_a_clip_name_that_would_corrupt_the_keys(tmp_path)
     )
     with pytest.raises(ValueError, match="walk/take1"):
         transform.save(tmp_path / "prepare.npz")
+
+
+def _locator_rig(n_frames: int = 4) -> Animation:
+    """Hips -> Cog -> Pelvis -> {LeftLeg, RightLeg}: a two-step locator chain.
+
+    Hips sits at the origin and Pelvis a real distance above it, which is the
+    shape of Camel, Horse and Trex. Cog and Hips both carry a non-identity
+    rotation, so a promotion that merely dropped them would move the body.
+    """
+    names = ("Hips", "Cog", "Pelvis", "LeftLeg", "RightLeg")
+    parents = np.array([-1, 0, 1, 2, 2], dtype=np.int32)
+    offsets = np.array(
+        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 5.0, 0.0],
+         [-1.0, -1.0, 0.0], [1.0, -1.0, 0.0]]
+    )
+    rng = np.random.default_rng(0)
+    rotations = rng.normal(size=(n_frames, len(names), 4))
+    rotations /= np.linalg.norm(rotations, axis=-1, keepdims=True)
+
+    translations = np.broadcast_to(offsets, (n_frames, len(names), 3)).copy()
+    translations[:, 0] = rng.normal(size=(n_frames, 3))
+    return Animation(
+        rotations=rotations, translations=translations, offsets=offsets,
+        parents=parents, names=names, fps=30.0,
+    )
+
+
+def test_promote_root_moves_no_surviving_joint():
+    """The promoted joint and its descendants keep their world positions.
+
+    This is the assertion that matters. Checking the joint COUNT would restate
+    the table; checking world positions measures the transform.
+    """
+    anim = _locator_rig()
+    stage = PromoteRoot(target="Pelvis")
+    params = stage.fit(anim, None)
+    promoted = stage.apply(anim, params)
+
+    before = anim.global_positions()
+    after = promoted.global_positions()
+    for name in ("Pelvis", "LeftLeg", "RightLeg"):
+        np.testing.assert_allclose(
+            after[:, promoted.names.index(name)],
+            before[:, anim.names.index(name)],
+            atol=1e-9,
+            err_msg=f"{name} moved",
+        )
+
+
+def test_promote_root_makes_the_target_the_root():
+    anim = _locator_rig()
+    stage = PromoteRoot(target="Pelvis")
+    promoted = stage.apply(anim, stage.fit(anim, None))
+
+    assert promoted.names == ("Pelvis", "LeftLeg", "RightLeg")
+    assert list(promoted.parents) == [-1, 0, 0]
+
+
+def test_promote_root_restores_the_source_structure():
+    """invert returns the hierarchy the user supplied -- spec §9's contract."""
+    anim = _locator_rig()
+    stage = PromoteRoot(target="Pelvis")
+    params = stage.fit(anim, None)
+    restored = stage.invert(stage.apply(anim, params), params)
+
+    assert restored.names == anim.names
+    assert list(restored.parents) == list(anim.parents)
+    np.testing.assert_allclose(restored.offsets, anim.offsets, atol=1e-12)
+
+
+def test_promote_root_round_trip_keeps_the_body_in_place():
+    """Structure returns exactly; the body returns exactly; the locators do not.
+
+    The chain's rotations all turn the same subtree, so only their product is
+    observable and invert puts that product on the promoted joint with identity
+    above it. Pelvis and its descendants therefore land exactly where they
+    were. Hips and Cog do not, and asserting they would is asserting something
+    the design explicitly does not promise (spec §9).
+    """
+    anim = _locator_rig()
+    stage = PromoteRoot(target="Pelvis")
+    params = stage.fit(anim, None)
+    restored = stage.invert(stage.apply(anim, params), params)
+
+    before = anim.global_positions()
+    after = restored.global_positions()
+    for name in ("Pelvis", "LeftLeg", "RightLeg"):
+        index = anim.names.index(name)
+        np.testing.assert_allclose(after[:, index], before[:, index], atol=1e-9)
+
+
+def test_promote_root_with_no_target_is_the_identity():
+    """59 of 73 rigs are not in the table and must be untouched."""
+    anim = _locator_rig()
+    stage = PromoteRoot(target=None)
+    params = stage.fit(anim, None)
+
+    for produced in (stage.apply(anim, params), stage.invert(anim, params)):
+        assert produced.names == anim.names
+        np.testing.assert_allclose(
+            produced.global_positions(), anim.global_positions(), atol=1e-12
+        )
+
+
+def test_promote_root_refuses_a_target_that_is_not_on_the_root_chain():
+    """LeftLeg has a sibling, so the joints above it are not a single-child
+    chain and slicing them away would delete RightLeg's subtree."""
+    anim = _locator_rig()
+    stage = PromoteRoot(target="LeftLeg")
+    with pytest.raises(ValueError, match="single-child chain"):
+        stage.fit(anim, None)
+
+
+def test_promote_root_refuses_an_unknown_target():
+    anim = _locator_rig()
+    stage = PromoteRoot(target="NoSuchJoint")
+    with pytest.raises(ValueError, match="NoSuchJoint"):
+        stage.fit(anim, None)
