@@ -35,7 +35,7 @@ training loop); a full-corpus stage-1 rebuild; an aarch64 CUDA training image an
 a `train` compose service; wandb logging; a `Retarget` operation and the
 `LatentPin` control it needs; a `RetargetValidation` callback generating
 artifacts and metrics for three fixed pairs; a `poseydon retarget` CLI sharing
-the same code path; a root-promotion stage; thirteen tests.
+the same code path; a root-promotion stage; the test gaps that remain.
 
 **Out.** A held-out validation split and val loss — every index row is still
 `split: train`. Text conditioning (T5 stays behind the `poseydon[text]` extra).
@@ -510,64 +510,84 @@ augmentation already uses.
 
 ## 8 · Tests
 
-Thirteen, split by plan.
+**Most of the round trip is already tested.** `test_round_trip_returns_the_source_rig`
+walks `source -> prepare -> reduce -> expand -> unprepare` and asserts names,
+parents and offsets exactly, `EnforceRigid`'s documented translation loss,
+world-exact `expand o reduce`, and that re-preparing the restored asset
+reproduces the prepared clip. `tests/build/test_prepare.py` adds five
+stage-level inversion tests and the channel-layout recording;
+`tests/features/test_reduce.py` covers expansion. What follows adds the gaps,
+not a parallel suite.
 
 **Plan A**
 
-1. **The full round trip, through features.** `source -> prepare -> reduce ->
-   features -> features -> expand -> unprepare -> source`, with the model stage
-   as identity, over one biped, one quadruped, one milliped and **one promoted
-   rig**. Asserts what §9 guarantees: joint count, names, parent array,
-   hierarchy order, per-joint channel layout, scale, world orientation and
-   ground offset all return to the source's. Extends the round-trip test Phase 1
-   landed, which stopped short of features. Runs in the normal test image on
-   every commit.
-2. **The round trip returns an FBX.** The same assertions through the FBX arm,
-   run against the `fbx` compose service and skipped when Blender is absent, as
+1. **Crab stops skipping.** `tests/build/test_roundtrip.py::_rest_path` selects
+   the rest file by filename -- `tpos`, then `idle` -- which is the rule
+   `b2b0151` fixed in `scripts/process_dataset_truebones.py` and never fixed in
+   the test. Crab therefore resolves to its 54-joint `__TPOSE.bvh`, every 64-joint
+   clip disagrees, and the round trip has silently skipped for the milliped the
+   suite was parametrized to cover. The test shares the production selection
+   helper instead of duplicating a stale copy of it.
+2. **The features leg.** The round trip is extended through
+   `extract_features` and `reconstruct` -- `reduce -> features -> features ->
+   expand` with the model stage as identity -- so the loop the application
+   actually runs is the loop under test. Today's version stops at
+   `reduce -> expand`.
+3. **A promoted rig round-trips.** `SAMPLE_RIGS` gains **Camel**, so `PromoteRoot`
+   is exercised by every assertion above rather than by a test of its own. None of
+   Flamingo, BrownBear, Crab or Scorpion is a ground-locator rig, so promotion
+   would otherwise be covered nowhere. Camel specifically because it exercises
+   both new tables at once: it has no T-pose file, so §1.1 authors its rest pose
+   (`__IdleLoop.bvh`), and it is a two-step promotion (`Hips → C_ctrl → Bip01`)
+   rather than the single-step majority.
+4. **The round trip returns an FBX.** The same assertions through the FBX arm,
+   against the `fbx` compose service, skipped when Blender is absent as
    `test_bvh_fbx_agreement.py` already does.
-3. **Golden feature parity.** Features reproduce the reference's `.npy` arrays
-   block by block, foot contact bit-exact, over the joints the two
-   representations share, matched by name.
-4. **Normalization policy.** Each `scale` mode produces statistics of the
-   documented shape, and `joint_block` leaves a 6D row's recovered rotation
-   unchanged under Gram-Schmidt. A property, not an example.
-5. **Build-then-train smoke.** `build_features` over a tiny fixture corpus, then
-   two training steps: the loss is finite, and a schema mismatch between
-   `features:` and `stats.npz` raises before the first step.
-6. **The recovered rigs stay recovered.** Ant, Crab, Deer and Jaguar keep
+5. **Root promotion moves nothing, and reaches exactly the right rigs.** Every
+   surviving joint's world position is unchanged by promotion, and the new root's
+   height fraction clears the locator band. For the 59 others -- Lynx and
+   BrownBear named explicitly, since their chains carry a real offset -- promotion
+   is a no-op. The world-position half is the assertion that matters: a
+   joint-count check would restate the table.
+6. **Every authored rest file is real and in its modal set.** §1.1's table is
+   checked entry by entry: the file exists, and its joint set is the rig's modal
+   one. This is the test that would have caught `Trex/__STILL.bvh`, and the one
+   that fails loudly when someone adds a rig to the table by eye.
+7. **The recovered rigs stay recovered.** Ant, Crab, Deer and Jaguar keep
    17/10/20/13 clips through stage 1. `b2b0151` is guarded by nothing today, and
    a regression in `find_tpose` would quietly cost 60 clips again.
-7. **Every authored rest file is real and in its modal set.** §1.1's table is
-   checked entry by entry: the file exists, and its joint set is the rig's modal
-   one. This is the test that would have caught `Trex/__STILL.bvh`, and it is
-   also the test that fails loudly when someone adds a rig to the table by eye.
-8. **Root promotion moves nothing, and reaches exactly the right rigs.** For
-   each of the 14, every surviving joint's world position is unchanged by
-   promotion, and the new root's height fraction clears the locator band. For the
-   59 others — Lynx and BrownBear named explicitly, since their chains carry a
-   real offset — promotion is a no-op. The world-position half is the assertion
-   that matters: a joint-count check would restate the table.
+8. **Golden feature parity.** Features reproduce the reference's `.npy` arrays
+   block by block, foot contact bit-exact, over the joints the two
+   representations share, matched by name.
+9. **Normalization policy.** Each `scale` mode produces statistics of the
+   documented shape, and `joint_block` leaves a 6D row's recovered rotation
+   unchanged under Gram-Schmidt. A property, not an example.
+10. **Build-then-train smoke.** `build_features` over a tiny fixture corpus, then
+    two training steps: the loss is finite, and a schema mismatch between
+    `features:` and `stats.npz` raises before the first step.
 
 **Plan B**
 
-9. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
-   the output carries the target's joint count and the target's bone lengths.
-   The test the whole feature rests on.
-10. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
-   present, and the injected latent is what reaches the decoder.
-11. **Callback contract.** Fires at the right steps, writes all three artifact
-   types, logs five scalars per pair, restores `train()` mode, and leaves the
-   training RNG stream untouched.
-12. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
-   scores ~zero bone-length drift and ~zero IK residual.
-13. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
-   reproduces the reconstruction method and feature schema it was trained with,
-   and an override touching the data path is rejected.
+11. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
+    the output carries the target's joint count and the target's bone lengths.
+    The test the whole feature rests on.
+12. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
+    present, and the injected latent is what reaches the decoder.
+13. **Callback contract.** Fires at the right steps, writes all three artifact
+    types, logs five scalars per pair, restores `train()` mode, and leaves the
+    training RNG stream untouched.
+14. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
+    scores ~zero bone-length drift and ~zero IK residual.
+15. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
+    reproduces the reconstruction method and feature schema it was trained with,
+    and an override touching the data path is rejected.
 
-Phase 1's retrospective is blunt that its plan's tests were its weakest part —
+Phase 1's retrospective is blunt that its plan's tests were its weakest part --
 four of eleven tasks shipped a wrong assertion, and in every case the production
-code was correct. Each test above measures output against an external definition
-rather than restating the implementation.
+code was correct. Test 1 above is that failure mode in its purest form: a test
+that skips is a test that passes, and this one skipped for three weeks. Each
+test here measures output against an external definition rather than restating
+the implementation.
 
 ## 9 · The round-trip contract
 
@@ -686,10 +706,10 @@ representation, and the reason the stage is explicit rather than silent.
 **Plan A — get it training.** aarch64 CUDA spike; `.env` and the compose `UID`
 fix; full-corpus stage 1; stage 2 and the build package; the read path; the
 training loop, wandb and the train service. Ends at a running job logging loss
-curves. Tests 1–8.
+curves. Tests 1–10.
 
 **Plan B — validate it.** `LatentPin`, `Retarget`, `poseydon retarget`, the
 `RetargetValidation` callback and its five metrics, landed on a run that already
-works. Tests 9–13.
+works. Tests 11–15.
 
 Each leaves the repository working and is reviewable on its own, as Phase 1 was.
