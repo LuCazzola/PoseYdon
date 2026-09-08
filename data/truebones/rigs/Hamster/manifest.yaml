@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Hamster
+rest_pose: __TPOSE.bvh
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}

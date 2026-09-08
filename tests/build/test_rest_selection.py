@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import CORPUS
+
 _HEADER_TAIL = "MOTION\nFrames: 1\nFrame Time: 0.0083333\n0.0\n"
 
 
@@ -144,3 +146,29 @@ def test_rest_source_returns_the_declared_file(tmp_path):
         _write(tmp_path, "__Run.bvh", majority),
     ]
     assert rest_source(manifest, clips).name == "__Run.bvh"
+
+
+def test_every_rig_declares_a_rest_pose_that_exists_and_is_modal():
+    """The declaration is a judgement about pose content and cannot be tested.
+    What can be: it exists, and it agrees with the rig's own clips."""
+    from scripts.process_dataset_truebones import rest_source
+
+    from poseydon.core.skeleton import SkeletonManifest
+
+    source = CORPUS / "source"
+    if not source.is_dir():
+        pytest.skip("Truebones corpus not present")
+
+    manifests = sorted((CORPUS / "rigs").glob("*/manifest.yaml"))
+    assert manifests, "no rig manifests found"
+
+    for path in manifests:
+        manifest = SkeletonManifest.load(path)
+        rig_dir = source / manifest.name
+        if not rig_dir.is_dir():
+            continue
+        clips = sorted(rig_dir.glob("*.bvh"))
+        if not clips:
+            continue
+        # Raises on: no declaration, missing file, or non-modal skeleton.
+        rest_source(manifest, clips)

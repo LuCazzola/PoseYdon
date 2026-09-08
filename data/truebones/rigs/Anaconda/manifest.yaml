@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Anaconda
+rest_pose: __Idle.bvh
 facing:
   hips:      {right: BN_Tail_13, left: BN_Tone_04}
   shoulders: {right: BN_Tail_13, left: BN_Tone_04}

@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Alligator
+rest_pose: __TPOSE.bvh
 facing:
   hips:      {right: R_momo, left: L_momo}
   shoulders: {right: R_hiji, left: L_hiji}

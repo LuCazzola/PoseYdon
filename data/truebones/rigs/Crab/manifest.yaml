@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Crab
+rest_pose: __Walk.bvh
 facing:
   hips:      {right: BN_Leg_R_11, left: BN_Leg_L_11}
   shoulders: {right: BN_Arm_R_02, left: BN_Arm_L_02}

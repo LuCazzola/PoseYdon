@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Puppy
+rest_pose: Puppy_TPOSE.bvh
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}

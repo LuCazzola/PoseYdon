@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: KingCobra
+rest_pose: __Tpose.bvh
 facing:
   hips:      {right: BN__Neck_R_01, left: BN__Neck_L_01}
   shoulders: {right: BN__Neck_R_01, left: BN__Neck_L_01}

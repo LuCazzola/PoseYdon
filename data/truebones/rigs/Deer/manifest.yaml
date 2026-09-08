@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Deer
+rest_pose: __Idle.bvh
 facing:
   hips:      {right: ElkRFemur, left: ElkLFemur}
   shoulders: {right: ElkRScapula, left: ElkLScapula}

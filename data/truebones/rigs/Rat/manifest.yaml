@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Rat
+rest_pose: __Trottle.bvh
 facing:
   hips:      {right: RightUpLeg, left: LeftUpLeg}
   shoulders: {right: RightForeArm, left: LeftForeArm}

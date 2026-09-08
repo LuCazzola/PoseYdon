@@ -1,5 +1,6 @@
 base: ../_base.yaml
 skeleton: Centipede
+rest_pose: __Tpose.bvh
 facing:
   hips:      {right: BN_Thigh_R_01, left: BN_Thigh_L_01}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
