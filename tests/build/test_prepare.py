@@ -431,7 +431,7 @@ def _locator_rig(n_frames: int = 4) -> Animation:
     names = ("Hips", "Cog", "Pelvis", "LeftLeg", "RightLeg")
     parents = np.array([-1, 0, 1, 2, 2], dtype=np.int32)
     offsets = np.array(
-        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 5.0, 0.0],
+        [[0.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 5.0, 0.0],
          [-1.0, -1.0, 0.0], [1.0, -1.0, 0.0]]
     )
     rng = np.random.default_rng(0)
