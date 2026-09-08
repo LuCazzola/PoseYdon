@@ -254,7 +254,7 @@ class PromoteRoot(PrepareStage):
         if self.target is None:
             return {
                 "n_removed": np.int64(0),
-                "names": np.empty(0, dtype=object),
+                "names": np.empty(0, dtype="<U1"),
                 "offsets": np.zeros((0, 3)),
             }
 
@@ -278,8 +278,7 @@ class PromoteRoot(PrepareStage):
                     "target are not a single-child chain"
                 )
 
-        chain = np.empty(index + 1, dtype=object)
-        chain[:] = names[: index + 1]
+        chain = np.array(names[: index + 1])
         return {
             "n_removed": np.int64(index),
             "names": chain,
@@ -568,8 +567,12 @@ class RigTransform:
     facing +Z no longer knows which way it started.
 
     Stored as a flat npz with ``/``-joined keys -- ``rig/scale/factor``,
-    ``clip/walk/face_axis/rotation`` -- so the file stays inspectable with
-    ``np.load`` and needs no pickle.
+    ``clip/walk/face_axis/rotation``. Most fields are plain numeric or
+    fixed-width string arrays and read back with a bare ``np.load``, but a few
+    (``enforce_rigid``'s per-joint channel tuples, which are ragged) are
+    genuinely object arrays, so `load` opens the file with
+    ``allow_pickle=True``. The file is still ``np.load``-inspectable; it is
+    not pickle-free.
     """
 
     rig_params: dict[str, dict]

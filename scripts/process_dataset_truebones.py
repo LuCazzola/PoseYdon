@@ -27,6 +27,7 @@ from poseydon.build.prepare import (
     EnforceRigid,
     FaceAxis,
     PrepareChain,
+    PromoteRoot,
     PutOnGround,
     RestRelative,
     RigTransform,
@@ -43,7 +44,7 @@ DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 
-def _chain_for(source_channels: tuple[tuple[str, ...], ...]) -> PrepareChain:
+def _chain_for(source_channels: tuple[tuple[str, ...], ...], rig: str = "") -> PrepareChain:
     """Build the chain with `EnforceRigid` recording THIS rig's real channels.
 
     The layout differs per rig, so it cannot live on a module-level constant;
@@ -54,6 +55,17 @@ def _chain_for(source_channels: tuple[tuple[str, ...], ...]) -> PrepareChain:
     return PrepareChain(
         (
             RestRelative(),
+            # Second, and the position is contractual. After RestRelative,
+            # whose _check requires the clip to carry exactly the joints its
+            # rest pose declares -- a promoted clip would fail it. Before
+            # EnforceRigid, so the translation channel EnforceRigid preserves
+            # is the PROMOTED root's rather than the locator's. And before
+            # ScaleToMeanBoneLength: the connectors this removes are long
+            # (6.47 bone lengths on Pirrana, 4.95 on Bear) and currently enter
+            # the mean, so promoting first changes the canonical scale for
+            # these 14 rigs -- a correction, since a locator-to-body connector
+            # is not an anatomical bone.
+            PromoteRoot(target=PROMOTE_ROOT.get(rig)),
             FaceAxis(axis=TARGET_AXIS),
             EnforceRigid(joint_translation="drop", source_channels=source_channels),
             CentreXZ(),
@@ -118,6 +130,37 @@ def rest_source(manifest: SkeletonManifest, clip_paths: list[Path]) -> Path:
     return chosen
 
 
+#: Joint promoted to root, for the 14 rigs that root at a ground locator.
+#:
+#: Measured on the rest pose as height fraction (rootY - minY) / (maxY - minY),
+#: the corpus splits absolutely: these 14 at f <= 0.005, the other 59 at
+#: f >= 0.189, nothing between. Thirteen entries are the first branching joint
+#: along the root's single-child chain. Tukan is authored because its root
+#: branches straight into the real skeleton (N_ALL -> locator) and a dead MESH
+#: subtree of geometry-holder nodes, so no chain rule reaches it.
+#:
+#: The gate is the locator classification, NEVER the presence of an offset:
+#: Lynx and BrownBear have a correct root on the pelvis and a chain continuing
+#: to Bip01_Spine at 0.79 and 0.89 bone lengths, and an offset-keyed rule would
+#: promote their root onto the spine. A rig absent from this table is untouched.
+PROMOTE_ROOT: dict[str, str] = {
+    "Bear": "NPC_Pelvis",
+    "Camel": "Bip01",
+    "Crow": "_00",
+    "Dog": "Bip01_Pelvis",
+    "Dog-2": "Bip01_Pelvis",
+    "Horse": "Bip01_Pelvis",
+    "Pirrana": "locator",
+    "Pteranodon": "jt_Cog_C",
+    "Raptor3": "jt_Cog_C",
+    "SabreToothTiger": "Sabrecat__pelv_",
+    "Scorpion-2": "jt_Cog_C",
+    "Spider": "_body_",
+    "Trex": "jt_Cog_C",
+    "Tukan": "locator",
+}
+
+
 def process_species(
     manifest: SkeletonManifest, raw_root: Path, out_root: Path
 ) -> tuple[int, list[str]]:
@@ -138,7 +181,7 @@ def process_species(
 
     rest_bvh = BVH.read(rest_path)
     rest = rest_bvh.to_animation()
-    chain = _chain_for(rest_bvh.channels)
+    chain = _chain_for(rest_bvh.channels, manifest.name)
     rig_params = chain.fit_rig(rest, resolve(manifest, rest.names))
 
     clips_dir = out_root / "clips" / manifest.name
