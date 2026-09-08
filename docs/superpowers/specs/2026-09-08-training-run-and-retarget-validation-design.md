@@ -35,7 +35,7 @@ training loop); a full-corpus stage-1 rebuild; an aarch64 CUDA training image an
 a `train` compose service; wandb logging; a `Retarget` operation and the
 `LatentPin` control it needs; a `RetargetValidation` callback generating
 artifacts and metrics for three fixed pairs; a `poseydon retarget` CLI sharing
-the same code path; ten tests.
+the same code path; a root-promotion stage; eleven tests.
 
 **Out.** A held-out validation split and val loss — every index row is still
 `split: train`. Text conditioning (T5 stays behind the `poseydon[text]` extra).
@@ -53,6 +53,7 @@ here but not fixed.
 | validation cadence | every 25 000 steps, plus once at step 0; one sample per pair |
 | validation output | `.npz` + `.bvh` + `.mp4` per pair, plus five scalars |
 | reconstruction | `positions_ik` — positions fitted back onto the rigid skeleton |
+| root promotion | hardcoded per-rig table in stage 1, for the 14 ground-locator rigs |
 | wandb | project `poseydon`, entity and key from `.env` |
 
 The three validation pairs, content source → target skeleton:
@@ -152,6 +153,95 @@ against the modal 78. An authored table trusted on its own would have silently
 destroyed the largest rig in the corpus. Every entry above is verified to sit in
 its rig's modal joint set (`tools/probe_rest_override.py`); an entry that does
 not must fail the build loudly rather than fall back.
+
+### 1.2 · The root is promoted where it is a ground locator
+
+**14 of 73 rigs root the skeleton at a ground locator rather than at a body
+joint.** Measured on the rest pose as the height fraction
+`(rootY − minY) / (maxY − minY)`:
+
+```
+14 rigs   f ≤ 0.005    Bear Camel Crow Dog Dog-2 Horse Pirrana Pteranodon
+                       Raptor3 SabreToothTiger Scorpion-2 Spider Trex Tukan
+59 rigs   f ≥ 0.189    everything else
+```
+
+Nothing falls between, so the split is a fact about the corpus rather than a
+threshold anyone has to defend. `Camel` is the shape: `Hips` and `C_ctrl` both at
+Y=0, with `Bip01` — the first real joint — 4.65 bone lengths above. `Tyranno` and
+`BrownBear` are the healthy shape: the root is coincident with the pelvis.
+
+**Why this matters, in feature terms.** `ric_pos` is root-relative, so those 14
+rigs present every joint with a constant vertical bias of 0.7–6.5 bone lengths;
+and the root-trajectory block is a *ground projection* for them and a *body
+trajectory* for the other 59. Two conventions for one feature across 19% of the
+corpus is exactly the variance a cross-topology model should not have to absorb.
+
+**The operation.** Promote the rig's first branching joint `b` to root: its
+translation channel takes the chain's accumulated world offset
+(`t_b = t_root + Σ R·offset`), its rotation takes the composed chain rotation
+(`R_root · … · R_b`), and the joints above it are removed. World positions of
+every surviving joint are unchanged.
+
+**Only the root can do this**, which is what makes it principled rather than an
+exception. Non-root joints have no translation channel — `EnforceRigid` drops it —
+so an offset has nowhere to go, which is precisely why the reduction rule's
+collapse case requires a zero offset. The root is the one joint that can pay for
+an offset, so it is the one joint that may absorb one.
+
+The promoted target is a hardcoded table in
+`scripts/process_dataset_truebones.py`, alongside §1.1's rest-pose table. This is
+Truebones-specific data knowledge, not a general rule, and stage 1 is where such
+knowledge already lives.
+
+| rig | promote to | steps | new root height frac |
+|---|---|---|---|
+| Bear | `NPC_Pelvis` | 1 | 0.679 |
+| Camel | `Bip01` | 2 | 0.681 |
+| Crow | `_00` | 2 | 0.893 |
+| Dog | `Bip01_Pelvis` | 2 | 0.740 |
+| Dog-2 | `Bip01_Pelvis` | 2 | 0.740 |
+| Horse | `Bip01_Pelvis` | 3 | 0.616 |
+| Pirrana | `locator` | 1 | 0.623 |
+| Pteranodon | `jt_Cog_C` | 1 | 0.218 |
+| Raptor3 | `jt_Cog_C` | 1 | 0.879 |
+| SabreToothTiger | `Sabrecat__pelv_` | 1 | 0.126 |
+| Scorpion-2 | `jt_Cog_C` | 1 | 0.877 |
+| Spider | `_body_` | 1 | 0.275 |
+| Trex | `jt_Cog_C` | 1 | 0.997 |
+| Tukan | `locator` | — | 0.556 |
+
+Thirteen are the first branching joint along the root's single-child chain.
+**Tukan is authored** because its root branches immediately into the real
+skeleton (`N_ALL → locator`) and a dead `MESH` subtree of geometry-holder nodes
+at zero offset, so no chain rule reaches it.
+
+**The gate must be the locator classification, never the offset.** Lynx and
+BrownBear have a correct root on the pelvis and a chain continuing to
+`Bip01_Spine` at a real offset (0.79 and 0.89 bone lengths). A rule keyed on
+"the chain carries an offset" would promote their root off the pelvis onto the
+spine and break two healthy rigs. The hardcoded table makes this structural: a
+rig not in it is never touched.
+
+**Ordering is contractual.** `PromoteRoot` runs after `RestRelative` — which is
+fitted against the original joint set and would reject a promoted clip — and
+**before `ScaleToMeanBoneLength`**. The bones it removes are long: 4.95 on Bear,
+6.47 on Pirrana, 2.40 + 3.39 on Horse. They currently enter the mean bone length
+and therefore the canonical scale, so promotion changes the fitted scale factor
+for these 14 rigs. That is a correction rather than a side effect — a
+locator-to-body connector is not an anatomical bone — but it means these rigs'
+`prepare.npz` scale differs from what today's code produces, and a test that
+restates `ScaleToMeanBoneLength`'s own definition will not notice. This is the
+same class of bug as the zero-length End Site scale error that survived all
+eleven Phase 1 tasks.
+
+**Structure.** This is the one preparation stage that changes structure rather
+than geometry, against the parity spec's *"preparation changes geometry and
+preserves structure"*. It earns the exception by being where Truebones-specific
+knowledge lives and by making the prepared BVH uniform for a human opening it in
+a DCC tool, not only the features. It implements `apply` and `invert` like every
+other stage: `invert` re-inserts the removed chain at its recorded offsets with
+identity rotations, so a user's rig comes back with the hierarchy they supplied.
 
 **`docker-compose.yml` must be fixed first.** It sets `user: "${UID:-1000}:${GID:-1000}"`,
 but bash does not export `UID`, so the fallback always wins and every container
@@ -405,7 +495,7 @@ augmentation already uses.
 
 ## 8 · Tests
 
-Ten, split by plan.
+Eleven, split by plan.
 
 **Plan A**
 
@@ -425,20 +515,26 @@ Ten, split by plan.
    checked entry by entry: the file exists, and its joint set is the rig's modal
    one. This is the test that would have caught `Trex/__STILL.bvh`, and it is
    also the test that fails loudly when someone adds a rig to the table by eye.
+6. **Root promotion is world-exact, and reaches exactly the right rigs.** For
+   each of the 14, every surviving joint's world position is unchanged by
+   promotion, and the new root's height fraction clears the locator band. For the
+   59 others — Lynx and BrownBear named explicitly, since their chains carry a
+   real offset — promotion is a no-op. The world-position half is the assertion
+   that matters: a joint-count check would restate the table.
 
 **Plan B**
 
-6. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
+7. **Cross-topology retarget.** Encode a 40-joint clip, decode on a 63-joint rig;
    the output carries the target's joint count and the target's bone lengths.
    The test the whole feature rests on.
-7. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
+8. **`LatentPin` pins.** The semantic encoder is not invoked when `Z_SEM` is
    present, and the injected latent is what reaches the decoder.
-8. **Callback contract.** Fires at the right steps, writes all three artifact
+9. **Callback contract.** Fires at the right steps, writes all three artifact
    types, logs five scalars per pair, restores `train()` mode, and leaves the
    training RNG stream untouched.
-9. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
+10. **Metric sanity.** A static clip scores ~zero foot skate; an FK-generated clip
    scores ~zero bone-length drift and ~zero IK residual.
-10. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
+11. **Recipe round-trip.** A checkpoint sampled through its recorded recipe
    reproduces the reconstruction method and feature schema it was trained with,
    and an override touching the data path is rejected.
 
@@ -473,6 +569,28 @@ Separately, the modal rule itself is a heuristic over data: a rig whose clips
 split evenly between two joint sets has no defensible modal answer. None do
 today; the closest is Trex at 70/71.
 
+**Root promotion changes the canonical scale of 14 rigs.** The bones it removes
+are long — 6.47 on Pirrana, 4.95 on Bear, 2.40 + 3.39 on Horse — and they
+currently enter `ScaleToMeanBoneLength`'s mean. Removing a locator-to-body
+connector from that average is a correction, not a regression, but it means those
+rigs' fitted scale differs from what today's code produces, and any checkpoint or
+`prepare.npz` from before the change is incomparable with one after it.
+
+**Promotion is world-exact but not representation-exact.** `R_root · … · R_b` can
+be split across the chain in infinitely many ways, so `invert` puts the whole
+product on the promoted joint and re-inserts the chain with identity rotations.
+Every joint returns with the right name, parent, offset and world position; what
+differs is which of several coincident joints stores the rotation. This is the
+limitation the parity spec already records for collapsed internal joints, and it
+applies here for the same reason.
+
+**One preparation stage changes structure.** The parity spec's clean split —
+preparation changes geometry, reduction changes structure — has exactly one
+exception now. It is deliberate, and the reason is that a human opening
+`clips/Camel/walk.bvh` should not see a root five bone lengths under the animal.
+But the invariant is no longer free, and a future stage that assumes prepared
+clips carry the source joint set is wrong for these 14 rigs.
+
 **BVH and FBX still disagree on rest geometry**, 3–7% of a bone length at the
 worst rigs, cause unknown; a coordinate-frame mismatch was ruled out to 1e-7.
 This design measures it corpus-wide and does not fix it.
@@ -491,10 +609,10 @@ representation, and the reason the stage is explicit rather than silent.
 **Plan A — get it training.** aarch64 CUDA spike; `.env` and the compose `UID`
 fix; full-corpus stage 1; stage 2 and the build package; the read path; the
 training loop, wandb and the train service. Ends at a running job logging loss
-curves. Tests 1–5.
+curves. Tests 1–6.
 
 **Plan B — validate it.** `LatentPin`, `Retarget`, `poseydon retarget`, the
 `RetargetValidation` callback and its five metrics, landed on a run that already
-works. Tests 6–10.
+works. Tests 7–11.
 
 Each leaves the repository working and is reviewable on its own, as Phase 1 was.
