@@ -22,8 +22,8 @@ import numpy as np
 sys.path.insert(0, "/app/src")
 sys.path.insert(0, "/app")
 
-from poseydon.io.bvh import BVH  # noqa: E402
-from poseydon.io.fbx import FBX  # noqa: E402
+from poseydon.io.bvh import BVH
+from poseydon.io.fbx import FBX
 
 SOURCE = Path("data/truebones/source")
 CLIPS = Path("data/truebones/clips")

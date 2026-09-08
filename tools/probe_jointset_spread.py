@@ -36,7 +36,7 @@ for r in rows:
     if distinct > 1:
         bad_internal.append(name)
     print(f"{name:<18}{n:>6}{distinct:>9}{modal_n:>8}{modal_j:>8}"
-          f"{'-' if tp_j is None else tp_j:>8}{str(same):>11}{'-' if absent is None else absent:>7}{flag}")
+          f"{'-' if tp_j is None else tp_j:>8}{same!s:>11}{'-' if absent is None else absent:>7}{flag}")
 
 print(f"\nrigs total: {len(rows)}")
 print(f"rigs whose clips disagree among themselves: {len(bad_internal)} {bad_internal}")

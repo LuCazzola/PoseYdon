@@ -1,5 +1,5 @@
-from pathlib import Path
 import numpy as np
+
 from poseydon.io.bvh import BVH
 
 anim = BVH.read("data/truebones/source/Tukan/__Tpose.bvh").to_animation()

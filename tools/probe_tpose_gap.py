@@ -1,6 +1,8 @@
 """Which joints do the gutted rigs' T-poses omit, and what are those joints?"""
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+
 from poseydon.io.bvh import BVH
 
 RAW = Path("data/truebones/source")

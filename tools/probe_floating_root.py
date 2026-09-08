@@ -51,7 +51,7 @@ for d in sorted(p for p in RAW.iterdir() if p.is_dir()):
             break
         j = kids[0]
         cum += float(np.linalg.norm(offsets[j])) / bone
-    rows.append((d.name, n_kids, root_y, lo, hi, frac, cum, list(anim.names)[0]))
+    rows.append((d.name, n_kids, root_y, lo, hi, frac, cum, anim.names[0]))
 
 print(f"{'rig':<18}{'kids':>5}{'rootY':>8}{'minY':>8}{'maxY':>8}{'height frac':>12}"
       f"{'chain off':>10}  root")
