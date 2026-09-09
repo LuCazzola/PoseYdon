@@ -227,7 +227,7 @@ def process_species(
 
 
 def _sanity_check(
-    manifest: SkeletonManifest, clips_dir: Path, rest_source: Path
+    manifest: SkeletonManifest, clips_dir: Path, rest_path: Path
 ) -> list[str]:
     """Print diagnostics for the written files; warn (not fail) if one looks off.
 
@@ -241,10 +241,20 @@ def _sanity_check(
 
     # The identity check below only holds at the rest frame itself, so this
     # must read back the rest source's own written clip -- not just any
-    # clip -- by the same action-slug it was written under.
-    rest_action = strip_skeleton_prefix(action_slug(rest_source.stem), manifest.name)
-    subject = clips_dir / f"{rest_action}.bvh"
+    # clip -- by the same action-slug it was written under. `rest_action`
+    # is the module's one source of truth for that slug; re-deriving it
+    # inline here would be a second copy of the rule this plan exists to
+    # de-duplicate.
+    rest_clip_action = rest_action(manifest)
+    subject = clips_dir / f"{rest_clip_action}.bvh"
     if not subject.is_file():
+        # Falling back silently would measure facing/identity on an
+        # arbitrary clip and report plausible-looking numbers under a slug
+        # drift -- name both files so the substitution is visible.
+        warnings.append(
+            f"{manifest.name}: expected rest clip {subject.name} is missing "
+            f"from {clips_dir}; sanity-checking {written[0].name} instead"
+        )
         subject = written[0]
 
     anim = BVH.read(subject).to_animation()
