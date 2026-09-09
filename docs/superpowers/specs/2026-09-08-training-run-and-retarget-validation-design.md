@@ -361,12 +361,19 @@ count disagrees with `skeleton.npz`. The second is cheaper and honest; the first
 is what a skinned application eventually needs. Either way the structure test
 must cover a promoted rig.
 
-**`configs/model/*.yaml` gains `name_embedding_dim: 768`.** Without it
+**`configs/model/anytop.yaml` gains `name_embedding_dim: 768`.** Without it
 `AnyTop.name_projection` stays `None` and joint-name embeddings are accepted and
 silently ignored (`models/anytop.py:139`). The embeddings themselves are not built
 in this design — `text` stays `null`, T5 stays behind the `poseydon[text]` extra,
 and the test image deliberately excludes `transformers` — but the config hole is
 closed now rather than becoming a silent no-op later.
+
+Measured in plan A2: **`MoDiffAE.__init__` does not accept that keyword at all** — it takes an
+unconditional `text_dim` instead, so there is no silent-ignore hole to close there and adding
+the key would raise at instantiation. The spec previously said `configs/model/*.yaml`, which was
+wrong. This matters for §4's chosen model: the run trains MoDiffAE, so joint-name conditioning
+reaches it by a different route than AnyTop's, and A3 must not assume the two share a config
+key.
 
 Normalization is the parity spec §5 per-block policy verbatim. `foot_contact`
 takes `scale: none`; the reference-exact combination is `scale: block` with
