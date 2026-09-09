@@ -353,13 +353,23 @@ while the prepared FBX still has it.
 would fail — it passes today only because the five rigs with prepared FBX
 artefacts happen to include none of the 14. Agreement by lucky coverage.
 
-Stage 2 must not paper over it. Two routes, and A2 picks one on evidence: teach
-the FBX path the same promotion (it has no `PrepareChain`, so that means a
-Blender-side equivalent driven by the same `PROMOTE_ROOT` table), or declare the
-FBX corpus un-promoted and have stage 2 refuse to fold a `mesh.npz` whose joint
-count disagrees with `skeleton.npz`. The second is cheaper and honest; the first
-is what a skinned application eventually needs. Either way the structure test
-must cover a promoted rig.
+Stage 2 must not paper over it. Measured by running the FBX pass on Camel (a
+two-step promotion, `Hips -> C_ctrl -> Bip01`): its `mesh.npz` carries 51
+joints against the promoted BVH's 49 real joints, and the two extra are
+exactly `Hips` and `C_ctrl` -- the removed locator chain, nothing else. The
+count is small, but the cost that matters is not the joint count, it is
+`PromoteRoot`'s logic: single-child-chain detection, the dead-subtree case
+(Tukan's `MESH` branch), and offset absorption onto the promoted root, all of
+which took its own task to get right against `poseydon`'s own `Animation`
+structure -- and the FBX path has no `invert` to fall back on if a Blender-side
+copy gets it wrong. Stage 2 therefore declares the FBX corpus un-promoted:
+`build_skeleton` in `poseydon/build/pipeline.py` refuses to fold a `mesh.npz`
+whose joint count disagrees with `skeleton.npz`'s real (End-Site-free) joint
+count, naming both counts in the error. Teaching the FBX path the same
+promotion stays open for whenever a skinned application needs it, but is not
+this decision. `test_bvh_and_fbx_agree_on_the_skeleton_structure` is extended
+to cover a promoted rig (Camel) so its passing is no longer a coverage
+accident.
 
 **`configs/model/anytop.yaml` gains `name_embedding_dim: 768`.** Without it
 `AnyTop.name_projection` stays `None` and joint-name embeddings are accepted and

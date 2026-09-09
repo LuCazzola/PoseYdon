@@ -17,6 +17,7 @@ from poseydon.build.corpus import PerRigDirectory, rest_action, write_labels
 from poseydon.build.index import ClipRecord, CorpusIndex, clip_id
 from poseydon.build.names import Humanize
 from poseydon.build.prepare import RigTransform
+from poseydon.core.animation import Animation
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.data.normalize import BlockPolicy, Normalizer
 from poseydon.features import extract_features
@@ -91,6 +92,45 @@ def build_clips(config: BuildConfig, rig: str) -> int:
     return written
 
 
+def _n_real_joints(anim: Animation) -> int:
+    """BVH joint count minus End Sites -- the count an FBX skeleton, which has
+    no End Site concept, is comparable against.
+
+    An End Site is exactly a childless joint (see `EnforceRigid.fit` and
+    `ScaleToMeanBoneLength.fit` in `prepare.py`, which use the same test): every
+    real leaf gets one synthesized under it on BVH read, so a joint with no
+    child in the prepared animation is never a real body joint.
+    """
+    has_child = np.zeros(anim.n_joints, dtype=bool)
+    real = anim.parents >= 0
+    has_child[anim.parents[real]] = True
+    return int(has_child.sum())
+
+
+def _check_mesh_matches_skeleton(rest: Animation, mesh_path: Path, rig: str) -> None:
+    """Refuse a `mesh.npz` whose joint count disagrees with the rest skeleton.
+
+    The FBX path (`process_dataset_truebones_fbx.py`) never runs `PromoteRoot`,
+    so for the 14 rigs `PROMOTE_ROOT` names, `mesh.npz`'s skin weights are
+    indexed by the UN-promoted joint order while `skeleton.npz`'s joints are
+    promoted. Folding the two on a positional match would silently deform the
+    mesh wrongly for exactly those rigs. Design spec 2026-09-08 Stage 2 records
+    the decision: this is cheaper and honest than teaching the FBX path the
+    same promotion, so stage 2 refuses instead of trusting alignment.
+    """
+    with np.load(mesh_path, allow_pickle=True) as mesh:
+        mesh_n = len(mesh["joint_names"])
+    rest_n = _n_real_joints(rest)
+    if mesh_n != rest_n:
+        raise ValueError(
+            f"{rig}: mesh.npz has {mesh_n} joints but the rest skeleton has "
+            f"{rest_n} real joints -- the FBX path does not run PromoteRoot, "
+            f"so this rig's mesh.npz is indexed against an un-promoted "
+            f"skeleton and cannot be folded here (design spec 2026-09-08 "
+            f"Stage 2, 'the FBX path does not promote')."
+        )
+
+
 def build_skeleton(config: BuildConfig, rig: str) -> None:
     """Rig-level geometry, names and the reduction map.
 
@@ -103,6 +143,10 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     rest = BVH.read(
         config.root / "clips" / rig / f"{rest_action(manifest)}.bvh"
     ).to_animation()
+
+    mesh_path = config.root / "rigs" / rig / "mesh.npz"
+    if mesh_path.is_file():
+        _check_mesh_matches_skeleton(rest, mesh_path, rig)
 
     reduction = build_reduction(rest, tolerance=config.reduce_tolerance)
     rig_params = config.transform(rig).rig_params
