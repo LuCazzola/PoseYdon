@@ -1481,3 +1481,27 @@ Goat is the rig the plan text called out; Camel is the same mechanism (it is one
 - `--stats-only` is safe to run after any `features:` change and touches only `stats.npz` (verified above); against the real alternative (a stage-1 rebuild, minutes) it is the "seconds, not a corpus rebuild" the design promises.
 - `data/truebones/{clips,rigs,index.jsonl}` (everything stage 2 writes) is gitignored — nothing from this run is committed; a fresh checkout has none of it, which is exactly what `test_corpus_yield.py`'s skip-if-absent guards are for. Running `scripts/build_features.py` once, followed by `--stats-only` as needed, is the full recipe A3's environment (including the aarch64 GPU image) needs to reproduce it.
 - Nothing here is unresolved or hidden: both warnings are explained, all four counts are exact and match (73/73/73/1145), and the `--stats-only` timing holds the design's claim against the correct baseline.
+
+## Final whole-branch review — fix wave
+
+Applied after all 9 tasks were individually reviewed and complete; see
+`.superpowers/sdd/2026-09-09-build-stage-and-artefacts/final-fix-report.md` for the
+full list, commands and measured output. Two items belong here because A3 needs
+them and nothing else records them:
+
+- **`skeleton.npz` requires `allow_pickle=True`, permanently.** Not a bug to fix:
+  `prepare/enforce_rigid/source_channels` is genuinely ragged (a tuple of channel
+  names per joint, differing in length per joint) and has no fixed-width
+  encoding. `prepare/rest_relative/names` was ALSO object-dtype, but only as a
+  round-trip artefact of `RigTransform.load(allow_pickle=True)` — it is a plain
+  list of equal-length strings, so it is now re-cast to `<U` before being written
+  into `skeleton.npz`, and `build_skeleton`'s docstring says so. Whatever A3
+  writes to load `skeleton.npz` must pass `allow_pickle=True` — there is no way
+  to avoid it while `source_channels` lives in this file.
+- **`tests/build/test_corpus_yield.py`'s 73/73/73/1145 pin does not run in CI.**
+  Every guard in that file skips when `data/truebones/clips` is absent, which is
+  always true on a fresh checkout (the corpus is gitignored, §2's "What A3 needs
+  to know" above). A3 must not treat that file's green result as a live guard on
+  a CI machine that has not first run `scripts/process_dataset_truebones.py` and
+  `scripts/build_features.py` — it is a local/dev regression check only, unless
+  and until CI is given the corpus.
