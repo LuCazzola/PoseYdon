@@ -1,6 +1,8 @@
 services:
   test:
-    build: .
+    build:
+      context: .
+      target: test
     working_dir: /app
     # Run as the host user so files the container writes into the bind mount are
     # owned by you, not root. Without this, anything ingest writes into the repo
@@ -25,7 +27,7 @@ services:
   train:
     build:
       context: .
-      dockerfile: Dockerfile.train
+      target: train
     working_dir: /app
     user: "${UID:-1000}:${GID:-1000}"
     # CDI is how this host exposes the GB10 (`docker info` lists
@@ -48,7 +50,7 @@ services:
   compat:
     build:
       context: .
-      dockerfile: Dockerfile.compat
+      target: compat
     working_dir: /app
     # Same reason as the test service: artifacts it writes must belong to you.
     # Bash does not export UID, so ${UID:-1000} always defaulted to 1000 until .env
@@ -70,7 +72,7 @@ services:
   fbx:
     build:
       context: .
-      dockerfile: Dockerfile.fbx
+      target: fbx
     working_dir: /app
     # Same reason as the test service: artifacts it writes must belong to you.
     # Bash does not export UID, so ${UID:-1000} always defaulted to 1000 until .env

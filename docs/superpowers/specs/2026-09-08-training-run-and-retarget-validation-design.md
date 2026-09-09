@@ -476,7 +476,9 @@ Per parity spec §10:
 
 - **`BalancedByRig`** weighted sampler, weight `1 / (n_rigs · n_clips_of_rig)`.
   The reference's `--balanced` appears in both documented training commands;
-  without it BrownBear's 22 clips dominate.
+  without it Trex's 70 clips dominate -- measured over the built index, the
+  span is 70 (Trex) to 4 (Chicken, Parrot2) across 73 rigs. BrownBear, which
+  earlier drafts of this spec named, is 11th at 22.
 - **DataLoader** gains `drop_last=True` and `num_workers` from config.
 - **`StepLR(step_size=10000, gamma=0.99)`**, stepped per optimizer step from
   `configure_optimizers` — the reference's `training_loop.py:65-69` exactly.

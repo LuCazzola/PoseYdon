@@ -638,7 +638,7 @@ git commit -m "feat(data): take the rest frame from the manifest's declared rest
 - Consumes: `MotionDataset.records`, `MotionDataset._plan`.
 - Produces: `balanced_weights(dataset) -> np.ndarray`; `MotionDataModule(..., balanced: bool = True)`; `MotionDataset.set_worker_seed(worker_id)`.
 
-**Context the brief cannot know:** the reference passes `--balanced` in both documented training commands, and without it BrownBear's 22 clips dominate. The reference's own sampler (`data_loaders/truebones/data/dataset.py::TruebonesSampler`) is a plain `WeightedRandomSampler` giving each object type an equal share and splitting it across that type's clips — mirror that, not something cleverer. Note the weight is per PLAN ENTRY (clip, window), not per clip, because that is what `__len__` indexes.
+**Context the brief cannot know:** the reference passes `--balanced` in both documented training commands, and without it Trex's 70 clips dominate (measured: the span is 70 to 4 across 73 rigs; BrownBear, named in earlier drafts, is 11th at 22). The reference's own sampler (`data_loaders/truebones/data/dataset.py::TruebonesSampler`) is a plain `WeightedRandomSampler` giving each object type an equal share and splitting it across that type's clips — mirror that, not something cleverer. Note the weight is per PLAN ENTRY (clip, window), not per clip, because that is what `__len__` indexes.
 
 The worker-RNG bug is real and measurable: `dataset.py` holds one `numpy.random.Generator` that is COPIED into every dataloader worker by fork, so with `num_workers > 0` every worker draws the identical crop and augmentation stream.
 

@@ -1,8 +1,10 @@
 """Sampling weights that give every rig an equal voice.
 
-Truebones is wildly unbalanced -- BrownBear ships 22 clips, a dozen rigs ship
-one. Sampling uniformly over clips trains a bear model that has met some other
-animals. The reference passes `--balanced` in both of its documented training
+Truebones is wildly unbalanced -- Trex ships 70 clips, Chicken and Parrot2 ship
+4, a 17:1 span across 73 rigs. Sampling uniformly over clips trains a
+dinosaur model that has met some other animals. (Measured over
+`data/truebones/index.jsonl`; earlier drafts of this docstring named BrownBear,
+which is only 11th at 22 clips.) The reference passes `--balanced` in both of its documented training
 commands and implements it as a plain `WeightedRandomSampler`
 (`data_loaders/truebones/data/dataset.py::TruebonesSampler`): equal share per
 object type, split evenly across that type's clips. This mirrors it.
