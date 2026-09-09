@@ -1,4 +1,11 @@
-"""Finding the prepared clips, and the label files beside them."""
+"""Finding the prepared clips, resolving a rig's rest pose, and the label
+files beside each clip.
+
+Imports `poseydon.build.index` (for clip/action naming helpers),
+`poseydon.core.skeleton` (`SkeletonManifest`, to read a rig's `rest_pose:`
+declaration) and `poseydon.io.bvh` (`rest_source` inspects candidate `.bvh`
+files to pick the rest clip).
+"""
 
 from __future__ import annotations
 

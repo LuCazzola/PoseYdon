@@ -12,8 +12,14 @@ text: null
 
 reduce_tolerance: 1.0e-8
 
-# Parity spec §5. `scale: block` with `center: true` on every block is the
-# reference-exact combination the parity test uses.
+# Parity spec §5. Per-block policy: `ric_pos` and `local_vel` are centred and
+# scaled per joint block; `rot6d` is scaled per joint block but not centred
+# (a 6D rotation has no zero to centre around); `foot_contact` is a {0,1}
+# flag, left un-centred and unscaled (`scale: none`).
+#
+# Note, separate from what is declared above: `scale: block` with
+# `center: true` on EVERY block is an alternative combination -- the one the
+# parity test uses to check reference-exactness -- not what this config ships.
 #
 # Each entry carries its own `_target_` so `hydra.utils.instantiate` recurses
 # into this list and returns `BlockPolicy` instances, not plain mappings -- a

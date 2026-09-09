@@ -116,8 +116,18 @@ def main() -> None:
         for warning in result.warnings:
             print(f"  - {warning}")
 
+    failed = False
+    if result.failures:
+        failed = True
+        print(f"\n{len(result.failures)} rig(s) FAILED to build:", file=sys.stderr)
+        for failure in result.failures:
+            print(f"  - {failure}", file=sys.stderr)
+
     if result.clips == 0 and not args.stats_only:
+        failed = True
         print("\nno clips written", file=sys.stderr)
+
+    if failed:
         sys.exit(1)
 
 

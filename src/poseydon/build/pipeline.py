@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from poseydon.build.corpus import PerRigDirectory, rest_action, write_labels
+from poseydon.build.corpus import PerRigDirectory, read_labels, rest_action, write_labels
 from poseydon.build.index import ClipRecord, CorpusIndex, clip_id
 from poseydon.build.names import Humanize
 from poseydon.build.prepare import RigTransform
@@ -55,7 +55,15 @@ class BuildConfig:
 class BuildResult:
     clips: int = 0
     rigs: int = 0
+    #: Non-fatal, per-rig notices that do not withhold any artefact -- e.g. a
+    #: mesh/skeleton joint-count mismatch (`_check_mesh_matches_skeleton`).
+    #: A non-empty `warnings` list must never, by itself, fail the build.
     warnings: list[str] = field(default_factory=list)
+    #: Rigs (or the index pass) that raised and produced NO artefact for that
+    #: step. Distinct from `warnings` on purpose: `scripts/build_features.py`
+    #: exits non-zero exactly when this is non-empty, so a rig that merely
+    #: warns (Camel, Goat) must never land here.
+    failures: list[str] = field(default_factory=list)
 
 
 def build_clips(config: BuildConfig, rig: str) -> int:
@@ -150,6 +158,12 @@ def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     Returns a mesh/skeleton mismatch warning (see `_check_mesh_matches_skeleton`),
     or `None`. Either way, `skeleton.npz` is written -- a mismatch is reported,
     not refused.
+
+    Loading requires ``allow_pickle=True``. `prepare/enforce_rigid/source_channels`
+    is genuinely ragged (a tuple of channel names per joint, of differing length)
+    and must stay an object array; there is no fixed-width encoding for it. See
+    `RigTransform`'s docstring in `build/prepare.py` for the same trap on
+    `prepare.npz`, which this file inherits by folding `rig_params` in.
     """
     manifest = config.manifest(rig)
     rest = BVH.read(
@@ -159,6 +173,15 @@ def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     mesh_path = config.root / "rigs" / rig / "mesh.npz"
     mismatch = _check_mesh_matches_skeleton(rest, mesh_path, rig) if mesh_path.is_file() else None
 
+    # `rest` here is the plain prepared Animation, not the rigid-body form
+    # `build_stats` reduces (`as_rigid_body(joint_translation="drop")`, below).
+    # `build_reduction` only reads offsets/parents/names, which the rigid-body
+    # transform does not touch, so the two calls are provably equivalent and
+    # `skeleton.npz`'s `reduction_source_of`/`reduction_source_names` agree
+    # with the reduction `stats.npz` was fitted under. This equivalence is
+    # load-bearing between the two artefacts and is NOT re-derived anywhere
+    # else -- if `as_rigid_body` ever starts touching offsets/parents/names,
+    # this comment (and its twin at `build_stats`) is where that breaks.
     reduction = build_reduction(rest, tolerance=config.reduce_tolerance)
     rig_params = config.transform(rig).rig_params
 
@@ -175,7 +198,16 @@ def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     # self-contained and stage 2 can be re-run without Blender.
     for stage, params in rig_params.items():
         for key, value in params.items():
-            payload[f"prepare/{stage}/{key}"] = np.asarray(value)
+            array = np.asarray(value)
+            # `RestRelative.fit` stores `names` as a plain list of strings
+            # boxed into an object array only so it round-trips through
+            # `RigTransform.load(allow_pickle=True)` -- it is not ragged like
+            # `source_channels`, so re-cast it to a fixed-width string array
+            # here rather than carrying the object dtype (and the trap that
+            # comes with it) into the training-facing file for no reason.
+            if stage == "rest_relative" and key == "names" and array.dtype == object:
+                array = array.astype("<U")
+            payload[f"prepare/{stage}/{key}"] = array
 
     out = config.out / "rigs" / rig
     out.mkdir(parents=True, exist_ok=True)
@@ -189,6 +221,12 @@ def build_stats(config: BuildConfig, rig: str) -> None:
     arrays, spec = [], None
     for path in config.corpus.clips(config.root, rig):
         anim = BVH.read(path).to_animation().as_rigid_body(joint_translation="drop")
+        # `anim` is the RIGID-BODY form, unlike `build_skeleton`'s plain
+        # prepared Animation -- see the matching comment there. `build_reduction`
+        # only reads offsets/parents/names, which `as_rigid_body` does not
+        # change, so this reduction is provably identical to `skeleton.npz`'s.
+        # That equivalence is what lets stats be fit under the same reduction
+        # `skeleton.npz` records; it is load-bearing and not re-checked here.
         reduction = build_reduction(anim, tolerance=config.reduce_tolerance)
         reduced = apply_reduction(anim, reduction)
         features, spec = extract_features(
@@ -210,6 +248,13 @@ def build_index(config: BuildConfig) -> CorpusIndex:
     `tags` lives once, in the manifest, and is joined here -- rather than copied
     into every ClipRecord, which wrote `[quadruped, mammal]` twenty-two times
     for BrownBear.
+
+    `split` comes from the clip's OWN label file (`build_clips` writes one
+    `<action>.yaml` per clip, and `--relabel` exists specifically so an
+    authored `split:` survives a rebuild) -- not hardcoded, so editing a label
+    file's `split:` actually reaches the index. Falls back to `"train"` when
+    the label file has no `split:` key, matching what `build_clips` writes by
+    default.
     """
     index = CorpusIndex()
     for rig in config.corpus.rigs(config.root):
@@ -218,12 +263,13 @@ def build_index(config: BuildConfig) -> CorpusIndex:
             with np.load(path) as data:
                 n_frames = int(data["rotations"].shape[0])
                 fps = float(data["fps"])
+            labels = read_labels(path.with_suffix(".yaml"))
             index.add(
                 ClipRecord(
                     clip_id=clip_id(rig, path.stem),
                     skeleton=rig,
                     action=path.stem,
-                    split="train",
+                    split=labels.get("split", "train"),
                     n_frames=n_frames,
                     fps=fps,
                     path=str(Path("clips") / rig / path.name),
@@ -243,7 +289,19 @@ def build_all(
 
     Each rig is wrapped individually and deliberately: plan A1's Tukan crash
     killed the whole 73-rig loop mid-run because one stage raised outside a
-    per-rig guard, leaving a partial corpus behind.
+    per-rig guard, leaving a partial corpus behind. `build_index` gets the
+    same guard for the same reason -- one malformed manifest must not discard
+    a completed multi-rig build.
+
+    Convention (recorded here because the four passes do not agree on error
+    shape, and that disagreement must not spread further): `build_clips`
+    raises and aborts its rig; `build_skeleton` returns a warning string for a
+    non-fatal condition instead of raising; `build_stats` raises `ValueError`
+    on an empty rig. All of that is caught here, per rig, and sorted into
+    `result.warnings` (non-fatal, every artefact for that rig still written)
+    or `result.failures` (that rig produced no artefact for the step that
+    raised). `build_index` is not per-rig, so its own failure is caught once,
+    after the loop, and also lands in `result.failures`.
     """
     result = BuildResult()
     for rig in rigs or config.corpus.rigs(config.root):
@@ -256,8 +314,11 @@ def build_all(
             build_stats(config, rig)
             result.rigs += 1
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus
-            result.warnings.append(f"{rig}: {type(error).__name__}: {error}")
+            result.failures.append(f"{rig}: {type(error).__name__}: {error}")
 
     if not stats_only:
-        build_index(config)
+        try:
+            build_index(config)
+        except Exception as error:  # noqa: BLE001 - collect, don't discard a completed build
+            result.failures.append(f"index: {type(error).__name__}: {error}")
     return result

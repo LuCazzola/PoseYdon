@@ -218,3 +218,24 @@ def test_the_index_path_points_at_the_npz_not_the_bvh(config):
     build_clips(config, "Goat")
     index = build_index(config)
     assert all(r.path.endswith(".npz") for r in index.records)
+
+
+def test_an_authored_split_reaches_the_index_row(config):
+    """`build_clips` writes `split: train` into each `<action>.yaml`, and
+    `--relabel` exists specifically so a hand-edited `split:` survives a
+    rebuild -- but `build_index` used to hardcode `split="train"` regardless
+    of what the label file said, so editing it had no effect on the index.
+    """
+    build_clips(config, "Goat")
+    label_files = sorted((config.out / "clips" / "Goat").glob("*.yaml"))
+    assert label_files, "build_clips must have written label files"
+    edited = label_files[0]
+    action = edited.stem
+    edited.write_text(f"split: val\naction: {action}\n")
+
+    index = build_index(config)
+    row = next(r for r in index.records if r.skeleton == "Goat" and r.action == action)
+    assert row.split == "val"
+
+    others = [r for r in index.records if r.skeleton == "Goat" and r.action != action]
+    assert all(r.split == "train" for r in others), "an unedited label keeps the default"
