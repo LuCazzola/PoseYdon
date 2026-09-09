@@ -671,6 +671,23 @@ rotations. Recording them would make a real clip's values recoverable too, but i
 would buy nothing the contract asks for, and generated motion — which has no
 recorded chain — would still need the identity path. One code path, not two.
 
+**The FBX arm of this contract is not implemented.** Measured while building
+plan A1: the FBX stage-1 path is entirely separate from the BVH one.
+`scripts/process_dataset_truebones_fbx.py` does `FBX.read -> rotate ->
+scale_to_mean_bone_length -> write` directly on a Blender scene; it never
+constructs an `Animation`, never runs `PrepareChain`, records no fitted
+parameters, and therefore has no `invert`. The diagram above is true of `.bvh`
+today and aspirational for `.fbx`.
+
+That is a real gap against the contract, not a documentation nicety: a user who
+supplies an FBX cannot currently be handed one back. Closing it means giving the
+FBX path the same fit/apply/invert stage contract the BVH path has, with its
+parameters recorded per clip — which is a build-stage change, not a test. It
+belongs to a later plan and is called out here so it is not discovered by a user.
+What A1 does deliver for FBX is narrower and honest: an IO-level round trip
+asserting that `FBX.read -> write -> read` preserves joint names, parents and
+rest offsets.
+
 **Generated motion has no per-clip facing, and something must supply one.**
 `FaceAxis` is `CLIP`-scoped: it records the quaternion that turned *that clip's*
 frame 0 to +Z, and `invert` needs a value. A generated clip has no source
