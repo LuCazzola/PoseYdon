@@ -1,9 +1,11 @@
 """Does resolve() survive reduction, for every rig?"""
 from pathlib import Path
-from poseydon.core.skeleton import SkeletonManifest, resolve, ManifestError
-from poseydon.features.reduce import build_reduction, apply_reduction
-from poseydon.io.bvh import BVH
+
 from scripts.process_dataset_truebones import rest_action
+
+from poseydon.core.skeleton import ManifestError, SkeletonManifest, resolve
+from poseydon.features.reduce import apply_reduction, build_reduction
+from poseydon.io.bvh import BVH
 
 CORPUS = Path("data/truebones")
 bad = []
