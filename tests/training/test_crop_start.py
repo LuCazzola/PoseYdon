@@ -79,8 +79,15 @@ def test_anytop_reads_crop_start_not_window_start():
     """
     from poseydon.models import anytop
 
-    source = Path(anytop.__file__).read_text()
-    # The read, not the word: the fix leaves a comment naming the dead key it
-    # replaced, and that prose is documentation rather than a second lookup.
-    assert 'cond.get("window_start")' not in source
-    assert 'cond.get("crop_start")' in source
+    # Strip comments first, then look for the word at all. The earlier form of
+    # this test matched the exact string `cond.get("window_start")`, which a
+    # reintroduced read could sidestep just by changing the quoting or by
+    # coexisting with the correct key (`cond.get("crop_start") or
+    # cond.get('window_start')`). Ignoring comments is what lets the check be
+    # blunt: the fix leaves a comment naming the dead key it replaced, and that
+    # prose is documentation rather than a second lookup.
+    code = "\n".join(
+        line.split("#")[0] for line in Path(anytop.__file__).read_text().splitlines()
+    )
+    assert "window_start" not in code, "the dead key is being read again"
+    assert 'cond.get("crop_start")' in code
