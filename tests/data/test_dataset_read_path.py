@@ -108,3 +108,52 @@ def test_startup_does_not_read_every_clip():
     # One clip is loaded deliberately, to measure the schema's frame cost.
     assert len(fresh._anims) <= 1, "startup must not walk the corpus"
     assert len(fresh) > 0
+
+
+def test_the_rest_frame_comes_from_the_declared_rest_pose(dataset):
+    """Not from "the first clip that happened to be indexed", which is what the
+    old fallback did, and not from stats.npz, which records no such frame.
+
+    Crab is the case that proves it: its declared rest pose is `__Walk.bvh`,
+    not a T-pose, and alphabetically its first clip is `attack1`. A fallback to
+    the first clip would describe the rig with an attack pose.
+    """
+    from poseydon.build.corpus import rest_action
+
+    manifest = dataset._manifest("Crab")
+    assert rest_action(manifest) == "walk"
+
+    # Compare against an INDEPENDENTLY built frame, not against
+    # `dataset._extract_rest` -- `_rest_frame_of` just caches that call, so
+    # comparing the two would assert nothing at all.
+    from poseydon.core.animation import RigidBodyAnimation
+    from poseydon.core.skeleton import resolve
+    from poseydon.features import extract_features
+    from poseydon.features.reduce import apply_reduction
+
+    anim = RigidBodyAnimation.load(CORPUS / "clips" / "Crab" / "walk.npz")
+    reduced = apply_reduction(anim, dataset._reduction("Crab"))
+    raw, spec = extract_features(reduced, resolve(manifest, reduced.names), FEATURES)
+    expected = dataset._normalizer("Crab", spec).normalize(raw[:1])[0]
+
+    np.testing.assert_allclose(dataset._rest_frame_of("Crab"), expected)
+
+    # And it must differ from what the old first-clip fallback produced --
+    # otherwise the test would pass even if nothing changed.
+    first_clip = RigidBodyAnimation.load(CORPUS / "clips" / "Crab" / "attack1.npz")
+    reduced_first = apply_reduction(first_clip, dataset._reduction("Crab"))
+    raw_first, _ = extract_features(
+        reduced_first, resolve(manifest, reduced_first.names), FEATURES
+    )
+    fallback = dataset._normalizer("Crab", spec).normalize(raw_first[:1])[0]
+    assert not np.allclose(expected, fallback), "the old fallback was not distinguishable"
+
+
+def test_every_rig_can_produce_a_rest_frame(dataset):
+    """A1 authored `rest_pose:` into all 73 manifests so this never silently
+    falls back. If any rig cannot, the corpus is the problem, not the reader.
+    """
+    rigs = sorted({record.skeleton for record in dataset.records})
+    assert len(rigs) == 73
+    for rig in rigs:
+        assert dataset._rest_frame_of(rig).shape[-1] == dataset.spec.dim

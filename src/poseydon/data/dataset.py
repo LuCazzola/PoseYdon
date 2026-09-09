@@ -98,7 +98,7 @@ class MotionDataset:
         # constant across clips. Measure it once, on the first record.
         #
         # That one probe leaves one clip in `self._anims`, and it stays there:
-        # it is the clip `spec` and `_rest_frame` reach for next anyway.
+        # it is the clip `spec` reaches for next anyway.
         first = self.records[0]
         self._frame_cost = first.n_frames - self._extract(first)[0].shape[0]
 
@@ -127,6 +127,22 @@ class MotionDataset:
             )
         return self._manifests[skeleton]
 
+    def _rest_clip(self, skeleton: str) -> RigidBodyAnimation:
+        """The rig's DECLARED rest clip, as a rigid body.
+
+        The action is read from `skeleton.npz`, not re-derived from the
+        manifest: `build_skeleton` recorded the very action it reduced under,
+        so the two cannot drift, and the read path stays clear of
+        `build.corpus` (a build-time internal -- tests/build/test_layering.py).
+        """
+        with np.load(
+            self.manifest_dir / skeleton / "skeleton.npz", allow_pickle=True
+        ) as data:
+            action = str(data["rest_action"])
+        return RigidBodyAnimation.load(
+            self.root / "clips" / skeleton / f"{action}.npz"
+        ).as_rigid_body(joint_translation="drop")
+
     def _reduction(self, skeleton: str) -> JointReduction:
         """The rig's reduction, built once and checked against `skeleton.npz`.
 
@@ -146,15 +162,7 @@ class MotionDataset:
                 self.manifest_dir / skeleton / "skeleton.npz", allow_pickle=True
             ) as data:
                 stored = tuple(int(i) for i in data["reduction_source_of"])
-                # The rest clip is read from the artefact, not re-derived from
-                # the manifest: `build_skeleton` recorded the very action it
-                # reduced under, so the two cannot drift, and the read path
-                # stays clear of `build.corpus` (a build-time internal --
-                # tests/build/test_layering.py).
-                action = str(data["rest_action"])
-            rest = RigidBodyAnimation.load(
-                self.root / "clips" / skeleton / f"{action}.npz"
-            ).as_rigid_body(joint_translation="drop")
+            rest = self._rest_clip(skeleton)
             reduction = build_reduction(rest, tolerance=self.reduce_tolerance)
             if reduction.source_of != stored:
                 raise ValueError(
@@ -211,27 +219,28 @@ class MotionDataset:
             self._normalizers[skeleton] = normalizer
         return self._normalizers[skeleton]
 
-    def _rest_frame(
-        self, record: ClipRecord, spec: FeatureSpec, normalizer: Normalizer
-    ) -> np.ndarray:
-        """One frame describing the skeleton, cached per skeleton.
+    def _extract_rest(self, skeleton: str) -> np.ndarray:
+        """Frame 0 of the rig's DECLARED rest clip, normalized.
 
-        The first frame of the skeleton's first clip. `SkeletonManifest.tpose`
-        used to be consulted here, but no manifest ever declared it, so this
-        fallback has always been the only path -- a guard that reads as working
-        is worse than no guard. A3 replaces this with the rest frame recorded in
-        `rigs/<Rig>/stats.npz`, chosen by `manifest.rest_pose`.
+        `manifest.rest_pose` is authored for all 73 rigs (plan A1) exactly so
+        this is never guessed, and `build_skeleton` copied that choice into
+        `skeleton.npz`. The old fallback took the first clip the index happened
+        to list, which for Crab -- whose rest pose is `__Walk.bvh` and whose
+        first indexed clip is `attack1` -- described the rig with an attack
+        pose. `stats.npz` is NOT the source: it records no rest frame, whatever
+        an earlier draft of the spec promised.
         """
-        skeleton = record.skeleton
-        if skeleton in self._rest_frames:
-            return self._rest_frames[skeleton]
+        manifest = self._manifest(skeleton)
+        reduced = apply_reduction(self._rest_clip(skeleton), self._reduction(skeleton))
+        raw, spec = extract_features(
+            reduced, resolve(manifest, reduced.names), self.features
+        )
+        return self._normalizer(skeleton, spec).normalize(raw[:1])[0]
 
-        first = next(r for r in self.records if r.skeleton == skeleton)
-        raw, _ = self._extract(first)
-
-        frame = normalizer.normalize(raw[:1])[0]
-        self._rest_frames[skeleton] = frame
-        return frame
+    def _rest_frame_of(self, skeleton: str) -> np.ndarray:
+        if skeleton not in self._rest_frames:
+            self._rest_frames[skeleton] = self._extract_rest(skeleton)
+        return self._rest_frames[skeleton]
 
     def __getitem__(self, index: int) -> Item:
         clip_index, window_index = self._plan[index]
@@ -250,8 +259,7 @@ class MotionDataset:
         start, length = self.window.bounds(features.shape[0], window_index, self._rng)
         window = features[start : start + length]
 
-        base_rest_frame = self._rest_frame(record, spec, base_normalizer)
-        rest_frame = edit.transport_row(base_rest_frame)
+        rest_frame = edit.transport_row(self._rest_frame_of(record.skeleton))
 
         view = ClipView(
             record=record,
