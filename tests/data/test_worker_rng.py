@@ -34,3 +34,75 @@ def test_the_dataset_exposes_the_hook_the_loader_calls():
     from poseydon.data.dataset import MotionDataset
 
     assert hasattr(MotionDataset, "set_worker_seed")
+
+
+def test_the_real_dataset_reseeds_and_diverges_under_fork():
+    """The tests above use a stand-in, so they prove the IDEA and not the
+    WIRING. A regression that dropped `worker_init_fn=` from the DataLoader, or
+    typo'd `info.dataset.set_worker_seed`, would leave every one of them green.
+
+    This drives the real `MotionDataset`: it copies the object the way `fork`
+    does, confirms the copies draw identically (the bug), reseeds them through
+    the same call `MotionDataModule._worker_init` makes, and confirms they
+    diverge. No corpus needed -- the RNG lives on the dataset, not in the data.
+    """
+    import copy
+
+    from poseydon.data.dataset import MotionDataset
+
+    dataset = MotionDataset.__new__(MotionDataset)
+    dataset.seed = 0
+    dataset._rng = np.random.default_rng(0)
+
+    forked = [copy.deepcopy(dataset) for _ in range(4)]
+    before = [int(d._rng.integers(0, 1_000_000)) for d in forked]
+    assert len(set(before)) == 1, "fork copies the Generator; this is the bug"
+
+    forked = [copy.deepcopy(dataset) for _ in range(4)]
+    for worker_id, worker in enumerate(forked):
+        worker.set_worker_seed(worker_id)
+    after = [int(d._rng.integers(0, 1_000_000)) for d in forked]
+    assert len(set(after)) == 4, f"workers still correlated: {after}"
+
+
+def test_the_train_loader_actually_wires_the_worker_hook(monkeypatch):
+    """`set_worker_seed` existing is not the same as the loader CALLING it.
+
+    Two halves, because either can rot on its own: the DataLoader must carry a
+    `worker_init_fn`, and that function must actually reach the dataset. The
+    second half fakes `get_worker_info`, since outside a worker process the
+    hook is a deliberate no-op and would otherwise assert nothing.
+    """
+    import torch
+
+    from poseydon.training.lightning import MotionDataModule
+
+    class _StubDataset:
+        def __init__(self):
+            self.records = []
+            self._plan = []
+            self.seed = 0
+            self.seeded = None
+
+        def __len__(self):
+            return 4
+
+        def __getitem__(self, index):
+            raise AssertionError("this test never reads an item")
+
+        def set_worker_seed(self, worker_id):
+            self.seeded = worker_id
+
+    dataset = _StubDataset()
+    module = MotionDataModule(train=dataset, batch_size=1, num_workers=2, balanced=False)
+    loader = module.train_dataloader()
+    assert loader.worker_init_fn is not None, "workers would share one RNG stream"
+
+    class _FakeInfo:
+        pass
+
+    info = _FakeInfo()
+    info.dataset = dataset
+    monkeypatch.setattr(torch.utils.data, "get_worker_info", lambda: info)
+    loader.worker_init_fn(3)
+    assert dataset.seeded == 3, "the hook never reached the dataset"
