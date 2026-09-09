@@ -9,7 +9,8 @@ setup, resume-filename regex parsing, and an ``ml_platforms`` module reached via
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import lightning as L
 import torch
@@ -34,8 +35,13 @@ class MotionLitModule(L.LightningModule):
         losses: Sequence[tuple[str, float, LossTerm]],
         learning_rate: float = 1e-4,
         weight_decay: float = 0.0,
+        recipe: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__()
+        # What this run was trained with, carried into every checkpoint this
+        # module writes: a checkpoint moved away from its run directory would
+        # otherwise leave `recipe.yaml` behind and become unverifiable.
+        self.save_hyperparameters({"recipe": dict(recipe) if recipe else None})
         self.task = MotionTask(model=model, process=process, losses=losses)
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay

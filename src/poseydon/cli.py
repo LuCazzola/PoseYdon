@@ -42,6 +42,7 @@ def _train(args: argparse.Namespace) -> int:
     from omegaconf import OmegaConf
 
     from poseydon.training.build import build_datamodule, build_module
+    from poseydon.training.recipe import write_recipe
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
     if args.print_config:
@@ -51,6 +52,11 @@ def _train(args: argparse.Namespace) -> int:
     L.seed_everything(config.seed, workers=True)
     data = build_datamodule(config)
     module = build_module(config, feature_dim=data.train_dataset.spec.dim)
+
+    # What this run was trained with, beside the checkpoints it writes. The
+    # module carries the same mapping into every checkpoint's hyperparameters,
+    # so a checkpoint moved away from its run directory stays self-describing.
+    print(f"wrote {write_recipe(config, args.out)}")
 
     trainer = L.Trainer(
         max_steps=config.trainer.max_steps,
@@ -79,9 +85,32 @@ def _sample(args: argparse.Namespace) -> int:
     from poseydon.features import reconstruct
     from poseydon.io.bvh import BVH
     from poseydon.training.build import build_dataset, build_model, build_process
+    from poseydon.training.recipe import check_recipe, recipe_from_checkpoint
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
     torch.manual_seed(config.seed)
+
+    # Before anything is built: this config recomposes from `configs/sample.yaml`
+    # and knows nothing about the checkpoint, so a `features:` that disagrees
+    # with the one it was trained under would otherwise sample silent garbage.
+    state = None
+    if args.checkpoint:
+        state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+        recorded = recipe_from_checkpoint(state, args.checkpoint)
+        if recorded is None:
+            print(
+                f"{args.checkpoint} carries no recipe and none sits beside it: "
+                "cannot verify it against this config",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                check_recipe(config, recorded)
+            except ValueError as mismatch:
+                print(mismatch, file=sys.stderr)
+                return 1
+    else:
+        print("no --checkpoint given: sampling from an untrained model", file=sys.stderr)
 
     dataset = build_dataset(config)
     skeleton = config.skeleton or dataset.records[0].skeleton
@@ -96,15 +125,12 @@ def _sample(args: argparse.Namespace) -> int:
     process = build_process(config)
     model = build_model(config, feature_dim=template.spec.dim).eval()
 
-    if args.checkpoint:
-        state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if state is not None:
         model.load_state_dict(
             {k.removeprefix("task.model."): v
              for k, v in state.get("state_dict", state).items()
              if k.startswith("task.model.")}
         )
-    else:
-        print("no --checkpoint given: sampling from an untrained model", file=sys.stderr)
 
     n, frames = config.n_samples, config.n_frames
     joints = template.n_joints

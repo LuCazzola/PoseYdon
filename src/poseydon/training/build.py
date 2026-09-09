@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from poseydon.build.index import CorpusIndex
 from poseydon.data.dataset import MotionDataset
@@ -20,6 +20,7 @@ from poseydon.losses.base import LOSSES, LossTerm
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
 from poseydon.training.lightning import MotionDataModule, MotionLitModule
+from poseydon.training.recipe import recipe_of
 
 
 def build_losses(config: DictConfig) -> list[tuple[str, float, LossTerm]]:
@@ -65,4 +66,5 @@ def build_module(config: DictConfig, feature_dim: int) -> MotionLitModule:
         losses=build_losses(config.losses),
         learning_rate=float(config.optimizer.learning_rate),
         weight_decay=float(config.optimizer.weight_decay),
+        recipe=OmegaConf.to_container(recipe_of(config), resolve=True),
     )
