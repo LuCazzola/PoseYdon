@@ -84,6 +84,7 @@ class MotionDataset:
         if not self.records:
             raise ValueError(f"no clips in the index for split={split!r}")
 
+        self.seed = seed
         self._rng = np.random.default_rng(seed)
         self._manifests: dict[str, SkeletonManifest] = {}
         self._reductions: dict[str, JointReduction] = {}
@@ -112,6 +113,17 @@ class MotionDataset:
 
     def __len__(self) -> int:
         return len(self._plan)
+
+    def set_worker_seed(self, worker_id: int) -> None:
+        """Give this worker its own stream.
+
+        `__init__` builds one Generator, and `fork` copies it into every
+        dataloader worker -- so with `num_workers > 0` all workers drew the
+        SAME crops and the same augmentations, silently reducing the effective
+        variety of a batch by a factor of `num_workers`. Called from
+        `worker_init_fn`.
+        """
+        self._rng = np.random.default_rng([self.seed, worker_id])
 
     @property
     def spec(self) -> FeatureSpec:

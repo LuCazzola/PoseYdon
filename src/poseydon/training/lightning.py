@@ -13,10 +13,11 @@ from collections.abc import Sequence
 
 import lightning as L
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from poseydon.data.collate import collate
 from poseydon.data.dataset import MotionDataset
+from poseydon.data.sampler import balanced_weights
 from poseydon.losses.base import LossTerm
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
@@ -73,12 +74,14 @@ class MotionDataModule(L.LightningDataModule):
         val: MotionDataset | None = None,
         batch_size: int = 8,
         num_workers: int = 0,
+        balanced: bool = True,
     ) -> None:
         super().__init__()
         self.train_dataset = train
         self.val_dataset = val
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.balanced = balanced
 
     def _loader(self, dataset: MotionDataset, shuffle: bool) -> DataLoader:
         return DataLoader(
@@ -90,8 +93,35 @@ class MotionDataModule(L.LightningDataModule):
             drop_last=False,
         )
 
+    def _worker_init(self, worker_id: int) -> None:
+        info = torch.utils.data.get_worker_info()
+        if info is not None:
+            info.dataset.set_worker_seed(worker_id)
+
     def train_dataloader(self) -> DataLoader:
-        return self._loader(self.train_dataset, shuffle=True)
+        sampler = None
+        if self.balanced:
+            weights = balanced_weights(self.train_dataset)
+            sampler = WeightedRandomSampler(
+                weights=torch.as_tensor(weights, dtype=torch.double),
+                num_samples=len(self.train_dataset),
+                replacement=True,
+            )
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            # `shuffle` and `sampler` are mutually exclusive; the sampler
+            # already randomizes.
+            shuffle=sampler is None,
+            sampler=sampler,
+            num_workers=self.num_workers,
+            collate_fn=collate,
+            # A short final batch changes the padded joint count and the loss
+            # scale for one step in every epoch, for no benefit.
+            drop_last=True,
+            worker_init_fn=self._worker_init if self.num_workers else None,
+            persistent_workers=self.num_workers > 0,
+        )
 
     def val_dataloader(self) -> DataLoader:
         if self.val_dataset is None:
