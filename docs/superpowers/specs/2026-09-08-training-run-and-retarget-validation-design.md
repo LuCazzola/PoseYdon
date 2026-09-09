@@ -828,10 +828,19 @@ PoseYdon's own processing. Goat is not in `PROMOTE_ROOT`, so this is a second,
 independent instance of the same "un-promoted ground locator" shape the FBX
 path already fails to strip for the 14 it does know about, not a bug in the
 guard itself (the four other rigs carrying a `mesh.npz` — Flamingo, BrownBear,
-Crab, Scorpion — all match their real BVH joint count exactly). Left as data,
-not fixed here: closing it means either adding Goat to `PROMOTE_ROOT` (a
-BVH-side corpus decision) or regenerating its `mesh.npz`, neither of which
-this task decides.
+Crab, Scorpion — all match their real BVH joint count exactly). Left as data, not fixed here.
+
+**The fix is FBX-side, and adding Goat to `PROMOTE_ROOT` would be wrong.**
+`PROMOTE_ROOT` drives the BVH `PrepareChain`, and Goat's BVH needs nothing: its
+prepared root is `Hips` at height fraction 0.724, a properly body-rooted
+skeleton with no locator to strip. Promoting it would move the root off the
+pelvis and onto the spine — exactly the failure the table's ground-locator gate
+exists to prevent, and the reason §1.2 keys that gate on the locator
+classification rather than on the presence of an offset. The `Null` is an
+artefact of the FBX export alone, which is why the two sources disagree at all.
+Closing it means either stripping the `Null` in the FBX path or regenerating
+`mesh.npz` against the promoted skeleton — both FBX-side work, and both waiting
+on the same decision §2 defers about giving that path a real stage contract.
 
 ## Phasing
 
