@@ -1484,10 +1484,11 @@ Goat is the rig the plan text called out; Camel is the same mechanism (it is one
 
 ## Final whole-branch review — fix wave
 
-Applied after all 9 tasks were individually reviewed and complete; see
-`.superpowers/sdd/2026-09-09-build-stage-and-artefacts/final-fix-report.md` for the
-full list, commands and measured output. Two items belong here because A3 needs
-them and nothing else records them:
+Applied after all 9 tasks were individually reviewed and complete, in commits
+`3229a57` (build failures made fatal, `build_index` guarded, authored splits
+honoured) and `b7df837` (spec read-path, `stats.npz` claim, FBX-filter and
+CI-pin hand-off notes). Two items belong here because A3 needs them and nothing
+else records them:
 
 - **`skeleton.npz` requires `allow_pickle=True`, permanently.** Not a bug to fix:
   `prepare/enforce_rigid/source_channels` is genuinely ragged (a tuple of channel
