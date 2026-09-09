@@ -16,11 +16,19 @@ class FootSkateLoss(LossTerm):
     """Penalize movement of joints the target marks as in contact.
 
     Uses raw positions, so the penalty is a real displacement rather than a
-    displacement in units of each channel's standard deviation.
+    displacement in units of each channel's standard deviation. The contact
+    flag is read raw for the same reason, as defence in depth: the shipped
+    policy leaves `foot_contact` un-centred and unscaled, so today the flag
+    reaches this term untouched and thresholding the normalized block would
+    work. It stops working the moment that policy changes -- a mostly-planted
+    foot has a high mean and a low standard deviation, so its z-scored 1 falls
+    below 0.5, every planted frame is discarded, and the term silently reads
+    zero. Reading raw makes the threshold mean what it says whatever
+    `normalize:` declares.
     """
 
     name = "footskate"
-    needs = (Block("ric_pos", space="raw"), Block("foot_contact"))
+    needs = (Block("ric_pos", space="raw"), Block("foot_contact", space="raw"))
 
     def __call__(
         self,
@@ -30,7 +38,7 @@ class FootSkateLoss(LossTerm):
         aux: dict[str, Any],
     ) -> torch.Tensor:
         predicted = raw_block(batch, x0_hat, "ric_pos")
-        contact = x0[:, :, batch.spec.slice("foot_contact"), :]
+        contact = raw_block(batch, x0, "foot_contact")
 
         # Contact is a flag on a frame; a slide is movement between two of them.
         velocity = predicted[..., 1:] - predicted[..., :-1]
