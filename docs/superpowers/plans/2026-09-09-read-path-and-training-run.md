@@ -543,9 +543,30 @@ def test_the_rest_frame_comes_from_the_declared_rest_pose(dataset):
     manifest = dataset._manifest("Crab")
     assert rest_action(manifest) == "walk"
 
-    frame = dataset._rest_frame_of("Crab")
-    expected = dataset._extract_rest("Crab")
-    np.testing.assert_allclose(frame, expected)
+    # Compare against an INDEPENDENTLY built frame, not against
+    # `dataset._extract_rest` -- `_rest_frame_of` just caches that call, so
+    # comparing the two would assert nothing at all.
+    from poseydon.core.animation import RigidBodyAnimation
+    from poseydon.core.skeleton import resolve
+    from poseydon.features import extract_features
+    from poseydon.features.reduce import apply_reduction
+
+    anim = RigidBodyAnimation.load(CORPUS / "clips" / "Crab" / "walk.npz")
+    reduced = apply_reduction(anim, dataset._reduction("Crab"))
+    raw, spec = extract_features(reduced, resolve(manifest, reduced.names), FEATURES)
+    expected = dataset._normalizer("Crab", spec).normalize(raw[:1])[0]
+
+    np.testing.assert_allclose(dataset._rest_frame_of("Crab"), expected)
+
+    # And it must differ from what the old first-clip fallback produced --
+    # otherwise the test would pass even if nothing changed.
+    first_clip = RigidBodyAnimation.load(CORPUS / "clips" / "Crab" / "attack1.npz")
+    reduced_first = apply_reduction(first_clip, dataset._reduction("Crab"))
+    raw_first, _ = extract_features(
+        reduced_first, resolve(manifest, reduced_first.names), FEATURES
+    )
+    fallback = dataset._normalizer("Crab", spec).normalize(raw_first[:1])[0]
+    assert not np.allclose(expected, fallback), "the old fallback was not distinguishable"
 
 
 def test_every_rig_can_produce_a_rest_frame(dataset):
