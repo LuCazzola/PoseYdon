@@ -1932,3 +1932,41 @@ know" above.
 Commits: `19ac4a4` (the fix, `src/poseydon/build/prepare.py`,
 `tests/conftest.py`, `tests/build/test_bvh_fbx_agreement.py`) plus this
 outcome-doc update.
+
+## Addendum — three rigs do not face +Z (found by the controller, after the fix round)
+
+Regenerating the corpus after Task 9's fix (needed because `PromoteRoot.fit` gained
+`dead_names`/`dead_offsets`/`dead_parents`, making every pre-fix `prepare.npz` stale)
+surfaced a warning class the Outcome above does not mention. Stage 1's own sanity
+check reports the prepared clip's forward axis against +Z, and three rigs miss the
+0.99 threshold badly:
+
+| rig | forward · +Z | rest file |
+|---|---|---|
+| Tukan | 0.7579 | `tpose.bvh` |
+| Trex | 0.8207 | `walk_loop.bvh` |
+| Crow | 0.9433 | `tpose.bvh` |
+
+Both the frame-0 pose and the rest skeleton are off by the same amount in each case,
+so this is a rig-level facing problem, not a per-clip one. All three are promoted
+rigs, which is suggestive but not conclusive — the other eleven promoted rigs are
+clean, so promotion alone does not explain it.
+
+**These are newly surfaced, not newly caused.** Before this plan only five rigs had
+ever been prepared (BrownBear, Crab, Flamingo, Goat, Scorpion) and none of these
+three was among them, so no run had ever measured them. The likely cause is the
+`facing:` joint pairs in each rig's manifest — `FaceAxis` derives its rotation from
+those pairs at frame 0, so a pair naming near-collinear or mis-sided joints yields a
+rotation that does not actually square the character up. Tukan and Crow are
+particularly odd because their rest file IS a T-pose, which should be the easiest
+case to align.
+
+It matters: those rigs' clips teach the model a systematically wrong orientation, and
+the facing convention is what the whole cross-topology representation is anchored to.
+It is out of scope here — A1 corrects stage-1 code and rebuilds; the `facing:` pairs
+are authored manifest data, and fixing them needs the rigs inspected in a DCC tool.
+
+**A follow-on plan should:** inspect Tukan, Trex and Crow in Blender, correct their
+manifest `facing:` pairs (or `extra_yaw_deg`), re-run stage 1 for those three, and
+consider promoting the sanity check from a warning to a hard failure once the corpus
+is clean — a warning in a 73-rig run scrolls past, which is how this went unnoticed.
