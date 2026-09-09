@@ -11,3 +11,8 @@ value_bias: false
 # plan -- this closes the config hole now so it doesn't become a silent
 # no-op later.
 name_embedding_dim: 768
+# Attention locality: a frame attends only the 31-frame neighbourhood centred
+# on it, matching the reference's `--temporal_window 31`. Intersected with the
+# padding mask inside the model, never routed through conditioning -- a
+# conditioner's `collate` is not told the batch's frame count.
+temporal_window: 31

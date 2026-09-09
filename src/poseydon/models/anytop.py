@@ -17,7 +17,13 @@ from torch import nn
 
 from poseydon.core.batch import Cond, Masks
 from poseydon.core.topology import DEFAULT_MAX_PATH, EdgeType
-from poseydon.models.base import MODELS, Denoiser, Prediction
+from poseydon.models.base import (
+    MODELS,
+    TEMPORAL_VALID,
+    Denoiser,
+    Prediction,
+    temporal_pair_mask,
+)
 from poseydon.models.modules.embeddings import sinusoidal_embedding
 from poseydon.models.modules.graph_attention import MASK_FILL, GraphAttention
 
@@ -123,10 +129,12 @@ class AnyTop(Denoiser):
         max_path: int = DEFAULT_MAX_PATH,
         value_bias: bool = False,
         name_embedding_dim: int | None = None,
+        temporal_window: int = 31,
     ) -> None:
         super().__init__()
         self.feature_dim = feature_dim
         self.d_model = d_model
+        self.temporal_window = temporal_window
 
         # The root carries a different quantity from the other joints -- its
         # block-0 slot holds the facing rotation, not a bone rotation -- so it
@@ -183,7 +191,7 @@ class AnyTop(Denoiser):
         tokens = tokens + self._positions(batch, frames, cond, device)
 
         timestep = sinusoidal_embedding(t.to(device), self.d_model)
-        spatial_mask, temporal_mask = self._masks(masks, batch, joints, frames, device)
+        spatial_mask, temporal_mask = self._masks(masks, cond, batch, joints, frames, device)
 
         for layer in self.layers:
             tokens = layer(tokens, timestep, hops, edges, spatial_mask, temporal_mask)
@@ -211,21 +219,48 @@ class AnyTop(Denoiser):
             index[:, 1:] = index[:, 1:] + start.to(device)[:, None]
         return sinusoidal_embedding(index, self.d_model)[:, :, None, :]
 
+    def _valid_with_band(
+        self, joint_valid: torch.Tensor, frame_valid: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Joint validity and pairwise frame validity, band-limited.
+
+        Index 0 of the pair mask is the REST frame, which conditions everything
+        and attends only itself; the band applies to the real frames after it.
+        The band is ANDed with the padding mask, never ORed: it NARROWS
+        attention and must never make a padded frame visible.
+        """
+        return joint_valid, temporal_pair_mask(frame_valid, self.temporal_window)
+
     def _masks(
-        self, masks: Masks | None, batch: int, joints: int, frames: int, device: torch.device
+        self,
+        masks: Masks | None,
+        cond: Cond,
+        batch: int,
+        joints: int,
+        frames: int,
+        device: torch.device,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        if masks is None:
-            return None, None
+        spatial = masks.spatial().to(device) if masks is not None else None  # (B, 1, J, J)
 
-        spatial = masks.spatial().to(device)  # (B, 1, J, J)
+        # An explicit mask from the caller wins outright -- the band is only the
+        # default for when none was supplied, and applying it afterwards would
+        # silently narrow a mask sampling chose deliberately.
+        override = cond.get(TEMPORAL_VALID)
+        if override is not None:
+            pair = override.to(device)
+        elif masks is None and not self.temporal_window:
+            return spatial, None
+        else:
+            frame_valid = (
+                masks.frames.to(device)
+                if masks is not None
+                else torch.ones(batch, frames, dtype=torch.bool, device=device)
+            )
+            _, pair = self._valid_with_band(
+                torch.ones(batch, joints, dtype=torch.bool, device=device), frame_valid
+            )
 
-        # The rest frame is always valid and precedes every real frame.
-        valid = torch.cat(
-            [torch.ones(batch, 1, dtype=torch.bool, device=device), masks.frames.to(device)],
-            dim=1,
-        )
-        pair = valid[:, :, None] & valid[:, None, :]  # (B, T+1, T+1)
-        temporal = pair.repeat_interleave(joints, dim=0)
+        temporal = pair.repeat_interleave(joints, dim=0)  # (B * J, T+1, T+1)
         # MultiheadAttention wants an additive float mask when it is not bool.
         return spatial, torch.zeros_like(temporal, dtype=torch.float32).masked_fill(
             ~temporal, MASK_FILL

@@ -22,7 +22,14 @@ from torch import nn
 
 from poseydon.core.batch import Cond, Masks
 from poseydon.core.topology import DEFAULT_MAX_PATH
-from poseydon.models.base import CLEAN_MOTION, MODELS, Denoiser, Prediction
+from poseydon.models.base import (
+    CLEAN_MOTION,
+    MODELS,
+    TEMPORAL_VALID,
+    Denoiser,
+    Prediction,
+    temporal_pair_mask,
+)
 from poseydon.models.modules.embeddings import sinusoidal_embedding
 from poseydon.models.modules.graph_backbone import (
     GraphMotionDecoder,
@@ -35,10 +42,13 @@ from poseydon.models.modules.graph_backbone import (
 Z_SEM = "z_sem"
 #: Conditioning key holding T5 embeddings of the joint names.
 JOINT_NAMES = "joint_names"
-#: Conditioning key holding an explicit (B, T+1, T+1) frame-attention mask.
-#: The reference restricts temporal attention to a sliding band, which is a
-#: dataset property rather than a model one, so it arrives as conditioning.
-TEMPORAL_VALID = "temporal_valid"
+
+#: Re-exported from :mod:`poseydon.models.base`. The sliding band the reference
+#: applies is now a MODEL parameter (``temporal_window``), not conditioning: it
+#: is a property of the attention module, and routing it through conditioning
+#: would need ``Conditioner.collate`` to know the batch's frame count, which it
+#: is never given. This key survives only as a sampling-time override.
+__all__ = ["JOINT_NAMES", "TEMPORAL_VALID", "Z_SEM", "MoDiffAE"]
 
 
 class InputProcess(nn.Module):
@@ -293,10 +303,12 @@ class MoDiffAE(Denoiser):
         projection_head_depth: int = 2,
         text_dim: int = 768,
         kl_bottleneck: bool = False,
+        temporal_window: int = 31,
     ) -> None:
         super().__init__()
         self.feature_dim = feature_dim
         self.d_model = d_model
+        self.temporal_window = temporal_window
         self.semantic_encoder = SemanticEncoder(
             feature_dim, d_model, n_layers_semantic, n_heads, ff_size, dropout,
             max_path, n_virtual_joints, projection_head_depth, text_dim, kl_bottleneck,
@@ -307,8 +319,17 @@ class MoDiffAE(Denoiser):
         )
         self.output_process = OutputProcess(feature_dim, d_model)
 
-    @staticmethod
-    def _valid(masks: Masks | None, batch: int, joints: int, frames: int, device):
+    def _valid_with_band(self, joint_valid: torch.Tensor, frame_valid: torch.Tensor):
+        """Joint validity and pairwise frame validity, band-limited.
+
+        Index 0 of the pair mask is the REST frame, which conditions everything
+        and attends only itself; the band applies to the real frames after it.
+        The band is ANDed with the padding mask, never ORed: it NARROWS
+        attention and must never make a padded frame visible.
+        """
+        return joint_valid, temporal_pair_mask(frame_valid, self.temporal_window)
+
+    def _valid(self, masks: Masks | None, batch: int, joints: int, frames: int, device):
         """Joint validity and pairwise frame validity, including the rest frame."""
         if masks is None:
             joint_valid = torch.ones(batch, joints, dtype=torch.bool, device=device)
@@ -316,15 +337,7 @@ class MoDiffAE(Denoiser):
         else:
             joint_valid = masks.joints.to(device)
             frame_valid = masks.frames.to(device)
-
-        leading = torch.ones(batch, 1, dtype=torch.bool, device=device)
-        extended = torch.cat([leading, frame_valid], dim=1)
-        pair = extended[:, :, None] & extended[:, None, :]
-        # The rest frame conditions everything but attends only to itself
-        pair = pair.clone()
-        pair[:, 0, :] = False
-        pair[:, 0, 0] = True
-        return joint_valid, pair
+        return self._valid_with_band(joint_valid, frame_valid)
 
     def encode(self, clean, cond, masks=None, temporal_valid=None):
         """Semantic latent for a clean clip, plus any KL terms."""

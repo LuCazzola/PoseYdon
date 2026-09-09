@@ -5,8 +5,13 @@ n_layers_stochastic: 4
 n_heads: 4
 ff_size: 512
 dropout: 0.1
-n_virtual_joints: 3
+n_virtual_joints: 5
 kl_bottleneck: false
+# Attention locality: a frame attends only the 31-frame neighbourhood centred
+# on it, matching the reference's `--temporal_window 31`. Intersected with the
+# padding mask inside the model, never routed through conditioning -- a
+# conditioner's `collate` is not told the batch's frame count.
+temporal_window: 31
 # NOT `name_embedding_dim: 768` here: `MoDiffAE.__init__` (models/modiffae.py)
 # takes no such keyword -- its equivalent hook is `text_dim` (default 768,
 # already set), which sizes `InputProcess.text_embedding` and is applied
