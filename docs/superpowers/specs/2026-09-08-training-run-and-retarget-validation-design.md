@@ -344,7 +344,22 @@ then Crab's mesh must not be used for anything geometric.
 It is why `poseydon train` fails at config load today. Stage 2 owns the config
 group, so it owns this correction.
 
-**`configs/model/*.yaml` gains `name_embedding_dim: 768`.**
+**The FBX path does not promote, so the two corpora diverge for 14 rigs.**
+`PromoteRoot` (§1.2) lives in the BVH `PrepareChain`;
+`scripts/process_dataset_truebones_fbx.py` only rotates and scales a Blender
+scene, so for the 14 promoted rigs the prepared BVH has the locator chain removed
+while the prepared FBX still has it.
+`test_bvh_and_fbx_agree_on_the_skeleton_structure` compares exactly that and
+would fail — it passes today only because the five rigs with prepared FBX
+artefacts happen to include none of the 14. Agreement by lucky coverage.
+
+Stage 2 must not paper over it. Two routes, and A2 picks one on evidence: teach
+the FBX path the same promotion (it has no `PrepareChain`, so that means a
+Blender-side equivalent driven by the same `PROMOTE_ROOT` table), or declare the
+FBX corpus un-promoted and have stage 2 refuse to fold a `mesh.npz` whose joint
+count disagrees with `skeleton.npz`. The second is cheaper and honest; the first
+is what a skinned application eventually needs. Either way the structure test
+must cover a promoted rig.
 
 **`configs/model/*.yaml` gains `name_embedding_dim: 768`.** Without it
 `AnyTop.name_projection` stays `None` and joint-name embeddings are accepted and
