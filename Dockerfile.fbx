@@ -23,8 +23,21 @@ FROM debian:bookworm-slim
 # `ModuleNotFoundError: No module named 'scipy'` at the available_rigs import
 # line, before the script's own code ever runs). FBX's own mesh.npz writer
 # uses numpy directly too.
+#
+# python3-pytest, for the same "links against the system Python" reason: this
+# image has no pip and no venv, so `pip install pytest` is not an option --
+# and it is not optional dead weight either. `tests/build/test_roundtrip_fbx.py`
+# is a real pytest test that is gated on Blender (`pytest.importorskip("bpy",
+# ...)`), meaning it can ONLY ever execute inside this image. Without a pytest
+# runner in here, that test skips forever in `test` (no Blender) and cannot
+# even be collected in here (no pytest) -- a permanently-skipping test that
+# reports green either way, which is exactly the failure mode this whole plan
+# was written to close (`test_round_trip_returns_the_source_rig[Crab]` skipped
+# silently for weeks looking like a pass). Debian ships a distro
+# `python3-pytest` package built against the system interpreter, so it is
+# importable from inside Blender the same way PyYAML/numpy/scipy are.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      blender python3-yaml python3-numpy python3-scipy \
+      blender python3-yaml python3-numpy python3-scipy python3-pytest \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

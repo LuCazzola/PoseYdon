@@ -12,24 +12,19 @@ design spec's Sec 9; closing it is build-stage work for a later plan, not this
 test.
 
 Blender-gated: Dockerfile.compat and the test image deliberately ship no
-Blender, so this is meant to run against the `fbx` compose service:
+Blender, so this runs against the `fbx` compose service, which installs
+`python3-pytest` (Debian's distro package, importable from Blender's linked
+system Python the same way PyYAML/numpy/scipy are) for exactly this purpose:
 
     docker compose run --rm fbx blender -b --python-expr \\
-        "import pytest, sys; sys.exit(pytest.main(['tests/build/test_roundtrip_fbx.py','-v']))"
-
-In practice that invocation cannot run here: `Dockerfile.fbx` installs distro
-Blender against the system Python (no pip, no `pytest`), so `import pytest`
-fails inside that image (`ModuleNotFoundError: No module named 'pytest'`) and
-there is no way to install it there. This file still collects correctly under
-Blender (verified by importing `poseydon.io.fbx.FBX` and calling
-`read`/`write`/`read` directly, matching exactly what this test does, inside
-`docker compose run --rm fbx blender -b --python <script>` -- see
-task-8-report.md for the transcript) so the logic itself is confirmed against
-real data; only the pytest-inside-Blender collection step is unverifiable
-with this image as built.
+        "import sys, pytest; sys.exit(pytest.main(['tests/build/test_roundtrip_fbx.py','-v','-rs']))"
 
 Skipping when Blender is absent is correct here -- the data is genuinely not
-available.
+available -- but a test that can ONLY ever skip is worthless (this plan exists
+because exactly that happened to a prior round-trip test for weeks). This one
+is confirmed to actually execute and report failures inside the `fbx` image;
+see task-8-report.md for the real pytest transcript and a deliberate-failure
+check.
 """
 
 from __future__ import annotations
