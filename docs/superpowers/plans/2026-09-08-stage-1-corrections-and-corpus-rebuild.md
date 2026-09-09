@@ -1636,9 +1636,12 @@ Not covered here, by design: §8 tests 8–10 (golden feature parity, normalizat
 
 # Outcome
 
-Completed 2026-09-09. 2 commits, `0486820..6058542` (on top of the 17 commits
-already on the branch for Tasks 1–8, `315ad61..af7522f`). Suite:
-118 passed, 7 skipped, 4 xfailed, 3 xpassed. `ruff` clean.
+Completed 2026-09-09, one review round. 3 commits in the original pass,
+`0486820..6058542` (on top of the 17 commits already on the branch for
+Tasks 1–8, `315ad61..af7522f`), plus a fix round addressing a review that
+found a real structural round-trip breach. See "Fix round 1" below for the
+fix-round commits and verification. Suite after the fix round: 124 passed,
+11 skipped, 4 xfailed, 0 xpassed. `ruff` clean.
 
 **Measured yield:** 1145 clips across 73 rig directories — exactly the
 plan's prediction. `find data/truebones/clips -name '*.bvh' | wc -l` → 1145;
@@ -1653,9 +1656,20 @@ plan's prediction. `find data/truebones/clips -name '*.bvh' | wc -l` → 1145;
 | Deer | `__TPOSE.bvh` | 46 vs 51 joints |
 | Jaguar | `__TPOSE.bvh` | 53 vs 59 joints |
 | HermitCrab | `__Take_001.bvh` | 71 vs 83 joints |
-| Centipede | `__Take_001.bvh` | manifest's `foot_joints` names `BN_Toe01_L_01`, which the skeleton doesn't have (`BN_Toe0_L_01` does) |
-| Elephant | `__Take_001.bvh` | manifest's `foot_joints` names `Bip01_R_Toe0`, which the skeleton doesn't have |
-| Trex | `__STILL.bvh` | manifest's `foot_joints` names `jt_ClawMiddle_R`, which the skeleton doesn't have |
+| Centipede | `__Take_001.bvh` | this one clip lacks `BN_Toe01_L_01` — verified present in the other 10/11 raw clips; the manifest names the right joint |
+| Elephant | `__Take_001.bvh` | this one clip lacks `Bip01_R_Toe0` — verified present in the other 14/15 raw clips; the manifest names the right joint |
+| Trex | `__STILL.bvh` | this one clip lacks `jt_ClawMiddle_R` — verified present in the other 70/71 raw clips; the manifest names the right joint |
+
+All eight rejections are the same underlying cause: the outlier clip carries
+a reduced joint set relative to the rig's modal skeleton. For Ant/Crab/
+Deer/Jaguar/HermitCrab it surfaces as a joint-count mismatch at
+`rest_relative` fitting; for Centipede/Elephant/Trex it surfaces earlier, at
+manifest resolution, because the specific joint the manifest's `foot_joints`
+names happens to be one the outlier clip is missing. **The manifest is
+correct in all three cases** — do not "fix" `Centipede`/`Elephant`/`Trex`'s
+`foot_joints` to a joint the outlier clip happens to have; that would be
+fitted to the wrong (1-in-11, 1-in-15, 1-in-71) clip and break resolution
+for the many good ones.
 
 No other rejection occurred. `RECOVERED` counts from Task 9 Step 5 match
 exactly: Ant 17, Crab 10, Deer 20, Jaguar 13.
@@ -1686,14 +1700,23 @@ joint in its subtree has an exactly-zero offset (so it occupies no space and
 nothing surviving can depend on it), records the dropped indices as
 `dead_indices`, and `apply` generalizes from a contiguous index slice to an
 explicit keep-list so the subtree is actually removed rather than silently
-misindexed. `invert` is unchanged: for Tukan alone, the round-trip contract
-now covers the skeletal joints only, not the permanently-dropped geometry
-junk. Anything else with more than one child (a real, non-dead sibling)
-still raises the original error — no other rig in the corpus hit this path,
-and `test_promote_table.py` / `test_prepare.py`'s existing PromoteRoot cases
-still pass unchanged.
+misindexed. Anything else with more than one child (a real, non-dead
+sibling) still raises the original error — no other rig in the corpus hit
+this path, and `test_promote_table.py` / `test_prepare.py`'s existing
+PromoteRoot cases still passed unchanged.
 
-This was necessary, not optional: without it, Tukan's 9 clips are
+**This first version of the fix was itself a spec violation, caught in
+review** (see "Fix round 1"): `invert` didn't reinsert the dropped subtree,
+so Tukan silently round-tripped 26 source joints down to 19 and back up to
+only 21 — a structural loss, not one of spec §9's four documented
+value-level losses. Fixed for real in the fix round: `fit` now records the
+dead joints' names, offsets and original parent indices (not just their
+indices), and `invert` splices them back at their exact original position
+with identity rotation and their own zero rest offset — the same treatment
+already given to the promoted chain above the target. `Tukan` is now in
+`SAMPLE_RIGS` specifically to keep this honest going forward.
+
+This was necessary, not optional: without some fix, Tukan's 9 clips are
 unreachable and the full rebuild cannot complete at all, let alone hit the
 predicted 1145. It was not on the plan's list of files to modify
 (`src/poseydon/build/prepare.py` wasn't expected to need a change in Task
@@ -1715,23 +1738,29 @@ the actual disagreement now that it runs:
 
 | Rig | Rest clip used | Disagreement (bone-length fraction) | Status |
 |---|---|---|---|
-| Flamingo | `tpose.bvh` | 2.4e-5 | XPASS (recorded xfail reason claims 6.8e-2) |
-| BrownBear | `tpose.bvh` | 1.8e-5 | XPASS (recorded xfail reason claims 5.5e-2) |
-| Scorpion | `tpose.bvh` | 1.0e-5 | XPASS (recorded xfail reason claims 3.3e-2) |
-| Crab | `walk.bvh` | **0.998** | XFAIL (recorded xfail reason claims 2.0e-5, "passes") |
+| Flamingo | `tpose.bvh` | 2.4e-5 | PASS (was blanket-xfailed at a claimed 6.8e-2) |
+| BrownBear | `tpose.bvh` | 1.8e-5 | PASS (was blanket-xfailed at a claimed 5.5e-2) |
+| Scorpion | `tpose.bvh` | 1.0e-5 | PASS (was blanket-xfailed at a claimed 3.3e-2) |
+| Crab | `walk.bvh` | **0.998** | XFAIL, rig-specific now (recorded xfail reason claimed 2.0e-5, "passes") |
 
-The xfail marker is `strict=False`, so none of this fails the suite, but
-the recorded numbers in the marker's `reason=` text (Task 8) are now stale
-in both directions: Flamingo/BrownBear/Scorpion genuinely closed the gap
-(likely from this plan's other fixes — the zero-length-bone scale
-corrections mentioned in the same docstring) and now XPASS; Crab, which the
-same text claims passes at 2e-5, in fact disagrees by essentially a full
-bone length at `BN_Leg_R_12`. The likely cause: Crab's `mesh.npz` was built
-by the Blender/FBX pass against whatever rest reference it used *before*
-the rest-pose-selection fix, and now that the BVH side correctly resolves
-to `walk.bvh` (Task 2/3's fix), the two sides are comparing geometry from
-different source clips. This is the same underlying hazard as the
-promoted-rig `mesh.npz` staleness below, just for a rig outside
+**Fixed in the fix round, not left as a stale XPASS.** The original pass of
+this task left the blanket `@pytest.mark.xfail(strict=False)` marker in
+place across all four sample rigs, which meant Flamingo/BrownBear/Scorpion
+showed as XPASS — asserting nothing, so a regression back to 6.8e-2 would
+have stayed green. Review caught this as the exact failure mode this whole
+plan exists to close. Fixed: the blanket marker is gone; the test now
+enforces the real assertion for Flamingo/BrownBear/Scorpion (which pass at
+2-3 orders of magnitude better than the old recorded numbers, likely from
+this plan's other fixes — the zero-length-bone scale corrections mentioned
+in the same test file) and calls `pytest.xfail(...)` only for Crab, with a
+corrected reason. Crab's real disagreement is ~1.0 bone lengths at
+`BN_Leg_R_12`, not the 2e-5 the old blanket text claimed (that number
+predates the rest-pose-selection fix). Likely cause: Crab's `mesh.npz` was
+built by the Blender/FBX pass against whatever rest reference it used
+*before* the rest-pose-selection fix, and now that the BVH side correctly
+resolves to `walk.bvh` (Task 2/3's fix), the two sides are comparing
+geometry from different source clips. This is the same underlying hazard as
+the promoted-rig `mesh.npz` staleness below, just for a rig outside
 `PROMOTE_ROOT` — **Crab's `mesh.npz` also needs regenerating in A2**, and
 the two hardcoded `pytest.xfail(...)` calls in
 `test_bvh_and_fbx_agree_on_the_skeleton_structure` and
@@ -1740,9 +1769,11 @@ survives" state that Task 9 no longer produces (Crab now keeps 10 clips) —
 their reasoning text is stale documentation, not a live check, and should
 be re-examined in the next plan rather than trusted as current.
 
-Full suite (`pytest -q -rs`, 131 collected): 118 passed, 7 skipped
-(Blender-only and missing-FBX cases, all pre-existing and expected), 4
-xfailed, 3 xpassed (the three above), 0 failed.
+Full suite (`pytest -q -rs`, 139 collected after Tukan joined `SAMPLE_RIGS`):
+124 passed, 11 skipped (Blender-only and missing-FBX/mesh.npz cases, all
+pre-existing and expected, now including Tukan since it has no `mesh.npz`),
+4 xfailed, **0 xpassed**, 0 failed. No test in the suite asserts nothing
+anymore.
 
 ## Step 7 hazard check
 
@@ -1763,24 +1794,141 @@ says so.
 ## What a follow-on plan needs to know
 
 - The corpus at `data/truebones/clips/` and `data/truebones/rigs/*/prepare.npz`
-  is now complete and current: 1145 clips, 73 rigs, built by the code at
-  `6058542`. Both are gitignored — re-derive them with
-  `python scripts/process_dataset_truebones.py` rather than expecting them
-  in a checkout.
-- `PromoteRoot` has a new, narrower escape hatch (dead-subtree dropping) that
-  only Tukan currently exercises. If a future rig needs the same treatment,
-  the criterion is "every joint in the extra subtree has an exactly-zero
-  offset" — not "the joint is named like a mesh helper."
+  is now complete and current: 1145 clips, 73 rigs. **The `prepare.npz`
+  files on disk are stale against the fix-round code** — the fix round
+  changed what `PromoteRoot.fit` stores (`dead_names`/`dead_offsets`/
+  `dead_parents` alongside `dead_indices`), and the corpus was *not*
+  rebuilt after that change (rebuilding was explicitly out of scope for the
+  fix round). Both `clips/` and `prepare.npz` are gitignored — re-derive
+  them with `python scripts/process_dataset_truebones.py` before trusting
+  `prepare.npz` for anything that reads `promote_root`'s params (Tukan's
+  entry specifically; the other 72 rigs' params are unaffected in content,
+  only Tukan gained new keys).
+- `PromoteRoot` has a new, narrower escape hatch (dead-subtree dropping,
+  with full structural reinsertion on invert) that only Tukan currently
+  exercises. If a future rig needs the same treatment, the criterion is
+  "every joint in the extra subtree has an exactly-zero offset" — not "the
+  joint is named like a mesh helper." Spec §9's structure guarantee (joint
+  count, names, parent array, hierarchy order) holds for Tukan's round trip
+  exactly as it does for every other rig; `SAMPLE_RIGS` includes Tukan now
+  specifically to keep that true going forward.
 - **Crab's `mesh.npz` needs regenerating**, same as the 14 promoted rigs',
   before `test_bvh_and_fbx_agree_on_rest_geometry[Crab]` and the two
   hardcoded Crab `xfail`s in `test_bvh_fbx_agreement.py` can be trusted —
   right now they describe corpus states (1 surviving clip) that no longer
-  exist.
-- The `test_bvh_and_fbx_agree_on_rest_geometry` xfail's `reason=` text
-  (Task 8) is out of date for all four sample rigs and should be rewritten
-  once A2 regenerates `mesh.npz` for the rigs that need it — three of the
-  four numbers it cites are now wrong by three orders of magnitude (in the
-  good direction).
+  exist. This is the one open item this plan is handing forward; everything
+  else it set out to fix (yield, promotion, round-trip structure, the
+  rest-geometry regression guard) is done.
 - No rig other than the 8 predicted ones lost a clip; the yield is exactly
-  the plan's prediction. No manifest is missing `rest_pose` — the "declares
-  no `rest_pose`" raise path was never hit.
+  the plan's prediction, and all 8 share one root cause (the rejected clip
+  carries a reduced joint set relative to the rig's modal skeleton) even
+  though it surfaces at two different points in the pipeline. No manifest
+  is missing `rest_pose` — the "declares no `rest_pose`" raise path was
+  never hit. No manifest's `foot_joints`/`facing` entries are wrong for
+  Centipede, Elephant or Trex — do not "fix" them.
+
+## Fix round 1
+
+Review found three issues in the pass above. All three are fixed, in
+`19ac4a4`.
+
+**Finding 1 (Critical) — structural round-trip breach.** The first version
+of the Tukan fix (`0486820`) dropped `MESH`'s subtree in `apply` but never
+reinserted it in `invert`: source 26 joints -> prepared 19 -> restored 21,
+missing `MESH`/`ESI1_Body`/`ESI1_Body_End`/`body01`/`body01_End`. Silent —
+no error, and `test_roundtrip.py` didn't catch it only because `Tukan`
+wasn't in `SAMPLE_RIGS`. Spec §9's structure guarantee is non-negotiable;
+this was a fifth, undocumented, structural loss against its four documented
+value-level ones.
+
+Fixed: `PromoteRoot.fit` now records the dead joints' `dead_names`,
+`dead_offsets` and `dead_parents` (original absolute parent indices)
+alongside the existing `dead_indices`; `invert` splices them back at their
+exact original position with identity rotation and their own zero offset —
+the treatment already given to the ancestor chain above the target, exact
+because the dead subtree never moved. `Tukan` was added to
+`tests/conftest.py`'s `SAMPLE_RIGS` to guard this going forward.
+
+Verified:
+```
+$ docker compose run --rm test python - <<'PY'
+from poseydon.io.bvh import BVH
+from poseydon.build.prepare import PromoteRoot
+b = BVH.read("data/truebones/source/Tukan/__Fly.bvh")
+anim = b.to_animation()
+stage = PromoteRoot(target="locator")
+params = stage.fit(anim, None)
+applied = stage.apply(anim, params)
+restored = stage.invert(applied, params)
+print("source", anim.n_joints, "prepared", applied.n_joints, "restored", restored.n_joints)
+print("names match:", restored.names == anim.names)
+print("parents match:", list(restored.parents) == list(anim.parents))
+PY
+source 26 prepared 19 restored 26
+names match: True
+parents match: True
+```
+`test_round_trip_returns_the_source_rig[Tukan]` passes: all 26 joints, in
+`tests/build/`'s green run below. As with every other promoted rig, only
+the ancestor chain (`Hips`/`N_ALL`, and now `MESH` which shares `Hips`'s
+world-position ambiguity) does not return to its exact world position —
+that is spec §9's accepted value-level loss, unchanged, and `locator` and
+its descendants (the real skeleton) return exactly.
+
+**Finding 2 (Important) — three rejections misdiagnosed.** The original
+Outcome table attributed Trex/Centipede/Elephant's rejections to the
+manifest naming the wrong `foot_joints`. Verified directly: the named joint
+(`jt_ClawMiddle_R`, `BN_Toe01_L_01`, `Bip01_R_Toe0`) is present in all but
+one raw clip per rig (70/71, 10/11, 14/15) — the manifests are correct, and
+it is the outlier clip (the same one already causing the other five
+rejections) that carries a reduced joint set. Table and surrounding text
+corrected above; explicitly flagged as "do not fix the manifest" in the
+follow-on notes.
+
+**Finding 3 (Minor) — an assertion-free XPASS.** The blanket
+`@pytest.mark.xfail(strict=False)` on
+`test_bvh_and_fbx_agree_on_rest_geometry` meant Flamingo/BrownBear/Scorpion
+showed as XPASS after this task's other fixes closed their disagreement
+from ~5-7% of a bone length to ~1-2e-5 — asserting nothing, so a regression
+back to 6.8e-2 would have stayed green. Fixed: the marker is now
+rig-specific (Crab only, via an in-body `pytest.xfail(...)` matching this
+file's existing per-rig pattern), with a corrected reason reflecting Crab's
+actual ~1.0 bone-length disagreement rather than the stale 2e-5 claim.
+
+**Verification (real output):**
+```
+$ docker compose run --rm test pytest tests/build/ -v -rs
+...
+105 passed, 11 skipped, 4 xfailed in 2.23s
+```
+`test_round_trip_returns_the_source_rig[Tukan]` PASSED (26/26 joints).
+`test_bvh_and_fbx_agree_on_rest_geometry[Flamingo/BrownBear/Scorpion]` now
+PASS (not XPASS); `[Crab]` XFAILs with the corrected reason.
+
+```
+$ docker compose run --rm test pytest -q -rs
+...
+124 passed, 11 skipped, 4 xfailed in 2.30s
+```
+0 failed, **0 xpassed** (down from 3).
+
+```
+$ docker compose run --rm test ruff check .
+All checks passed!
+```
+
+**The corpus rebuild was NOT re-run**, per instruction. This means
+**`data/truebones/rigs/Tukan/prepare.npz` is now stale against the fix-round
+code**: `PromoteRoot.fit`'s `promote_root` params gained three new keys
+(`dead_names`, `dead_offsets`, `dead_parents`) that the on-disk file for
+Tukan does not have, since it was written by the pre-fix-round code. The
+other 72 rigs' `prepare.npz` are unaffected in content (their `dead_*`
+arrays were always empty and the shape/keys for non-promoted-with-dead-
+subtree rigs didn't change). **A rebuild is required before Tukan's
+`prepare.npz` can be used to invert a prepared clip** — flagged explicitly
+per instruction, and already carried into "What a follow-on plan needs to
+know" above.
+
+Commits: `19ac4a4` (the fix, `src/poseydon/build/prepare.py`,
+`tests/conftest.py`, `tests/build/test_bvh_fbx_agreement.py`) plus this
+outcome-doc update.
