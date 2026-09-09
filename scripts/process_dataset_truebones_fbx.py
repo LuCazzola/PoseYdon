@@ -48,8 +48,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.core.skeleton import SkeletonManifest
-from poseydon.ingest.index import action_slug, strip_skeleton_prefix
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
 

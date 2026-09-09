@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from poseydon.augment.base import Augmentation, AugmentPipeline
+from poseydon.build.index import ClipRecord, CorpusIndex
 from poseydon.conditioners.base import CONDITIONERS, Conditioner
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
@@ -17,7 +18,6 @@ from poseydon.core.spec import FeatureSpec
 from poseydon.data.normalize import Normalizer
 from poseydon.data.window import RandomCrop, Window
 from poseydon.features import DEFAULT_FEATURES, extract_features
-from poseydon.ingest.index import ClipRecord, CorpusIndex
 
 
 @dataclass(frozen=True)

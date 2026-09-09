@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.build.prepare import (
     CLIP,
     CentreXZ,
@@ -35,7 +36,6 @@ from poseydon.build.prepare import (
 )
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
-from poseydon.ingest.index import action_slug, strip_skeleton_prefix
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.bvh import BVH
 
