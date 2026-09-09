@@ -19,12 +19,20 @@ SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("foot_contact", 1)))
 
 def _clips(n_clips: int = 3, frames: int = 20, joints: int = 5) -> list[np.ndarray]:
     rng = np.random.default_rng(0)
+    # Deliberate per-joint magnitude disparity, so joint_block (pools within a
+    # joint only) is provably distinct from block (pools across joints too).
+    joint_scale = np.array([1.0, 5.0, 10.0, 25.0, 50.0])[:joints]
     out = []
     for _ in range(n_clips):
         a = rng.normal(size=(frames, joints, SPEC.dim))
         # Give channels within a block deliberately different scales, so a
         # pooled statistic is provably not the per-channel one.
         a[..., SPEC.slice("ric_pos")] *= np.array([1.0, 10.0, 100.0])
+        a[..., SPEC.slice("ric_pos")] *= joint_scale[None, :, None]
+        # rot6d gets its own deliberate per-channel disparity, so the
+        # channel-vs-pooled contrast tests measure a real effect rather than
+        # sampling noise between six iid-normal channels.
+        a[..., SPEC.slice("rot6d")] *= np.array([1.0, 2.0, 5.0, 10.0, 20.0, 50.0])
         a[..., SPEC.slice("foot_contact")] = 1.0     # zero variance, on purpose
         out.append(a)
     return out
@@ -53,8 +61,12 @@ def test_joint_block_mode_gives_one_scalar_per_joint_and_block():
         assert np.allclose(block[joint], block[joint, 0]), (
             "joint_block must be uniform across the block's channels"
         )
-    # Different joints may still differ; if they did not, this would be `block`.
-    assert block.shape == (5, 3)
+    # joint_block pools within a joint only. The fixture gives joints a
+    # deliberate per-joint magnitude disparity (joint_scale), so different
+    # joints must keep different scalars -- if joint_block accidentally
+    # pooled across the joint axis too, every joint would collapse to the
+    # same value, i.e. this would be `block` mode instead.
+    assert not np.allclose(block[:, 0], block[0, 0])
 
 
 def test_block_mode_gives_one_scalar_for_root_and_one_for_the_rest():
@@ -99,7 +111,18 @@ def test_per_channel_scaling_does_NOT_preserve_the_recovered_rotation():
 
     before = _gram_schmidt(raw[0, 0, SPEC.slice("rot6d")])
     after = _gram_schmidt(normalized[0, 0, SPEC.slice("rot6d")])
-    assert not np.allclose(after, before, atol=1e-6)
+    # With rot6d's six channels scaled 1/2/5/10/20/50 in the fixture, the
+    # per-channel divisor distorts the two Gram-Schmidt input vectors by
+    # materially different amounts, so the recovered rotation moves by a wide
+    # margin -- not just past floating-point tolerance. Measured: the max
+    # absolute entrywise discrepancy between `before` and `after` is ~0.30
+    # (entries of a 3x3 orthonormal matrix live in [-1, 1], so this is a
+    # large fraction of that range -- not noise).
+    discrepancy = np.max(np.abs(after - before))
+    assert discrepancy > 0.1, (
+        f"expected a material discrepancy from real per-channel disparity, "
+        f"got only {discrepancy}"
+    )
 
 
 def test_no_policy_reproduces_the_previous_behaviour():
