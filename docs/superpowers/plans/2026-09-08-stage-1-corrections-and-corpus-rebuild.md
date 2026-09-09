@@ -1819,6 +1819,28 @@ says so.
   exist. This is the one open item this plan is handing forward; everything
   else it set out to fix (yield, promotion, round-trip structure, the
   rest-geometry regression guard) is done.
+- `chain.fit_rig` is **not** wrapped per-rig in `process_species` — only
+  `rest_source` is. A `PromoteRoot` precondition failure inside `fit_rig`
+  (or `_chain_for`) therefore still aborts the whole 73-rig loop mid-run,
+  after already writing a partial corpus to disk. This is exactly the
+  Tukan crash this plan hit; only Tukan's *trigger* was removed (the
+  dead-subtree escape hatch), the loop's fragility to the *next* rig that
+  needs new `PromoteRoot` handling is unchanged.
+- `tools/reference/generate_truebones_manifests.py::render` emits no
+  `rest_pose:` key. Re-running that generator today would silently
+  overwrite all 73 manifests with copies missing this plan's headline
+  deliverable — the tests would then fail loudly (`rest_source` raises on
+  a missing declaration), but only after the generator has already
+  clobbered the authored values on disk.
+- `configs/data/truebones.yaml` still points `manifests:` at the removed
+  `data/truebones/skeletons` directory (the entity-first layout moved
+  manifests to `data/truebones/rigs/<Rig>/manifest.yaml`). Known A2 work,
+  but until now recorded nowhere.
+- `.env.example` has no `WANDB_API_KEY` / `WANDB_ENTITY` placeholders,
+  though the design spec sources both from `.env`. A follow-on plan should
+  add commented, empty-valued placeholders to `.env.example` itself (never
+  a real key) so `cp .env.example .env` documents every variable the
+  config layer expects.
 - No rig other than the 8 predicted ones lost a clip; the yield is exactly
   the plan's prediction, and all 8 share one root cause (the rejected clip
   carries a reduced joint set relative to the rig's modal skeleton) even
