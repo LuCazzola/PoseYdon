@@ -40,7 +40,16 @@ def test_expand_sides_can_be_disabled():
 
 
 def test_lowercase_can_be_disabled():
-    assert Humanize(lowercase=False)(["Bip01_R_Thigh"]) == ("right Thigh",)
+    """Side expansion substitutes a lowercase word; the rest keeps its case."""
+    out = Humanize(lowercase=False)(["Bip01_R_Thigh", "Bip01_L_Foot"])
+    assert out == ("right Thigh", "left Foot")
+
+
+def test_a_single_name_has_no_shared_prefix():
+    """One name has no sibling to share a prefix with, so nothing is stripped.
+    Guessing at boilerplate here would turn `Leg_01` into `01`."""
+    assert Humanize()(["Bip01_R_Thigh"]) == ("bip01 right thigh",)
+    assert Humanize()(["Leg_01"]) == ("leg 01",)
 
 
 def test_real_truebones_names():

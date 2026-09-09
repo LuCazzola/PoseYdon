@@ -44,18 +44,9 @@ class Humanize:
         Truncated at a separator so `Bip01_Pelvis`/`Bip01_Spine` yields
         `Bip01_` rather than `Bip01_`+`S`-style partial-word garbage, and so a
         rig whose names merely happen to share letters loses nothing.
-
-        A single-name list has no sibling to confirm sharing against, so it
-        is conservative: only a leading token LONGER THAN ONE CHARACTER (up
-        to the first separator) is treated as boilerplate -- a lone leading
-        letter such as `R_Thigh`'s `R` is a side marker, not a prefix, and
-        must reach `_one` untouched so `expand_sides` can see it.
         """
         if len(names) < 2:
-            name = names[0]
-            positions = [name.find(c) for c in "_-.:"]
-            cut = min((p for p in positions if p >= 0), default=-1)
-            return name[: cut + 1] if cut > 1 else ""
+            return ""
         shared = commonprefix(list(names))
         cut = max(shared.rfind(c) for c in "_-.:")
         return shared[: cut + 1] if cut >= 0 else ""
