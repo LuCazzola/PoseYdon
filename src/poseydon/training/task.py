@@ -61,10 +61,17 @@ class MotionTask(nn.Module):
         z_t = self.process.corrupt(z0, t, noise)
 
         cond = batch.cond
+        # The crop offset lives on the batch and reached neither model: nothing
+        # wrote it into `cond`, so MoDiffAE always took its zeros default and
+        # AnyTop its None. Every window was encoded as if it began at frame 0.
+        # Injected here rather than as a conditioner because it is a property of
+        # the WINDOW, which `Conditioner.extract` does not see.
+        payloads = {**cond.payloads, "crop_start": batch.window.start}
         if CLEAN_MOTION in self.model.requires:
             # An autoencoder is conditioned on the clean motion it is
             # reconstructing; only the task can hand it over.
-            cond = Cond({**cond.payloads, CLEAN_MOTION: batch.x})
+            payloads[CLEAN_MOTION] = batch.x
+        cond = Cond(payloads)
 
         prediction = self.model(z_t, t, cond, batch.masks)
         x0_hat = self.model.restore(

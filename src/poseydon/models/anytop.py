@@ -204,7 +204,9 @@ class AnyTop(Denoiser):
         position, which is meaningful here only because ingest never chunks.
         """
         index = torch.arange(frames + 1, device=device)[None].repeat(batch, 1)
-        start = cond.get("window_start")
+        # `crop_start`, matching MoDiffAE. This used to read `window_start`, a
+        # key nothing ever wrote -- so this branch has never once fired.
+        start = cond.get("crop_start")
         if start is not None:
             index[:, 1:] = index[:, 1:] + start.to(device)[:, None]
         return sinusoidal_embedding(index, self.d_model)[:, :, None, :]
