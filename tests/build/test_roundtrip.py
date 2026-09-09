@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from scripts.process_dataset_truebones import _chain_for, rest_source
+from scripts.process_dataset_truebones import _chain_for
 
 from poseydon.augment.topology import _reindex_resolved
+from poseydon.build.corpus import rest_source
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.features import DEFAULT_FEATURES, extract_features, reconstruct
