@@ -18,6 +18,7 @@ from poseydon.core.spec import FeatureSpec
 from poseydon.data.normalize import Normalizer
 from poseydon.data.window import RandomCrop, Window
 from poseydon.features import DEFAULT_FEATURES, extract_features
+from poseydon.features.reduce import JointReduction, apply_reduction, build_reduction
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class ClipView:
     resolved: ResolvedSkeleton
     normalizer: Normalizer
     rest_frame: np.ndarray  # (J, D) normalized rest pose describing this rig
+    clip: str  # record.clip_id, for a conditioner that needs to name the clip
+    rig: str   # record.skeleton, likewise
 
 
 @dataclass(frozen=True)
@@ -47,7 +50,10 @@ class MotionDataset:
 
     Features are extracted at read time from the canonical animation, so the
     representation is a config choice with no re-ingest. Normalization statistics
-    are fitted per skeleton FOR THE ACTIVE SPEC and cached.
+    are LOADED per skeleton from `rigs/<Rig>/stats.npz` -- the moments a
+    checkpoint was trained against, not moments refitted at startup -- and the
+    clip is put in the shape those moments were measured on: rigid body, then
+    reduced.
     """
 
     def __init__(
@@ -61,6 +67,7 @@ class MotionDataset:
         augmentations: Sequence[Augmentation] = (),
         split: str | None = None,
         seed: int = 0,
+        reduce_tolerance: float = 1e-8,
     ) -> None:
         self.root = Path(root)
         self.manifest_dir = Path(manifest_dir)
@@ -70,21 +77,36 @@ class MotionDataset:
             CONDITIONERS.get(name)() for name in conditioners
         ]
         self.augment_pipeline = AugmentPipeline(augmentations)
+        # Matches `BuildConfig.reduce_tolerance`; taken as an argument so it
+        # cannot drift from the value stage 2 reduced under.
+        self.reduce_tolerance = reduce_tolerance
         self.records = index.query(split=split) if split else list(index.records)
         if not self.records:
             raise ValueError(f"no clips in the index for split={split!r}")
 
         self._rng = np.random.default_rng(seed)
         self._manifests: dict[str, SkeletonManifest] = {}
+        self._reductions: dict[str, JointReduction] = {}
         self._normalizers: dict[str, Normalizer] = {}
         self._anims: dict[str, RigidBodyAnimation] = {}
         self._rest_frames: dict[str, np.ndarray] = {}
+
+        # `__init__` used to extract features for every clip just to count
+        # windows -- 1145 full extractions before the first sample. The index
+        # already knows each clip's frame count; the only unknown is how many
+        # frames the SCHEMA costs (`local_vel` consumes one), and that is a
+        # constant across clips. Measure it once, on the first record.
+        #
+        # That one probe leaves one clip in `self._anims`, and it stays there:
+        # it is the clip `spec` and `_rest_frame` reach for next anyway.
+        first = self.records[0]
+        self._frame_cost = first.n_frames - self._extract(first)[0].shape[0]
 
         # A clip yields more than one window under a deterministic policy, so the
         # dataset is indexed by (clip, window) rather than by clip.
         self._plan: list[tuple[int, int]] = []
         for clip_index, record in enumerate(self.records):
-            frames = self._feature_frames(record)
+            frames = record.n_frames - self._frame_cost
             for window_index in range(self.window.count(frames)):
                 self._plan.append((clip_index, window_index))
 
@@ -98,14 +120,70 @@ class MotionDataset:
 
     def _manifest(self, skeleton: str) -> SkeletonManifest:
         if skeleton not in self._manifests:
+            # Entity-first layout: `rigs/<Rig>/manifest.yaml`, not the flat
+            # `rigs/<Rig>.yaml` the migration deleted.
             self._manifests[skeleton] = SkeletonManifest.load(
-                self.manifest_dir / f"{skeleton}.yaml"
+                self.manifest_dir / skeleton / "manifest.yaml"
             )
         return self._manifests[skeleton]
 
+    def _reduction(self, skeleton: str) -> JointReduction:
+        """The rig's reduction, built once and checked against `skeleton.npz`.
+
+        `skeleton.npz` stores `reduction_source_of`, which is a `JointEdit`: it
+        can transport statistics but cannot APPLY a reduction, because a
+        COLLAPSE removal composes the victim's rotation into its parent and a
+        reindex map carries no rotations. So the ops are rebuilt here and the
+        stored map is used as a consistency check on them.
+
+        Per RIG, not per clip. Removal is selected on `norm(offsets)`,
+        `parents` and `names`; clips of one rig differ only by a rotation of
+        the offsets, which leaves a norm unchanged. Same invariant
+        `build_skeleton` and `build_stats` rely on.
+        """
+        if skeleton not in self._reductions:
+            with np.load(
+                self.manifest_dir / skeleton / "skeleton.npz", allow_pickle=True
+            ) as data:
+                stored = tuple(int(i) for i in data["reduction_source_of"])
+                # The rest clip is read from the artefact, not re-derived from
+                # the manifest: `build_skeleton` recorded the very action it
+                # reduced under, so the two cannot drift, and the read path
+                # stays clear of `build.corpus` (a build-time internal --
+                # tests/build/test_layering.py).
+                action = str(data["rest_action"])
+            rest = RigidBodyAnimation.load(
+                self.root / "clips" / skeleton / f"{action}.npz"
+            ).as_rigid_body(joint_translation="drop")
+            reduction = build_reduction(rest, tolerance=self.reduce_tolerance)
+            if reduction.source_of != stored:
+                raise ValueError(
+                    f"{skeleton}: the reduction built here does not match the one "
+                    f"`skeleton.npz` records, so `stats.npz` would pair each joint's "
+                    f"values with another joint's statistics. Rebuild stage 2."
+                )
+            self._reductions[skeleton] = reduction
+        return self._reductions[skeleton]
+
     def _anim(self, record: ClipRecord) -> RigidBodyAnimation:
+        """The clip as the statistics saw it: rigid body, then reduced.
+
+        Both steps are load-bearing and ordered. `build_stats` fits on
+        `as_rigid_body(joint_translation="drop")` and then reduces
+        (`build/pipeline.py`); reading in any other shape normalizes against
+        moments that were never measured on these values.
+
+        `as_rigid_body` is a no-op on today's corpus -- stage 1's `EnforceRigid`
+        already made every prepared clip rigid -- and stays here anyway: it is
+        the form `build_stats` fits under, so a non-rigid clip appearing later
+        must not silently diverge from it.
+        """
         if record.clip_id not in self._anims:
-            self._anims[record.clip_id] = RigidBodyAnimation.load(self.root / record.path)
+            anim = RigidBodyAnimation.load(self.root / record.path)
+            anim = anim.as_rigid_body(joint_translation="drop")
+            self._anims[record.clip_id] = apply_reduction(
+                anim, self._reduction(record.skeleton)
+            )
         return self._anims[record.clip_id]
 
     def _resolved(self, record: ClipRecord) -> ResolvedSkeleton:
@@ -116,17 +194,21 @@ class MotionDataset:
             self._anim(record), self._resolved(record), self.features
         )
 
-    def _feature_frames(self, record: ClipRecord) -> int:
-        return self._extract(record)[0].shape[0]
-
     def _normalizer(self, skeleton: str, spec: FeatureSpec) -> Normalizer:
+        """Loaded, never fitted.
+
+        Fitting walked every clip of the rig at startup. Worse than slow: a
+        refit under a different `features:` than the checkpoint was trained
+        with produces different moments, silently.
+        """
         if skeleton not in self._normalizers:
-            arrays = [
-                self._extract(record)[0]
-                for record in self.records
-                if record.skeleton == skeleton
-            ]
-            self._normalizers[skeleton] = Normalizer.fit(arrays, spec)
+            normalizer = Normalizer.load(self.manifest_dir / skeleton / "stats.npz")
+            if normalizer.spec != spec:
+                raise ValueError(
+                    f"{skeleton}: stats.npz was fitted for {normalizer.spec} but this "
+                    f"run declares {spec}. Re-run `scripts/build_features.py --stats-only`."
+                )
+            self._normalizers[skeleton] = normalizer
         return self._normalizers[skeleton]
 
     def _rest_frame(
@@ -177,6 +259,8 @@ class MotionDataset:
             resolved=resolved,
             normalizer=normalizer,
             rest_frame=rest_frame,
+            clip=record.clip_id,
+            rig=record.skeleton,
         )
         return Item(
             features=window,
