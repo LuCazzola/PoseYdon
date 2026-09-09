@@ -21,6 +21,29 @@ services:
       MPLCONFIGDIR: /tmp/matplotlib
     command: pytest -v
 
+  # Training. Same bind mount and host user as `test`, plus the GPU.
+  train:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    working_dir: /app
+    user: "${UID:-1000}:${GID:-1000}"
+    # CDI is how this host exposes the GB10 (`docker info` lists
+    # nvidia.com/gpu=all); there is no `--gpus` runtime configured.
+    devices:
+      - nvidia.com/gpu=all
+    volumes:
+      - .:/app
+    environment:
+      PYTHONPATH: /app/src:/app
+      MPLCONFIGDIR: /tmp/matplotlib
+      # Compose reads .env automatically; these forward the values into the
+      # container. Never hardcode a key here.
+      WANDB_API_KEY: ${WANDB_API_KEY:-}
+      WANDB_ENTITY: ${WANDB_ENTITY:-}
+      WANDB_DIR: /tmp/wandb
+    shm_size: "8gb"
+
   # Reference comparison only. Not used by the test suite.
   compat:
     build:

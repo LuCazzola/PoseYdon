@@ -1,0 +1,32 @@
+# Training image: the same slim base as the test image, with CUDA 13
+# aarch64/sbsa torch wheels layered on top.
+#
+# Route chosen on measurement, not preference (design spec §4, "The aarch64
+# image"): this works end to end on the GB10 and an NGC PyTorch aarch64 base
+# was deliberately not built, because a ~20 GB pull to compare a route we do
+# not need is not evidence worth buying.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /app
+
+ENV UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+COPY pyproject.toml ./
+# `uv sync` honours pyproject's [tool.uv.sources] pin and installs CPU torch;
+# the second command replaces exactly that one package with the CUDA build.
+# Done this way round so the shared pyproject.toml -- and therefore the CPU
+# test image -- needs no change at all.
+RUN uv sync --extra dev --no-install-project && \
+    uv pip install --python /opt/venv/bin/python \
+      --index-url https://download.pytorch.org/whl/cu130 \
+      --reinstall-package torch torch && \
+    uv pip install --python /opt/venv/bin/python wandb
+
+# NOT installed: build-essential. It is needed only by torch.compile, which
+# this run does not use -- measured at +8% on a median batch and 2.3x WORSE on
+# the largest rig, because dynamic joint counts recompile constantly.
+
+CMD ["python", "-c", "import torch; print(torch.__version__, torch.cuda.is_available())"]
