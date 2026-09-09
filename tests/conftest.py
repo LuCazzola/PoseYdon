@@ -18,8 +18,13 @@ CORPUS = Path("data/truebones")
 # Camel: the ground-locator rig (its root is promoted Hips -> C_ctrl -> Bip01,
 # a two-step promotion unlike the single-step majority of the 14), which also
 # has no T-pose file, so its manifest authors `rest_pose: __IdleLoop.bvh`.
-# Camel is the one rig that exercises both stage-1 tables at once.
-SAMPLE_RIGS = ("Flamingo", "BrownBear", "Crab", "Scorpion", "Camel")
+# Camel is the one rig that exercises both stage-1 tables at once. Tukan is
+# the rig with a dead sibling subtree (`Hips` branches into the real skeleton
+# AND a zero-offset FBX geometry-holder subtree, `MESH`); PromoteRoot drops
+# it from the prepared corpus and must splice it back on invert, so Tukan's
+# presence here is what keeps spec §9's structure guarantee (joint count,
+# names, parent array, hierarchy order) honest for that drop path.
+SAMPLE_RIGS = ("Flamingo", "BrownBear", "Crab", "Scorpion", "Camel", "Tukan")
 
 
 @pytest.fixture(scope="session")

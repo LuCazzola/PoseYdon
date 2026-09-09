@@ -109,29 +109,38 @@ def test_bvh_and_fbx_agree_on_the_skeleton_structure(rig):
             )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "BVH and FBX still disagree on rest geometry at shared joints, at "
-        "3-7% of a bone length: Flamingo 6.8e-2, BrownBear 5.5e-2, Scorpion "
-        "3.3e-2, against Crab's 2.0e-5, which passes. This is what REMAINS "
-        "after fixing the dominant cause -- ScaleToMeanBoneLength averaged "
-        "over zero-length End Sites, inflating the factor by "
-        "(J_all-1)/(J_real-1) and making the two corpora differ by exactly "
-        "that ratio. That fix cut the disagreement about tenfold; the residue "
-        "is unexplained. A coordinate-frame mismatch was excluded by measuring "
-        "parent-local and world-space forms and finding them identical to "
-        "1e-7. Crab passing is informative: its BVH T-pose has exactly one "
-        "zero-length bone, so it was never affected by the scale bug either. "
-        "Matters for the next phase, where mesh.npz skin weights are indexed "
-        "by the FBX joint order and get applied to BVH-driven motion."
-    ),
-    strict=False,
-)
 @pytest.mark.parametrize("rig", SAMPLE_RIGS)
 def test_bvh_and_fbx_agree_on_rest_geometry(rig):
     """Rest offsets at shared joints, compared on the rig's T-pose clip.
 
-    Known-failing for Flamingo/BrownBear/Scorpion; see the xfail reason."""
+    Used to be a blanket `xfail(strict=False)` across every sample rig, at
+    "3-7% of a bone length: Flamingo 6.8e-2, BrownBear 5.5e-2, Scorpion 3.3e-2"
+    -- residue left after fixing the dominant cause (`ScaleToMeanBoneLength`
+    averaging over zero-length End Sites). Task 9's full corpus rebuild closed
+    that residue for those three rigs to ~1-2e-5 (three orders of magnitude),
+    so the assertion is enforced for them now rather than parked behind a
+    marker that asserts nothing on either a pass OR a regression back to 6.8e-2.
+
+    Crab alone stays known-failing, and by a lot: ~1.0 bone lengths at
+    `BN_Leg_R_12`, not the 2.0e-5 the old blanket reason claimed (that number
+    predates the rest-pose-selection fix, when Crab's BVH side compared
+    against a different, wrong rest clip). The likely cause is that Crab's
+    `mesh.npz` was built by the Blender/FBX pass against whatever rest
+    reference it used before that fix, and the BVH side now resolves to
+    `walk.bvh` instead -- comparing geometry from two different source clips.
+    Regenerating `mesh.npz` needs the Blender/FBX container and belongs to a
+    later phase; recorded here rather than fixed."""
+    if rig == "Crab":
+        pytest.xfail(
+            "Crab's mesh.npz is stale against the rest-pose-selection fix: "
+            "the BVH side now resolves its rest pose to walk.bvh, but "
+            "mesh.npz was built against whatever rest reference the FBX pass "
+            "used before that fix, so the two sides compare different source "
+            "clips. Disagreement is ~1.0 bone lengths at BN_Leg_R_12 -- needs "
+            "mesh.npz regenerated via the Blender/FBX container, not a code "
+            "fix here."
+        )
+
     bvh_path, mesh_path = _pair(rig)
     anim = BVH.read(bvh_path).to_animation()
     with np.load(mesh_path, allow_pickle=True) as mesh:

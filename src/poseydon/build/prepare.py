@@ -256,10 +256,12 @@ class PromoteRoot(PrepareStage):
 
     One rig (Tukan) has a dead sibling subtree hanging off an ancestor --
     zero offset throughout, no motion, an FBX geometry-holder branch rather
-    than skeleton. `fit` drops it (recorded as `dead_indices`) rather than
-    raising the single-child-chain error; `invert` does not reinsert it, so
-    for this one rig the contract is structure-and-reference-frame for the
-    *skeletal* joints only -- the dropped junk never comes back.
+    than skeleton. `fit` drops it from `apply`'s output (recorded as
+    `dead_names`/`dead_offsets`/`dead_parents`/`dead_indices`) rather than
+    raising the single-child-chain error, but `invert` splices it back at its
+    exact original position with identity rotation and its own rest offset --
+    the same treatment as the chain above the target -- so the structure
+    guarantee still covers every joint, dead or not.
     """
 
     #: Joint to promote. ``None`` makes every method the identity, which is what
@@ -276,6 +278,9 @@ class PromoteRoot(PrepareStage):
                 "names": np.empty(0, dtype="<U1"),
                 "offsets": np.zeros((0, 3)),
                 "dead_indices": np.empty(0, dtype=np.int64),
+                "dead_names": np.empty(0, dtype="<U1"),
+                "dead_offsets": np.zeros((0, 3)),
+                "dead_parents": np.empty(0, dtype=np.int64),
             }
 
         names = list(anim.names)
@@ -314,12 +319,31 @@ class PromoteRoot(PrepareStage):
             for c in extra:
                 dead.extend(_subtree(anim.parents, c))
 
+        # `invert` needs to splice the dead subtree back at its exact original
+        # position (Spec §9's structure guarantee is non-negotiable), so its
+        # names, offsets and -- critically -- its ORIGINAL parent indices are
+        # recorded wholesale rather than just the bare indices `apply` needs.
+        # Small in practice: 5 joints for Tukan, the only rig that has any.
+        dead_sorted = sorted(dead)
+        dead_names = np.array([names[i] for i in dead_sorted]) if dead_sorted else np.empty(
+            0, dtype="<U1"
+        )
+        dead_offsets = anim.offsets[dead_sorted].copy() if dead_sorted else np.zeros((0, 3))
+        dead_parents = (
+            anim.parents[dead_sorted].astype(np.int64).copy()
+            if dead_sorted
+            else np.empty(0, dtype=np.int64)
+        )
+
         chain = np.array(names[: index + 1])
         return {
             "n_removed": np.int64(index),
             "names": chain,
             "offsets": anim.offsets[: index + 1].copy(),
-            "dead_indices": np.array(sorted(dead), dtype=np.int64),
+            "dead_indices": np.array(dead_sorted, dtype=np.int64),
+            "dead_names": dead_names,
+            "dead_offsets": dead_offsets,
+            "dead_parents": dead_parents,
         }
 
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
@@ -364,37 +388,72 @@ class PromoteRoot(PrepareStage):
 
         chain_names = [str(n) for n in params["names"]]
         chain_offsets = params["offsets"]
+        dead_indices = [int(i) for i in params.get("dead_indices", np.empty(0, dtype=np.int64))]
+        dead_names = [str(n) for n in params.get("dead_names", np.empty(0, dtype="<U1"))]
+        dead_offsets = params.get("dead_offsets", np.zeros((0, 3)))
+        dead_parents = [int(i) for i in params.get("dead_parents", np.empty(0, dtype=np.int64))]
+
         n_frames = anim.n_frames
-        n_joints = anim.n_joints + index
+        n_dead = len(dead_indices)
+        n_joints = index + anim.n_joints + n_dead
+
+        dead_set = set(dead_indices)
+        # The target and its surviving descendants, in original absolute-index
+        # order: everything from `index` upward that is not one of the dead
+        # subtree's own joints. `apply` built `anim`'s rows in exactly this
+        # order, so position `local` in `anim` is `kept_abs[local]` here.
+        kept_abs = [p for p in range(index, n_joints) if p not in dead_set]
 
         rotations = np.empty((n_frames, n_joints, 4))
-        rotations[:, :index] = QUAT_IDENTITY
-        rotations[:, index:] = anim.rotations
-
         translations = np.empty((n_frames, n_joints, 3))
-        # Chain joints below the root sit at their own rest offsets; with
-        # identity rotations throughout, the old root's global position is the
-        # target's position minus the offsets accumulated down the chain.
-        translations[:, 1:index] = chain_offsets[1:index]
-        translations[:, 0] = anim.translations[:, 0] - chain_offsets[1 : index + 1].sum(
-            axis=0
-        )
-        translations[:, index:] = anim.translations
-        translations[:, index] = chain_offsets[index]
-
-        offsets = np.concatenate([chain_offsets, anim.offsets[1:]], axis=0)
-
+        offsets = np.empty((n_joints, 3))
         parents = np.empty(n_joints, dtype=np.int32)
+        names: list[str] = [""] * n_joints
+
+        # The ancestor chain above the target: identity rotation throughout
+        # (only their product was ever observable), its own rest offset for
+        # translation, and a strict single-parent chain.
+        rotations[:, :index] = QUAT_IDENTITY
+        translations[:, 1:index] = chain_offsets[1:index]
+        # The old root's global position is the target's position minus the
+        # offsets accumulated down the (identity-rotation) chain.
+        translations[:, 0] = anim.translations[:, 0] - chain_offsets[1 : index + 1].sum(axis=0)
+        offsets[:index] = chain_offsets[:index]
         parents[0] = -1
-        parents[1 : index + 1] = np.arange(index, dtype=np.int32)
-        parents[index + 1 :] = anim.parents[1:] + index
+        parents[1:index] = np.arange(index - 1, dtype=np.int32)
+        for p in range(index):
+            names[p] = chain_names[p]
+
+        # The dead subtree: it never moved (zero offset, identity rotation in
+        # every recorded clip), so reinsertion at its exact original position
+        # and parent is exact, not approximate.
+        for local, p in enumerate(dead_indices):
+            rotations[:, p] = QUAT_IDENTITY
+            translations[:, p] = dead_offsets[local]
+            offsets[p] = dead_offsets[local]
+            parents[p] = dead_parents[local]
+            names[p] = dead_names[local]
+
+        # The target and its surviving descendants: `anim`'s own rows,
+        # remapped from post-`apply` indices back to their absolute original
+        # position (and, for non-root rows, their absolute original parent).
+        for local, p in enumerate(kept_abs):
+            rotations[:, p] = anim.rotations[:, local]
+            offsets[p] = anim.offsets[local]
+            names[p] = anim.names[local]
+            if local == 0:
+                translations[:, p] = chain_offsets[index]
+                parents[p] = index - 1
+            else:
+                translations[:, p] = anim.translations[:, local]
+                parents[p] = kept_abs[int(anim.parents[local])]
 
         return Animation(
             rotations=rotations,
             translations=translations,
             offsets=offsets,
             parents=parents,
-            names=tuple(chain_names[:index]) + tuple(anim.names),
+            names=tuple(names),
             fps=anim.fps,
         )
 
