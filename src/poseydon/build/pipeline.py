@@ -173,15 +173,23 @@ def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     mesh_path = config.root / "rigs" / rig / "mesh.npz"
     mismatch = _check_mesh_matches_skeleton(rest, mesh_path, rig) if mesh_path.is_file() else None
 
-    # `rest` here is the plain prepared Animation, not the rigid-body form
-    # `build_stats` reduces (`as_rigid_body(joint_translation="drop")`, below).
-    # `build_reduction` only reads offsets/parents/names, which the rigid-body
-    # transform does not touch, so the two calls are provably equivalent and
-    # `skeleton.npz`'s `reduction_source_of`/`reduction_source_names` agree
-    # with the reduction `stats.npz` was fitted under. This equivalence is
-    # load-bearing between the two artefacts and is NOT re-derived anywhere
-    # else -- if `as_rigid_body` ever starts touching offsets/parents/names,
-    # this comment (and its twin at `build_stats`) is where that breaks.
+    # This reduction must equal the one `build_stats` fits under, or
+    # `skeleton.npz`'s `reduction_source_of` would describe a different lens
+    # than `stats.npz`'s moments were measured through. Two things differ
+    # between the calls, and neither can change which joints are removed:
+    #
+    # * a different CLIP. Prepared clips of one rig do not share an OFFSET
+    #   block (FaceAxis is clip-scoped and turns offsets with the motion --
+    #   see this docstring above), but `_next_removal` selects on
+    #   `norm(offsets)`, `parents` and `names`, and a rotation leaves a norm
+    #   unchanged.
+    # * the rigid-body form. `build_stats` reduces
+    #   `as_rigid_body(joint_translation="drop")`; that drops per-joint
+    #   TRANSLATION channels and touches offsets/parents/names not at all.
+    #
+    # Load-bearing and derived nowhere else. If `as_rigid_body` ever starts
+    # rewriting offsets, or `_next_removal` ever reads a rotation-dependent
+    # quantity, this comment and its twin at `build_stats` are where it breaks.
     reduction = build_reduction(rest, tolerance=config.reduce_tolerance)
     rig_params = config.transform(rig).rig_params
 
@@ -221,12 +229,11 @@ def build_stats(config: BuildConfig, rig: str) -> None:
     arrays, spec = [], None
     for path in config.corpus.clips(config.root, rig):
         anim = BVH.read(path).to_animation().as_rigid_body(joint_translation="drop")
-        # `anim` is the RIGID-BODY form, unlike `build_skeleton`'s plain
-        # prepared Animation -- see the matching comment there. `build_reduction`
-        # only reads offsets/parents/names, which `as_rigid_body` does not
-        # change, so this reduction is provably identical to `skeleton.npz`'s.
-        # That equivalence is what lets stats be fit under the same reduction
-        # `skeleton.npz` records; it is load-bearing and not re-checked here.
+        # The rigid-body form, and a different clip on every iteration --
+        # unlike `build_skeleton`'s single rest clip. Removal is selected on
+        # `norm(offsets)`, `parents` and `names`, none of which either
+        # difference can change, so every one of these reductions equals the
+        # one `skeleton.npz` records. See the full argument there.
         reduction = build_reduction(anim, tolerance=config.reduce_tolerance)
         reduced = apply_reduction(anim, reduction)
         features, spec = extract_features(
@@ -242,7 +249,33 @@ def build_stats(config: BuildConfig, rig: str) -> None:
     Normalizer.fit(arrays, spec, list(config.normalize)).save(out / "stats.npz")
 
 
-def build_index(config: BuildConfig) -> CorpusIndex:
+def _split_of(label_path: Path, warnings: list[str] | None) -> str:
+    """One clip's authored split, or `"train"` -- never an exception.
+
+    `split` reaches `index.jsonl` verbatim and the read path filters on it by
+    string equality, so a non-string (`split:` with no value parses as `None`;
+    `split: 42` as an int) would write a row no split can ever select. Both
+    that and an unparseable file degrade to the default and a warning.
+    """
+    try:
+        split = read_labels(label_path).get("split", "train")
+    except Exception as error:  # noqa: BLE001 - a bad label file is not a bad corpus
+        _warn(warnings, f"{label_path}: {type(error).__name__}: {error}; using split=train")
+        return "train"
+    if not isinstance(split, str):
+        _warn(warnings, f"{label_path}: split must be a string, got {split!r}; using split=train")
+        return "train"
+    return split
+
+
+def _warn(warnings: list[str] | None, message: str) -> None:
+    if warnings is None:
+        print(f"warning: {message}", flush=True)
+    else:
+        warnings.append(message)
+
+
+def build_index(config: BuildConfig, warnings: list[str] | None = None) -> CorpusIndex:
     """One flat row per clip, joining rig-level manifest fields.
 
     `tags` lives once, in the manifest, and is joined here -- rather than copied
@@ -255,6 +288,12 @@ def build_index(config: BuildConfig) -> CorpusIndex:
     file's `split:` actually reaches the index. Falls back to `"train"` when
     the label file has no `split:` key, matching what `build_clips` writes by
     default.
+
+    That read is guarded PER CLIP, and deliberately: one hand-edited label file
+    with a stray tab in it must not cost the whole index. `build_all` wraps each
+    rig for the same reason, but `build_index` runs once, after that loop -- an
+    exception escaping here discards a completed 73-rig build's index entirely.
+    A bad label file yields the default split and a warning in `warnings`.
     """
     index = CorpusIndex()
     for rig in config.corpus.rigs(config.root):
@@ -263,13 +302,13 @@ def build_index(config: BuildConfig) -> CorpusIndex:
             with np.load(path) as data:
                 n_frames = int(data["rotations"].shape[0])
                 fps = float(data["fps"])
-            labels = read_labels(path.with_suffix(".yaml"))
+            split = _split_of(path.with_suffix(".yaml"), warnings)
             index.add(
                 ClipRecord(
                     clip_id=clip_id(rig, path.stem),
                     skeleton=rig,
                     action=path.stem,
-                    split=labels.get("split", "train"),
+                    split=split,
                     n_frames=n_frames,
                     fps=fps,
                     path=str(Path("clips") / rig / path.name),
@@ -318,7 +357,7 @@ def build_all(
 
     if not stats_only:
         try:
-            build_index(config)
+            build_index(config, result.warnings)
         except Exception as error:  # noqa: BLE001 - collect, don't discard a completed build
             result.failures.append(f"index: {type(error).__name__}: {error}")
     return result

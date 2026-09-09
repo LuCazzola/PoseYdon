@@ -851,32 +851,38 @@ Closing it means either stripping the `Null` in the FBX path or regenerating
 `mesh.npz` against the promoted skeleton — both FBX-side work, and both waiting
 on the same decision §2 defers about giving that path a real stage contract.
 
-**The FBX all-takes filter drops ~11 legitimate clips ending in "-Fall".**
+**The FBX all-takes filter drops 13 legitimate clips whose stem ends in "all".**
 `scripts/process_dataset_truebones_fbx.py:84` selects an all-takes bundle with
-`not stem.lower().endswith("all")` — a suffix check meant to exclude a
-per-clip file, but `"camel-fall".endswith("all")` is also `True`, so any stem
-ending in "Fall" is silently treated as an all-takes bundle and dropped from
-the FBX corpus. Measured against the source stems: Camel, Buffalo, Gazelle,
-PolarBearB and Raptor (Fall, FenceClimbFall, RunFall, RunJumpFall), roach,
-Stego, Tricera and Tyranno. Since `mesh.npz` is not folded into any training
-artefact yet (§2), this has no effect on `skeleton.npz`/`stats.npz`/the clip
-`.npz`s today — but it does mean the FBX-sourced `mesh.npz` corpus is missing
-takes for those rigs, and whoever gives the FBX path a real stage contract
-must fix the filter, not just work around its current output.
+`not stem.lower().endswith("all")` — a suffix check meant to exclude the
+whole-rig compilations, but `"camel-fall".endswith("all")` is also `True`. The
+rule it actually implements is "the stem ends in the letters a-l-l", which is
+wider than "-Fall": `Deer/DEER-WalkCall.fbx` is caught too, and is the clip
+that proves the mechanism is the suffix, not the word. Measured over
+`data/truebones/source/**/*.fbx`, all 13: `Buffalo-Fall`, `Camel-Fall`,
+`DEER-WalkCall`, `Gazelle-Fall`, `PolarBearB-Fall`, and under `Raptor2/` the
+four `Raptor-Fall`, `Raptor-FenceClimbFall`, `Raptor-RunFall`,
+`Raptor-RunJumpFall`, plus `roach-Fall`, `Stego-Fall`, `Tricera-Fall`,
+`Tyranno-Fall`. Since `mesh.npz` is not folded into any training artefact yet
+(§2), this has no effect on `skeleton.npz`/`stats.npz`/the clip `.npz`s
+today — but the FBX-sourced corpus is missing those takes, and whoever gives
+the FBX path a real stage contract must fix the filter, not work around its
+current output. The correct test is against the compilation's actual naming
+convention (the stem equals the rig's export prefix plus "ALL"), not a suffix
+of "all".
 
 **`tests/build/test_roundtrip_fbx.py`'s own filter is broader, and worse: it
-skips green instead of failing.** That test uses `"ALL" not in stem.upper()`
-to find one per-clip source file per rig. That additionally excludes every
-per-clip file of any rig whose EXPORT PREFIX itself contains "ALL" —
-`SABREALL-`, `HorseALL-`, `LionAll-`, `CrowALL-`, `TUKANALL-`,
-`AlligatorALL-`, `AnacondaALL-`, `ComodoaALL-`, `CrabAll-` — nine rigs for
-which the test finds no candidate file at all and hits its own skip branch.
-It reports green while checking nothing for those nine rigs, against this
-project's own "a test that skips is a test that passes" rule; unlike the (a)
-filter above, this one does not even produce a wrong-but-visible artefact — it
-produces silence. Fixing it means matching on the all-takes bundle's actual
-naming convention, not a substring of "ALL" that a legitimate export prefix
-can also contain.
+skips green instead of failing.** That test (`:61`) uses
+`"ALL" not in stem.upper()` to find one per-clip source file per rig — a
+SUBSTRING test, so it also excludes every per-clip file of a rig whose EXPORT
+PREFIX contains "ALL". Measured over the source tree, seven rigs are left with
+no candidate at all and hit the test's own skip branch: Alligator, Anaconda,
+Crow, HermitCrab, Lion, SabreToothTiger, Tukan. Of those, only **Tukan** is in
+`SAMPLE_RIGS`, so exactly one parametrised case silently skips green today —
+the other six are latent, and the blast radius grows with `SAMPLE_RIGS`.
+Unlike (a) this produces no wrong-but-visible artefact, only silence, against
+this project's own "a test that skips is a test that passes" rule. The fix is
+the same: match the compilation's naming convention, not a substring of "ALL"
+a legitimate export prefix can contain.
 
 ## Phasing
 

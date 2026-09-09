@@ -30,7 +30,13 @@ SRC = REPO_ROOT / "src" / "poseydon"
 #: Modules whose internals only `build/` and `scripts/` may depend on.
 INTERNAL_ONLY = ("poseydon.build.pipeline", "poseydon.build.corpus", "poseydon.build.names")
 
-_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+([\w.]+)", re.MULTILINE)
+#: Matches both `import a.b.c` and `from a.b import c`. The second form is the
+#: one a naive `(?:from|import)\s+([\w.]+)` misses -- it captures `a.b`, so
+#: `from poseydon.build import pipeline` reads as an import of `poseydon.build`
+#: and slips past a rule about `poseydon.build.pipeline`. The repo already uses
+#: that idiom, so this is a live hole, not a hypothetical one.
+_IMPORT_RE = re.compile(r"^\s*import\s+([\w.]+)", re.MULTILINE)
+_FROM_RE = re.compile(r"^\s*from\s+([\w.]+)\s+import\s+(.+)$", re.MULTILINE)
 
 
 def _python_files(root: Path) -> list[Path]:
@@ -38,8 +44,22 @@ def _python_files(root: Path) -> list[Path]:
 
 
 def _imported_modules(path: Path) -> set[str]:
+    """Every module a file imports, as a dotted name.
+
+    `from a.b import c, d` contributes `a.b`, `a.b.c` AND `a.b.d`: at the point
+    of the import we cannot tell a submodule from a name defined in `a.b`, and
+    over-reporting is the safe direction for a rule that forbids reaching a
+    module at all.
+    """
     text = path.read_text()
-    return set(_IMPORT_RE.findall(text))
+    modules = set(_IMPORT_RE.findall(text))
+    for package, names in _FROM_RE.findall(text):
+        modules.add(package)
+        for name in names.replace("(", "").replace(")", "").split(","):
+            name = name.strip().split(" as ")[0].strip()
+            if name and name != "*":
+                modules.add(f"{package}.{name}")
+    return modules
 
 
 def test_src_does_not_import_scripts():

@@ -239,3 +239,40 @@ def test_an_authored_split_reaches_the_index_row(config):
 
     others = [r for r in index.records if r.skeleton == "Goat" and r.action != action]
     assert all(r.split == "train" for r in others), "an unedited label keeps the default"
+
+
+def test_one_malformed_label_file_does_not_cost_the_whole_index(config):
+    """`build_index` runs ONCE, after `build_all`'s per-rig guard, so anything
+    that escapes it discards a completed multi-rig build's index entirely.
+    Reading the per-clip label file put a new raise on that path; this pins the
+    guard that keeps a hand-edited file with a stray character from costing
+    every other row.
+    """
+    build_clips(config, "Goat")
+    labels = sorted((config.out / "clips" / "Goat").glob("*.yaml"))
+    labels[0].write_text("- this is a list, not a mapping\n")
+
+    warnings: list[str] = []
+    index = build_index(config, warnings)
+
+    assert len(index.records) == len(labels), "every clip still gets a row"
+    broken = next(r for r in index.records if r.action == labels[0].stem)
+    assert broken.split == "train", "the unreadable label falls back to the default"
+    assert any(labels[0].name in w for w in warnings), "and says so in warnings"
+
+
+def test_a_non_string_split_falls_back_rather_than_reaching_the_index(config):
+    """`split:` with no value parses as `None`, not `"train"`. The read path
+    selects rows by string equality, so writing `None` would produce a row no
+    split can ever pick up -- invisible rather than wrong.
+    """
+    build_clips(config, "Goat")
+    labels = sorted((config.out / "clips" / "Goat").glob("*.yaml"))
+    labels[0].write_text(f"action: {labels[0].stem}\nsplit:\n")
+
+    warnings: list[str] = []
+    index = build_index(config, warnings)
+
+    row = next(r for r in index.records if r.action == labels[0].stem)
+    assert row.split == "train"
+    assert any("must be a string" in w for w in warnings)

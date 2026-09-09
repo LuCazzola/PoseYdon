@@ -119,7 +119,9 @@ def main() -> None:
     failed = False
     if result.failures:
         failed = True
-        print(f"\n{len(result.failures)} rig(s) FAILED to build:", file=sys.stderr)
+        # Not "rig(s)": `build_all` also files the once-per-corpus index pass
+        # here, and it is not a rig.
+        print(f"\n{len(result.failures)} FAILED:", file=sys.stderr)
         for failure in result.failures:
             print(f"  - {failure}", file=sys.stderr)
 

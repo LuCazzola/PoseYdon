@@ -1479,7 +1479,18 @@ Goat is the rig the plan text called out; Camel is the same mechanism (it is one
 - The corpus A3 reads has a full 73/73/73/1145 set of artefacts — Camel and Goat are complete rigs with `skeleton.npz` and `stats.npz` like every other rig, just flagged in the build's warning list because their (unused-by-training) `mesh.npz` disagrees with the skeleton. No rig needs to be skipped or excluded to train.
 - If A3 ever implements mesh folding (skinning, retargeting onto a mesh), it MUST re-check the condition `_check_mesh_matches_skeleton` measures (or reuse the function) and refuse to fold Camel's or Goat's `mesh.npz` — the comment at the guard names this explicitly.
 - `--stats-only` is safe to run after any `features:` change and touches only `stats.npz` (verified above); against the real alternative (a stage-1 rebuild, minutes) it is the "seconds, not a corpus rebuild" the design promises.
-- `data/truebones/{clips,rigs,index.jsonl}` (everything stage 2 writes) is gitignored — nothing from this run is committed; a fresh checkout has none of it, which is exactly what `test_corpus_yield.py`'s skip-if-absent guards are for. Running `scripts/build_features.py` once, followed by `--stats-only` as needed, is the full recipe A3's environment (including the aarch64 GPU image) needs to reproduce it.
+- `data/truebones/{clips,rigs,index.jsonl}` is gitignored *by extension* — `.gitignore:237-240` covers `data/**/*.npz`, `*.bvh`, `*.fbx` and `index.jsonl`, so none of the heavy artefacts is committed and a fresh checkout has none of them, which is what `test_corpus_yield.py`'s skip-if-absent guards are for. Running `scripts/build_features.py` once, followed by `--stats-only` as needed, is the full recipe A3's environment (including the aarch64 GPU image) needs to reproduce it.
+- **Not everything stage 2 writes is ignored, and the exception matters.** `build_clips` also
+  writes one `clips/<Rig>/<action>.yaml` label file per clip — 1145 of them, all `.yaml`, matched
+  by no rule in `.gitignore`. They are therefore untracked *and* unignored: they sit in
+  `git status` forever, `git add -A` would commit all 1145, and `git clean -fdx` deletes them
+  silently. Today that is harmless — every one holds the derived default (`split: train`, `action:
+  <stem>`; verified: 1145/1145). It stops being harmless the moment A3 authors a val or test
+  split, because `write_labels` deliberately never overwrites an existing file (`--relabel` merges
+  rather than clobbers) and `build_index` now reads `split:` back out of these files: an authored
+  `split: val` survives a rebuild but NOT a fresh clone. **A3 must decide where the split lives**
+  before authoring one — commit the label files, move the split into the manifest, or generate it
+  deterministically from the index — and this plan deliberately does not decide for it.
 - Nothing here is unresolved or hidden: both warnings are explained, all four counts are exact and match (73/73/73/1145), and the `--stats-only` timing holds the design's claim against the correct baseline.
 
 ## Final whole-branch review — fix wave
