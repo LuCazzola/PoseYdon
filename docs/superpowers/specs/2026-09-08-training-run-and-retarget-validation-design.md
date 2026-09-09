@@ -462,8 +462,47 @@ Per parity spec §10:
   maps to `trainer.fit(ckpt_path=...)`.
 
 Run recipe, mirroring `docs/TRAIN.md`'s MoDiffAE command with the attention-pool
-variant: `n_virtual_joints: 5`, `d_model: 128`, 4 layers, `lr 1e-4`,
-`batch_size 10`, balanced, 450 000 steps.
+variant: `n_virtual_joints: 5`, `d_model: 128`, 4 layers, `lr 1e-4`, balanced —
+and two deliberate departures from the reference, **`batch_size 16`** (not 10)
+and **600 000 steps** (not 450 000), taken on measured evidence rather than by
+preference. `precision: bf16-mixed`.
+
+### What a step costs, measured
+
+The real model on the real corpus geometry, on the GB10, bf16 autocast on. The
+`s/step` column is an EXPECTED value: step time was measured across
+J ∈ {43, 60, 73, 85, 100, 120, 142} and weighted by the empirical distribution
+of a batch's padded joint count under the balanced sampler.
+
+| batch | E[s/step] | 25 000 steps | 600 000 steps | peak GB (worst J) |
+|---|---|---|---|---|
+| 16 | 0.431 | 3.0 h | **71.8 h (3.0 days)** | 13.2 |
+| 32 | 1.054 | 7.3 h | 175.7 h (7.3 days) | 26.3 |
+
+Memory is not the constraint — 13 GB against the Spark's 128 GB unified. Time
+is, and batch 32 costs 2.4× batch 16 rather than 2×, for the reason below.
+
+**Attention is O(J²) over joints and the balanced sampler mixes rigs, so every
+batch pads to its largest member.** The median rig has 43 joints; a batch of 16
+pads to a mean of 88 and reaches Dragon's 142 in over 10% of draws. Most of the
+step is spent on padding. This is not a divergence from the reference, which
+uses a plain `WeightedRandomSampler` over clips and mixes rigs the same way.
+
+Two levers were tested and are NOT taken:
+
+* **`torch.compile`** — +8% at J=85 and 2.3× *worse* at J=142. Dynamic J
+  triggers constant recompilation; it is a dead end for this model's shapes.
+* **Bucketing batches by rig**, so J is the rig's own joint count rather than
+  the batch max, is worth ~2.1× at batch 16 (0.431 → 0.208 s/step, 72 h → 35 h).
+  It is not taken because it changes the sampler's semantics: single-rig batches
+  remove cross-rig contrast from every gradient step, which for a
+  cross-topology model is a research question, not an optimization. If it is
+  ever added it goes in as an opt-in flag, never as the default.
+
+For the record: the model runs at roughly 2.5% of the GPU's bf16 throughput,
+i.e. it is launch-bound on many small kernels rather than compute-bound. Real
+headroom exists but capturing it means reworking the attention implementation,
+which is out of scope here.
 
 `losses:` becomes `simple: 1.0, geodesic: 1.0`. The reference's `--lambda_fs`
 defaults to 0 and its paper command never passes it, while `--lambda_geo 1.0` is
@@ -476,23 +515,43 @@ right place for a diagnostic that is not a training objective.
 A `WandbLogger`, project `poseydon`, entity from `.env`, run name derived from
 the config (model, pooling, batch size, latent dim). `.env` carries
 `WANDB_API_KEY`, `WANDB_ENTITY`, `UID` and `GID`; it is gitignored and compose
-reads it automatically. The reference reaches its platform through `eval()` on a
+reads it automatically. The entity is
+`lcazzola-fondazione-bruno-kessler` — verified against the live API, which is
+also how a first attempt at `entity: poseydon` was found to fail with *"the
+provided API key cannot access this resource"*: `poseydon` is the PROJECT, and
+the key's only entity is that one. A real run was logged end to end to confirm
+the credential before any of this was planned around. The reference reaches its platform through `eval()` on a
 command-line string in `utils/ml_platforms.py`; Lightning's logger interface
 removes that.
 
-### The aarch64 image
+### The aarch64 image — settled by spike
 
-This is the one item with genuine uncertainty. The host is a GB10 (Blackwell,
-`sm_121`) on aarch64 with CUDA 13 and CDI configured at `/var/run/cdi/nvidia.yaml`;
-`pyproject.toml` pins the CPU wheel index and the test image carries
-`torch 2.13.0+cpu`. Two routes exist — CUDA 13 aarch64/sbsa wheels layered on the
-current slim image, or basing `Dockerfile.train` on an NGC PyTorch aarch64 image
-(large, but NVIDIA's supported path on DGX Spark).
+This was the one item with genuine uncertainty. **It is now measured, and the
+answer is the cheap route.** Host: GB10 (Blackwell, `sm_121`) on aarch64, driver
+580.159.03, CUDA 13.0, CDI registering `nvidia.com/gpu=all`.
 
-**Plan A opens with a spike** that gets `torch.cuda.is_available()` true and a
-matmul running on `sm_121` inside a container, and reports what worked before any
-other work depends on it. The image choice is made on that evidence, not in
-advance.
+`Dockerfile.train` stays on the same `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
+base the test image uses and layers CUDA 13 aarch64/sbsa wheels on top. The NGC
+PyTorch aarch64 image was NOT built: route A worked end to end, and pulling a
+~20 GB base to compare a route we do not need is not evidence worth buying.
+
+Verified inside the container on the real GPU: `torch 2.14.0+cu130`,
+`is_available: True`, device `NVIDIA GB10`, capability `(12, 1)`; fp32 and bf16
+2048² matmuls; three `AdamW` + `StepLR` steps; and the full dependency set
+(numpy 2.5.3, scipy, lightning 2.6.5) with `poseydon` and `MoDiffAE` importing
+clean. Image size 19.4 GB.
+
+One thing to know rather than discover later: the wheel's arch list is
+`['sm_80','sm_90','sm_100','sm_110','sm_120']` — **`sm_121` is not in it**. The
+GB10 runs anyway through Blackwell minor-version compatibility, which is why the
+spike measured real compute rather than stopping at `is_available()`. No source
+build is needed.
+
+`pyproject.toml`'s `[tool.uv.sources]` CPU pin is overridden at image-build time
+with `uv pip install --index-url https://download.pytorch.org/whl/cu130
+--reinstall-package torch torch`, so the shared `pyproject.toml` does not change
+and the CPU test image is unaffected. `build-essential` is NOT installed: it is
+needed only by `torch.compile`, which this run does not use.
 
 ## 5 · FBX coherence sidecheck
 
@@ -569,8 +628,26 @@ validation:
 
 The callback calls a plain `run_retarget()` that the new `poseydon retarget` CLI
 also calls, so what is watched during training is the same code path that ships.
-It writes `runs/<run>/validation/step_<N>/<content>__to__<target>.{npz,bvh,mp4}`
-and logs the MP4 as `wandb.Video`.
+It writes `runs/<run>/validation/step_<N>/<content>__to__<target>.{npz,bvh,mp4}`.
+
+**All three files are logged as a wandb Artifact**, and the MP4 additionally as
+`wandb.Video` so it is scrubbable in the run's media panel without a download.
+One artifact per validation firing, named `retarget-<run_id>`, typed
+`retarget-validation`, versioned by wandb and aliased with the step
+(`step-25000`); the three pairs' nine files go in together, since they are one
+observation of one checkpoint and are only ever compared as a set.
+
+The artifact is the point, not the video. `wandb.Video` renders but is not
+retrievable as data — a `.bvh` you can load into Blender and a `.npz` you can
+diff against another step are, and a run that trains for three days is one whose
+step-25000 output you will want to open next week. Media panels are for
+watching; the artifact is what makes the run auditable after the fact.
+
+Artifact logging must never be able to fail a training run: the whole
+log-and-upload block is wrapped, and a failure degrades to a warning on the
+logger and a note in the run's console output. Losing a validation upload costs
+one observation; losing 72 hours of training to a transient network error costs
+the run.
 
 It draws from a **dedicated `torch.Generator` seeded from the step**, so
 validation is reproducible across a resume and never consumes the training RNG
