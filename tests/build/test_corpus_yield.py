@@ -21,16 +21,19 @@ from tests.conftest import CORPUS
 RECOVERED = {"Ant": 17, "Crab": 10, "Deer": 20, "Jaguar": 13}
 
 #: Rigs whose `mesh.npz` (FBX-sourced, un-promoted) disagrees in joint count
-#: with the promoted BVH-sourced rest skeleton, so `build_skeleton`'s guard
-#: (`_check_mesh_matches_skeleton`, pipeline.py) refuses to fold them and the
-#: rig gets a warning instead of a `skeleton.npz`/`stats.npz`. Goat is the
-#: rig the plan's design spec calls out explicitly; Camel hits the identical
-#: mechanism (it is also in `PROMOTE_ROOT` and also has a stage-1 `mesh.npz`)
-#: and was found by running the actual build, not by inspection -- see
-#: task-9-report.md. This is the design's documented trade-off (2026-09-08
-#: Stage 2, "the FBX path does not promote"), not a regression, so it is
-#: recorded here rather than "fixed".
-KNOWN_SKELETON_FAILURES = {"Goat", "Camel"}
+#: with the promoted BVH-sourced rest skeleton. `build_skeleton`'s guard
+#: (`_check_mesh_matches_skeleton`, pipeline.py) reports this as a WARNING
+#: through `build_all`'s per-rig warning list -- it does NOT withhold
+#: `skeleton.npz`/`stats.npz`, since neither reads `mesh.npz` (mesh folding
+#: does not exist yet; task 9 fix round 1 corrected an earlier version of the
+#: guard that raised and silently cost both rigs their training artefacts).
+#: Goat is the rig the plan's design spec calls out explicitly; Camel hits
+#: the identical mechanism (it is also in `PROMOTE_ROOT` and also has a
+#: stage-1 `mesh.npz`) and was found by running the actual build, not by
+#: inspection -- see task-9-report.md. This is the design's documented
+#: trade-off (2026-09-08 Stage 2, "the FBX path does not promote"), not a
+#: regression, so it is recorded here rather than "fixed".
+KNOWN_MESH_MISMATCHES = {"Goat", "Camel"}
 
 
 @pytest.mark.parametrize("rig, expected", sorted(RECOVERED.items()))
@@ -92,18 +95,12 @@ def test_stage_2_artefact_counts_match_the_build():
 
     - 1145 clip `.npz` (one per prepared `.bvh` -- stage 2's `build_clips`
       never drops or merges a clip).
-    - 71 `skeleton.npz` and 71 `stats.npz`, NOT 73: `build_skeleton` raises for
-      `KNOWN_SKELETON_FAILURES` (see its comment above) and `build_all` wraps
-      each rig in its own try/except, so those two rigs contribute clips but
-      no rig-level artefacts -- 73 rigs minus the 2 known failures.
-    - `index.jsonl` has exactly 1145 rows, equal to the clip count and NOT
-      lower: `build_index` globs the OUTPUT clips directory per rig, and
-      `build_clips` runs (and succeeds) before `build_skeleton` in the
-      per-rig try block, so Goat's and Camel's clips are written and indexed
-      even though their skeleton/stats pass fails afterward in the same
-      try. A rig that failed its CLIP pass instead would silently contribute
-      zero rows -- this test's equality check is exactly what would catch
-      that.
+    - 73 `skeleton.npz` and 73 `stats.npz`, ONE PER RIG: `build_skeleton`'s
+      mesh/skeleton mismatch check (see `KNOWN_MESH_MISMATCHES` above) is a
+      warning, not a refusal, so Goat and Camel get their artefacts like
+      every other rig -- only their entry in the build's warning list marks
+      them as different.
+    - `index.jsonl` has exactly 1145 rows, equal to the clip count.
     """
     clips_root = CORPUS / "clips"
     rigs_root = CORPUS / "rigs"
@@ -127,9 +124,9 @@ def test_stage_2_artefact_counts_match_the_build():
         f"expected one clip .npz per prepared .bvh: {clip_npz_count} .npz vs "
         f"{bvh_count} .bvh"
     )
-    assert skeleton_count == 73 - len(KNOWN_SKELETON_FAILURES), (
-        f"expected {73 - len(KNOWN_SKELETON_FAILURES)} skeleton.npz "
-        f"(73 rigs minus {sorted(KNOWN_SKELETON_FAILURES)}), found {skeleton_count}"
+    assert skeleton_count == 73, (
+        f"expected 73 skeleton.npz (one per rig -- a mesh/skeleton mismatch "
+        f"is a warning, not a refusal), found {skeleton_count}"
     )
     assert stats_count == skeleton_count, (
         f"stats.npz ({stats_count}) and skeleton.npz ({skeleton_count}) counts "

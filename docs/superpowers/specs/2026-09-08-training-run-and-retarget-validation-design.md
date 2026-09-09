@@ -363,13 +363,19 @@ count is small, but the cost that matters is not the joint count, it is
 which took its own task to get right against `poseydon`'s own `Animation`
 structure -- and the FBX path has no `invert` to fall back on if a Blender-side
 copy gets it wrong. Stage 2 therefore declares the FBX corpus un-promoted:
-`build_skeleton` in `poseydon/build/pipeline.py` refuses to fold a `mesh.npz`
-whose joint count disagrees with `skeleton.npz`'s real (End-Site-free) joint
-count, naming both counts in the error. Teaching the FBX path the same
-promotion stays open for whenever a skinned application needs it, but is not
-this decision. `test_bvh_and_fbx_agree_on_the_skeleton_structure` is extended
-to cover a promoted rig (Camel) so its passing is no longer a coverage
-accident.
+`build_skeleton` in `poseydon/build/pipeline.py` warns and does not fold a
+`mesh.npz` whose joint count disagrees with `skeleton.npz`'s real
+(End-Site-free) joint count, naming both counts in the warning --
+`skeleton.npz`/`stats.npz` are written regardless, since neither reads
+`mesh.npz` (mesh folding does not exist yet, and this is exactly the
+condition whoever adds it must refuse on). Task 9's first full-corpus build
+found that an earlier version of this guard raised instead of warned, which
+withheld Camel's and Goat's training artefacts over a disagreement in a file
+training never reads -- corrected in task 9 fix round 1. Teaching the FBX
+path the same promotion stays open for whenever a skinned application needs
+it, but is not this decision. `test_bvh_and_fbx_agree_on_the_skeleton_structure`
+is extended to cover a promoted rig (Camel) so its passing is no longer a
+coverage accident.
 
 **`configs/model/anytop.yaml` gains `name_embedding_dim: 768`.** Without it
 `AnyTop.name_projection` stays `None` and joint-name embeddings are accepted and

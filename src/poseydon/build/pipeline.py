@@ -107,37 +107,49 @@ def _n_real_joints(anim: Animation) -> int:
     return int(has_child.sum())
 
 
-def _check_mesh_matches_skeleton(rest: Animation, mesh_path: Path, rig: str) -> None:
-    """Refuse a `mesh.npz` whose joint count disagrees with the rest skeleton.
+def _check_mesh_matches_skeleton(rest: Animation, mesh_path: Path, rig: str) -> str | None:
+    """Detect -- but do not refuse -- a `mesh.npz` whose joint count disagrees
+    with the rest skeleton. Returns a warning message, or `None` if they agree.
 
     The FBX path (`process_dataset_truebones_fbx.py`) never runs `PromoteRoot`,
     so for the 14 rigs `PROMOTE_ROOT` names, `mesh.npz`'s skin weights are
     indexed by the UN-promoted joint order while `skeleton.npz`'s joints are
-    promoted. Folding the two on a positional match would silently deform the
-    mesh wrongly for exactly those rigs. Design spec 2026-09-08 Stage 2 records
-    the decision: this is cheaper and honest than teaching the FBX path the
-    same promotion, so stage 2 refuses instead of trusting alignment.
+    promoted. Design spec 2026-09-08 Stage 2 says stage 2 must not trust
+    positional alignment between the two -- but `skeleton.npz` and `stats.npz`
+    never read `mesh.npz` at all (mesh folding does not exist yet; Task 5 left
+    it out on purpose), so a mismatch here has no bearing on the TRAINING
+    artefacts and must not withhold them. It matters only at the point mesh
+    folding is implemented: whoever adds that MUST call this check (or its
+    successor) and refuse to fold a disagreeing mesh -- do not silently trust
+    positional alignment there either.
     """
     with np.load(mesh_path, allow_pickle=True) as mesh:
         mesh_n = len(mesh["joint_names"])
     rest_n = _n_real_joints(rest)
     if mesh_n != rest_n:
-        raise ValueError(
+        return (
             f"{rig}: mesh.npz has {mesh_n} joints but the rest skeleton has "
             f"{rest_n} real joints -- the FBX path does not run PromoteRoot, "
             f"so this rig's mesh.npz is indexed against an un-promoted "
-            f"skeleton and cannot be folded here (design spec 2026-09-08 "
-            f"Stage 2, 'the FBX path does not promote')."
+            f"skeleton and would need PromoteRoot's mapping to fold correctly "
+            f"(design spec 2026-09-08 Stage 2, 'the FBX path does not "
+            f"promote'). skeleton.npz and stats.npz are written from the BVH "
+            f"rest pose regardless -- mesh.npz is not folded into them."
         )
+    return None
 
 
-def build_skeleton(config: BuildConfig, rig: str) -> None:
+def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     """Rig-level geometry, names and the reduction map.
 
     Offsets come from the REST clip specifically: FaceAxis is clip-scoped and
     rotate_rig turns OFFSETS with the motion, so prepared clips of one rig do
     not share an OFFSET block. Which clip that is comes from the manifest via
     rest_action -- never from a filename match, since Crab's is `walk`.
+
+    Returns a mesh/skeleton mismatch warning (see `_check_mesh_matches_skeleton`),
+    or `None`. Either way, `skeleton.npz` is written -- a mismatch is reported,
+    not refused.
     """
     manifest = config.manifest(rig)
     rest = BVH.read(
@@ -145,8 +157,7 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     ).to_animation()
 
     mesh_path = config.root / "rigs" / rig / "mesh.npz"
-    if mesh_path.is_file():
-        _check_mesh_matches_skeleton(rest, mesh_path, rig)
+    mismatch = _check_mesh_matches_skeleton(rest, mesh_path, rig) if mesh_path.is_file() else None
 
     reduction = build_reduction(rest, tolerance=config.reduce_tolerance)
     rig_params = config.transform(rig).rig_params
@@ -169,6 +180,7 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     out = config.out / "rigs" / rig
     out.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out / "skeleton.npz", **payload)
+    return mismatch
 
 
 def build_stats(config: BuildConfig, rig: str) -> None:
@@ -238,7 +250,9 @@ def build_all(
         try:
             if not stats_only:
                 result.clips += build_clips(config, rig)
-                build_skeleton(config, rig)
+                mismatch = build_skeleton(config, rig)
+                if mismatch is not None:
+                    result.warnings.append(mismatch)
             build_stats(config, rig)
             result.rigs += 1
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus

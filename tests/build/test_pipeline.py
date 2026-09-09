@@ -91,37 +91,45 @@ def test_the_skeleton_pass_takes_offsets_from_the_rest_clip(config):
         assert list(data["names"]) == list(expected.names)
 
 
-def test_build_skeleton_refuses_a_mesh_with_a_mismatched_joint_count(config):
+def test_build_skeleton_warns_but_still_writes_on_a_mismatched_mesh(config):
     """Camel is one of the 14 `PROMOTE_ROOT` rigs: the FBX path never runs
     `PromoteRoot`, so its `mesh.npz` keeps `Hips` and `C_ctrl`, joints the
     promoted BVH skeleton does not have (51 FBX joints against 49 real BVH
-    joints -- measured in task 8). Design spec 2026-09-08 Stage 2 decided the
-    FBX corpus stays un-promoted and `build_skeleton` refuses to fold a
-    mismatched mesh rather than trusting positional alignment; this is that
-    refusal, and it is what makes `test_bvh_and_fbx_agree_on_the_skeleton_
-    structure`'s Camel coverage meaningful instead of an xfail with nothing
-    behind it."""
+    joints -- measured in task 8). Design spec 2026-09-08 Stage 2 says stage 2
+    must not trust positional alignment between a disagreeing mesh and
+    skeleton -- but `skeleton.npz`/`stats.npz` never read `mesh.npz` at all
+    (mesh folding does not exist yet), so the mismatch must be a WARNING, not
+    a refusal that withholds the training artefacts (task 9 fix round 1: a
+    build over all 73 rigs found this had silently cost Camel and Goat their
+    skeleton.npz/stats.npz, for a disagreement in a file training never
+    reads). This is that warning path, and it is what makes
+    `test_bvh_and_fbx_agree_on_the_skeleton_structure`'s Camel coverage
+    meaningful instead of an xfail with nothing behind it."""
     mesh_path = CORPUS / "rigs" / "Camel" / "mesh.npz"
     if not mesh_path.is_file():
         pytest.skip("Camel mesh.npz not present -- run the fbx container for Camel")
 
-    with pytest.raises(ValueError) as excinfo:
-        build_skeleton(config, "Camel")
+    warning = build_skeleton(config, "Camel")
 
-    message = str(excinfo.value)
-    assert "51" in message and "49" in message, message
-    assert "PromoteRoot" in message, message
+    assert warning is not None, "a mismatched mesh must be reported, not silently accepted"
+    assert "51" in warning and "49" in warning, warning
+    assert "PromoteRoot" in warning, warning
+    assert (config.out / "rigs" / "Camel" / "skeleton.npz").is_file(), (
+        "the mismatch must not withhold skeleton.npz -- mesh.npz is not "
+        "folded into it"
+    )
 
 
 def test_build_skeleton_accepts_a_mesh_with_a_matching_joint_count(config):
     """A non-promoted rig's mesh.npz must still fold without tripping the
-    guard added for Camel -- the refusal is for a genuine mismatch, not for
+    guard added for Camel -- the warning is for a genuine mismatch, not for
     every mesh.npz."""
     mesh_path = CORPUS / "rigs" / "Crab" / "mesh.npz"
     if not mesh_path.is_file():
         pytest.skip("Crab mesh.npz not present -- run the fbx container for Crab")
 
-    build_skeleton(config, "Crab")  # must not raise
+    warning = build_skeleton(config, "Crab")
+    assert warning is None, warning
     assert (config.out / "rigs" / "Crab" / "skeleton.npz").is_file()
 
 
@@ -134,10 +142,11 @@ def test_build_skeleton_accepts_a_mesh_with_a_matching_joint_count(config):
 #: same "un-promoted ground locator" shape the FBX path already fails to
 #: strip -- a genuine data disagreement, not a miscount in `_n_real_joints`
 #: (the four other rigs with a `mesh.npz` -- Flamingo, BrownBear, Crab,
-#: Scorpion -- all match their real BVH joint count exactly). Left as data,
-#: not fixed: fixing it means either adding Goat to `PROMOTE_ROOT` (a BVH-side
-#: corpus change) or regenerating `mesh.npz`, neither of which is this task's
-#: decision. Recorded in the design spec's Limitations.
+#: Scorpion -- all match their real BVH joint count exactly). Since task 9's
+#: fix round 1, this mismatch is a WARNING, not a refusal: `build_skeleton`
+#: and `build_stats` write their artefacts regardless, because neither reads
+#: `mesh.npz`. The tests below no longer xfail on it -- they assert the
+#: artefacts ARE written, and check the warning separately.
 _GOAT_MESH_MISMATCH_REASON = (
     "Goat: mesh.npz has 33 joints but the rest skeleton has 32 real joints -- "
     "an FBX-only `Null` root bone above `Hips`, present in the raw FBX armature "
@@ -148,9 +157,6 @@ _GOAT_MESH_MISMATCH_REASON = (
 
 
 def test_the_skeleton_pass_stores_both_raw_and_humanized_names(config):
-    mesh_path = CORPUS / "rigs" / "Goat" / "mesh.npz"
-    if mesh_path.is_file():
-        pytest.xfail(_GOAT_MESH_MISMATCH_REASON)
     build_skeleton(config, "Goat")
     with np.load(config.out / "rigs" / "Goat" / "skeleton.npz", allow_pickle=True) as d:
         raw, human = list(d["names"]), list(d["humanized"])
@@ -159,11 +165,20 @@ def test_the_skeleton_pass_stores_both_raw_and_humanized_names(config):
     assert all(n.islower() or not n.isalpha() for n in human if n)
 
 
+def test_the_skeleton_pass_warns_on_goats_mismatched_mesh(config):
+    """Goat's `mesh.npz`/`skeleton.npz` disagreement (see
+    `_GOAT_MESH_MISMATCH_REASON`) must surface as a warning from
+    `build_skeleton` even though the artefact is written regardless."""
+    mesh_path = CORPUS / "rigs" / "Goat" / "mesh.npz"
+    if not mesh_path.is_file():
+        pytest.skip("Goat mesh.npz not present -- run the fbx container for Goat")
+    warning = build_skeleton(config, "Goat")
+    assert warning is not None, _GOAT_MESH_MISMATCH_REASON
+    assert "33" in warning and "32" in warning, warning
+
+
 def test_stats_are_fitted_under_the_declared_policy(config):
     """joint_block pooling must be visible in the stored std, not just claimed."""
-    mesh_path = CORPUS / "rigs" / "Goat" / "mesh.npz"
-    if mesh_path.is_file():
-        pytest.xfail(_GOAT_MESH_MISMATCH_REASON)
     build_clips(config, "Goat")
     build_skeleton(config, "Goat")
     build_stats(config, "Goat")
@@ -178,9 +193,6 @@ def test_stats_are_fitted_under_the_declared_policy(config):
 
 
 def test_stats_record_the_schema_they_were_fitted_under(config):
-    mesh_path = CORPUS / "rigs" / "Goat" / "mesh.npz"
-    if mesh_path.is_file():
-        pytest.xfail(_GOAT_MESH_MISMATCH_REASON)
     build_clips(config, "Goat")
     build_skeleton(config, "Goat")
     build_stats(config, "Goat")
