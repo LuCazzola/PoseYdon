@@ -1442,3 +1442,39 @@ Deliberately NOT covered, and belonging to A3: the `MotionDataset` read path, `A
 **Type consistency.** `BlockPolicy(name, center, scale)` is constructed in Task 1's tests, Task 5's `POLICY`, and Task 6's config — same three fields throughout. `BuildConfig` gains `out` in Task 5 (the Interfaces block lists it) and is instantiated by Task 6's runner. `PerRigDirectory.rigs/clips` are defined in Task 4 and called in Task 5. `rest_action(manifest)` is imported from `scripts.process_dataset_truebones` in Task 5's implementation and its test.
 
 **Known risks.** Task 7 may find a `rot6d` disagreement — that is expected under the `EnforceRigid` simplification and must be recorded with its measured value, not tolerated by a loose bound. Task 8 is a genuine decision, not a mechanical step, and its Step 1 measurement must happen before the choice. Task 5 is the largest task in the plan; if it proves too big to review as one unit, split it at the pass boundary (clip+skeleton, then stats+index) rather than letting it sprawl.
+
+---
+
+# Outcome
+
+Task 9 ran `scripts/build_features.py` over the whole 73-rig corpus for the first time and pinned the result. Everything below is measured, not assumed — commands and their real output are in `.superpowers/sdd/2026-09-09-build-stage-and-artefacts/task-9-report.md`.
+
+**Measured counts (one clean full build, from an emptied `clips/`/`rigs/*/skeleton.npz,stats.npz`/`index.jsonl`):**
+
+- 73 rig directories under `data/truebones/clips/`, 1145 clip `.npz` (one per prepared `.bvh`, no drops).
+- 71 `skeleton.npz` and 71 `stats.npz` — **not** 73. `build_skeleton` raises for **Goat and Camel**, both caught by `build_all`'s per-rig try/except, so the corpus has 73 rig directories but only 71 rig-level artefact pairs.
+- `index.jsonl`: 1145 rows, equal to the clip count. Goat's and Camel's clips are still indexed — `build_clips` runs and succeeds before `build_skeleton` in the same per-rig try block, so only a rig whose *clip* pass failed would silently contribute zero rows.
+
+**Full warning list (2, both from `_check_mesh_matches_skeleton`):**
+
+```
+Camel: mesh.npz has 51 joints but the rest skeleton has 49 real joints -- the FBX path does not run PromoteRoot, so this rig's mesh.npz is indexed against an un-promoted skeleton and cannot be folded here (design spec 2026-09-08 Stage 2, 'the FBX path does not promote').
+Goat: mesh.npz has 33 joints but the rest skeleton has 32 real joints -- the FBX path does not run PromoteRoot, so this rig's mesh.npz is indexed against an un-promoted skeleton and cannot be folded here (design spec 2026-09-08 Stage 2, 'the FBX path does not promote').
+```
+
+Goat is the rig the plan text called out; Camel is the same mechanism (it is one of the 14 `PROMOTE_ROOT` rigs and also carries a stage-1 `mesh.npz`) and was already known and unit-tested at Task 8 (`tests/build/test_pipeline.py::test_build_skeleton_refuses_a_mesh_with_a_mismatched_joint_count`) — this run is the first time it showed up at corpus scale, not a new discovery. Both are the design's documented trade-off, not a regression, and are recorded in `tests/build/test_corpus_yield.py::KNOWN_SKELETON_FAILURES` rather than fixed.
+
+**Timings (`--stats-only` parity claim, parity §2):** full build 18.4s; `--stats-only` from the same clean state 10.6s. `--stats-only` is real (skips `build_clips`+`build_skeleton` entirely) and mtime-verified correct — clip `.npz`, `skeleton.npz` and `index.jsonl` were byte-for-byte/mtime-untouched, only `stats.npz` changed (all 73, since `build_stats` doesn't depend on the mesh guard and so also succeeds for Goat/Camel when `build_skeleton` is skipped). But on this corpus the claim "seconds, not a corpus rebuild" undersells itself in the wrong direction: the *full* rebuild is already only 18s, so the absolute saving is small (~8s, ~40%) even though the design's *mechanism* (fewer passes) is exactly as claimed. At this corpus size neither run is a "minutes" number — the design's target case (a much larger corpus, or a slower feature extraction path) would show a starker gap.
+
+**Task 7 (parity test) — one line:** the reference's shipped `.bvh` clips reproduce PoseYdon's features to ~1e-6 on all 7 reference rigs because `build_reduction` is provably a no-op on them (`reduction.is_identity`, enforced by assertion, not just claimed in prose); it does not exercise the `rot6d` divergence `EnforceRigid`/reduction can otherwise cause.
+
+**Task 8 (mesh/skeleton guard) — one line:** `build_skeleton` refuses to fold a `mesh.npz` whose joint count disagrees with the rest skeleton, because the FBX path never runs `PromoteRoot` so a promoted rig's mesh is indexed against the wrong joint order; this is a genuine, permanent divergence between the BVH and FBX corpora (Goat's is a real raw-FBX `Null` root the BVH lacks, not a PoseYdon miscount), not something Task 9 or A3 should try to "fix" by relaxing the guard.
+
+**Pinned by `tests/build/test_corpus_yield.py`:** `test_stage_2_artefact_counts_match_the_build` (the counts above, skips cleanly if `data/truebones/clips` is absent) and `test_stats_npz_records_the_configured_schema` (every rig's `stats.npz` block layout equals `configs/dataset/truebones.yaml`'s current `schema:`, so a stale artefact from an old `features:` value cannot sit unnoticed beside a fresh one).
+
+**What A3 needs to know:**
+
+- The corpus A3 reads has 73 rig directories but only 71 with `skeleton.npz`/`stats.npz` — a `MotionDataset` that iterates rig directories rather than rigs-with-artefacts will need to skip or explicitly exclude Goat and Camel (`KNOWN_SKELETON_FAILURES` in `tests/build/test_corpus_yield.py` is the canonical set). Their clips are still in `index.jsonl` and on disk, but have no per-rig skeleton geometry or normalization stats to train against.
+- `--stats-only` is safe to run after any `features:` change and touches only `stats.npz` (verified above) — A3's training config sweeps over `schema:`/`normalize:` can rely on this without a corpus rebuild, but should not expect it to be dramatically faster than a full rebuild on a corpus this size.
+- `data/truebones/{clips,rigs,index.jsonl}` (everything stage 2 writes) is gitignored — nothing from this run is committed; a fresh checkout has none of it, which is exactly what `test_corpus_yield.py`'s skip-if-absent guards are for. Running `scripts/build_features.py` once, followed by `--stats-only` as needed, is the full recipe A3's environment (including the aarch64 GPU image) needs to reproduce it.
+- Nothing here is unresolved or hidden: both warnings are explained, both counts are exact, and the `--stats-only` timing gap, while real, is modest at this corpus size rather than dramatic — reported as measured rather than rounded up to match the plan's expectation.
