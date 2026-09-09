@@ -33,7 +33,12 @@ Seven rigs carry both: BrownBear, Crab, Flamingo, Goat, Scorpion, Coyote, Skunk.
   already contains -- these particular files carry no zero-offset joints (see
   the per-rig `dropped` sets logged during orientation), so our own
   `build_reduction` is a no-op on all seven and the two joint sets are equal by
-  name, not merely by construction.
+  name, not merely by construction. This is the load-bearing claim behind the
+  `rot6d` agreement below, so it is not just narrated here -- the test asserts
+  `reduction.is_identity` per rig, right after building it, and fails loudly
+  (naming the rig and the dropped joints) rather than silently changing what
+  the comparison measures if a future change to `build_reduction` starts
+  pruning these files.
 
 Because the reference's own preparation already produced a rotation-only,
 already-reduced animation, running OUR ``build_stats``-shaped pipeline
@@ -86,6 +91,10 @@ def _pair(rig: str) -> tuple[Path, Path]:
     npys = sorted(REFERENCE_ASSETS.glob(f"{rig}*.npy"))
     if not bvhs or not npys:
         pytest.skip(f"{rig}: no matching reference .bvh/.npy pair")
+    # Every rig here currently ships exactly one `.bvh`/`.npy` pair, so `[0]`
+    # is the only candidate, not a representative pick among several -- if a
+    # rig ever gained a second clip this would arbitrarily choose one with no
+    # claim that it stands in for the others.
     return bvhs[0], npys[0]
 
 
@@ -108,6 +117,23 @@ def test_features_reproduce_reference_arrays(rig):
     rigid = raw.as_rigid_body(joint_translation="drop")
     reduction = build_reduction(rigid, tolerance=1e-8)
     reduced = apply_reduction(rigid, reduction)
+
+    # Load-bearing for the docstring's explanation of the ~1e-6 `rot6d`
+    # agreement below: that story only holds if the reference's shipped clip
+    # gives `build_reduction` nothing to remove. If a future change to the
+    # tolerance or the drop/collapse rule started pruning joints from these
+    # particular files, `rot6d`'s parent-reindexing would start reading a
+    # DIFFERENT parent than the reference's un-reduced array does, and this
+    # comparison would quietly start measuring something else -- so assert
+    # the no-op rather than just narrate it.
+    assert reduction.is_identity, (
+        f"{rig}: build_reduction removed {len(reduction.ops)} joint(s) "
+        f"({[op.name for op in reduction.ops]}) from the reference's own "
+        "clip -- this invalidates the docstring's explanation for why rot6d "
+        "agrees so closely (it assumes reduction is a no-op here, so no "
+        "joint's parent changes under reduction); the agreement on this rig "
+        "needs a different explanation, not a wider tolerance"
+    )
 
     manifest = SkeletonManifest.load(manifest_path)
     try:
