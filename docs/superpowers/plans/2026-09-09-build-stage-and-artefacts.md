@@ -1442,3 +1442,78 @@ Deliberately NOT covered, and belonging to A3: the `MotionDataset` read path, `A
 **Type consistency.** `BlockPolicy(name, center, scale)` is constructed in Task 1's tests, Task 5's `POLICY`, and Task 6's config — same three fields throughout. `BuildConfig` gains `out` in Task 5 (the Interfaces block lists it) and is instantiated by Task 6's runner. `PerRigDirectory.rigs/clips` are defined in Task 4 and called in Task 5. `rest_action(manifest)` is imported from `scripts.process_dataset_truebones` in Task 5's implementation and its test.
 
 **Known risks.** Task 7 may find a `rot6d` disagreement — that is expected under the `EnforceRigid` simplification and must be recorded with its measured value, not tolerated by a loose bound. Task 8 is a genuine decision, not a mechanical step, and its Step 1 measurement must happen before the choice. Task 5 is the largest task in the plan; if it proves too big to review as one unit, split it at the pass boundary (clip+skeleton, then stats+index) rather than letting it sprawl.
+
+---
+
+# Outcome
+
+Task 9 ran `scripts/build_features.py` over the whole 73-rig corpus for the first time and pinned the result. Everything below is measured, not assumed — commands and their real output are in `.superpowers/sdd/2026-09-09-build-stage-and-artefacts/task-9-report.md`.
+
+**Fix round 1.** The first pass of this task measured 71 `skeleton.npz`/`stats.npz`, not 73: `_check_mesh_matches_skeleton` (pipeline.py) raised inside `build_skeleton`, and `build_all`'s per-rig try/except turned that into a silently smaller corpus for Camel and Goat. The coordinator's review found the defect this exposed in Task 8's guard: `mesh.npz` is never folded into `skeleton.npz` (Task 5 left mesh folding out entirely), so a mesh/skeleton joint-count disagreement has no bearing on the training artefacts and must not withhold them — the design spec's "must not trust positional alignment" is about not folding a bad mesh, not about refusing the skeleton pass. Fixed: `_check_mesh_matches_skeleton` now returns a warning message (or `None`) instead of raising; `build_skeleton` always writes `skeleton.npz` and returns that warning; `build_all` appends it to `result.warnings` through the same channel it already used for hard failures. The refusal is preserved as a comment at the guard, naming the condition for whoever eventually implements mesh folding. `tests/build/test_pipeline.py`'s Camel/Goat tests were updated to assert both halves: the warning fires with both joint counts, AND `skeleton.npz`/`stats.npz` are written. The design spec's §2 sentence was corrected from "refuses to fold" to "warns and does not fold". All counts and warnings below are from the corrected build.
+
+**Measured counts (one clean full build, from an emptied `clips/`/`rigs/*/skeleton.npz,stats.npz`/`index.jsonl`):**
+
+- 73 rig directories under `data/truebones/clips/`, 1145 clip `.npz` (one per prepared `.bvh`, no drops).
+- **73 `skeleton.npz` and 73 `stats.npz`** — one pair per rig, including Camel and Goat.
+- `index.jsonl`: 1145 rows, equal to the clip count.
+
+**Full warning list (2, both from `_check_mesh_matches_skeleton`, now non-fatal):**
+
+```
+Camel: mesh.npz has 51 joints but the rest skeleton has 49 real joints -- the FBX path does not run PromoteRoot, so this rig's mesh.npz is indexed against an un-promoted skeleton and would need PromoteRoot's mapping to fold correctly (design spec 2026-09-08 Stage 2, 'the FBX path does not promote'). skeleton.npz and stats.npz are written from the BVH rest pose regardless -- mesh.npz is not folded into them.
+Goat: mesh.npz has 33 joints but the rest skeleton has 32 real joints -- the FBX path does not run PromoteRoot, so this rig's mesh.npz is indexed against an un-promoted skeleton and would need PromoteRoot's mapping to fold correctly (design spec 2026-09-08 Stage 2, 'the FBX path does not promote'). skeleton.npz and stats.npz are written from the BVH rest pose regardless -- mesh.npz is not folded into them.
+```
+
+Goat is the rig the plan text called out; Camel is the same mechanism (it is one of the 14 `PROMOTE_ROOT` rigs and also carries a stage-1 `mesh.npz`) and was already known and unit-tested at Task 8. Both are the design's documented trade-off, not a regression, and are recorded in `tests/build/test_corpus_yield.py::KNOWN_MESH_MISMATCHES` — a warning to be aware of, not a gap in the corpus.
+
+**Timings (`--stats-only` parity claim, parity §2):** full stage-2 build 18.0s; `--stats-only` from the same clean state 10.6s. `--stats-only` is real (skips `build_clips`+`build_skeleton` entirely) and mtime-verified correct — clip `.npz`, `skeleton.npz` and `index.jsonl` were byte-for-byte/mtime-untouched, only `stats.npz` changed. The parity claim being measured is "changing `features:` costs seconds, not a corpus rebuild" — and "a corpus rebuild" means re-running STAGE 1 (Blender/FBX processing over 73 rigs), which is a multi-minute operation, not the 18s stage-2 rebuild measured here. Against that correct baseline, 10.6s for `--stats-only` vs. minutes for a stage-1 rebuild is exactly the claim, and it holds without qualification.
+
+**Task 7 (parity test) — one line:** the reference's shipped `.bvh` clips reproduce PoseYdon's features to ~1e-6 on all 7 reference rigs because `build_reduction` is provably a no-op on them (`reduction.is_identity`, enforced by assertion, not just claimed in prose); it does not exercise the `rot6d` divergence `EnforceRigid`/reduction can otherwise cause.
+
+**Task 8 (mesh/skeleton guard) — one line, corrected here:** `build_skeleton` warns and does not fold a `mesh.npz` whose joint count disagrees with the rest skeleton, because the FBX path never runs `PromoteRoot` so a promoted rig's mesh is indexed against the wrong joint order — but it does not withhold `skeleton.npz`/`stats.npz`, since neither reads `mesh.npz`; this is a genuine, permanent divergence between the BVH and FBX corpora (Goat's is a real raw-FBX `Null` root the BVH lacks, not a PoseYdon miscount) that matters only once mesh folding is implemented, which A3 must still refuse to do for these rigs.
+
+**Pinned by `tests/build/test_corpus_yield.py`:** `test_stage_2_artefact_counts_match_the_build` (the counts above, skips cleanly if `data/truebones/clips` is absent) and `test_stats_npz_records_the_configured_schema` (every rig's `stats.npz` block layout equals `configs/dataset/truebones.yaml`'s current `schema:`, so a stale artefact from an old `features:` value cannot sit unnoticed beside a fresh one).
+
+**What A3 needs to know:**
+
+- The corpus A3 reads has a full 73/73/73/1145 set of artefacts — Camel and Goat are complete rigs with `skeleton.npz` and `stats.npz` like every other rig, just flagged in the build's warning list because their (unused-by-training) `mesh.npz` disagrees with the skeleton. No rig needs to be skipped or excluded to train.
+- If A3 ever implements mesh folding (skinning, retargeting onto a mesh), it MUST re-check the condition `_check_mesh_matches_skeleton` measures (or reuse the function) and refuse to fold Camel's or Goat's `mesh.npz` — the comment at the guard names this explicitly.
+- `--stats-only` is safe to run after any `features:` change and touches only `stats.npz` (verified above); against the real alternative (a stage-1 rebuild, minutes) it is the "seconds, not a corpus rebuild" the design promises.
+- `data/truebones/{clips,rigs,index.jsonl}` is gitignored *by extension* — `.gitignore:237-240` covers `data/**/*.npz`, `*.bvh`, `*.fbx` and `index.jsonl`, so none of the heavy artefacts is committed and a fresh checkout has none of them, which is what `test_corpus_yield.py`'s skip-if-absent guards are for. Running `scripts/build_features.py` once, followed by `--stats-only` as needed, is the full recipe A3's environment (including the aarch64 GPU image) needs to reproduce it.
+- **Not everything stage 2 writes is ignored, and the exception matters.** `build_clips` also
+  writes one `clips/<Rig>/<action>.yaml` label file per clip — 1145 of them, all `.yaml`, matched
+  by no rule in `.gitignore`. They are therefore untracked *and* unignored: they sit in
+  `git status` forever, `git add -A` would commit all 1145, and `git clean -fdx` deletes them
+  silently. Today that is harmless — every one holds the derived default (`split: train`, `action:
+  <stem>`; verified: 1145/1145). It stops being harmless the moment A3 authors a val or test
+  split, because `write_labels` deliberately never overwrites an existing file (`--relabel` merges
+  rather than clobbers) and `build_index` now reads `split:` back out of these files: an authored
+  `split: val` survives a rebuild but NOT a fresh clone. **A3 must decide where the split lives**
+  before authoring one — commit the label files, move the split into the manifest, or generate it
+  deterministically from the index — and this plan deliberately does not decide for it.
+- Nothing here is unresolved or hidden: both warnings are explained, all four counts are exact and match (73/73/73/1145), and the `--stats-only` timing holds the design's claim against the correct baseline.
+
+## Final whole-branch review — fix wave
+
+Applied after all 9 tasks were individually reviewed and complete, in commits
+`3229a57` (build failures made fatal, `build_index` guarded, authored splits
+honoured) and `b7df837` (spec read-path, `stats.npz` claim, FBX-filter and
+CI-pin hand-off notes). Two items belong here because A3 needs them and nothing
+else records them:
+
+- **`skeleton.npz` requires `allow_pickle=True`, permanently.** Not a bug to fix:
+  `prepare/enforce_rigid/source_channels` is genuinely ragged (a tuple of channel
+  names per joint, differing in length per joint) and has no fixed-width
+  encoding. `prepare/rest_relative/names` was ALSO object-dtype, but only as a
+  round-trip artefact of `RigTransform.load(allow_pickle=True)` — it is a plain
+  list of equal-length strings, so it is now re-cast to `<U` before being written
+  into `skeleton.npz`, and `build_skeleton`'s docstring says so. Whatever A3
+  writes to load `skeleton.npz` must pass `allow_pickle=True` — there is no way
+  to avoid it while `source_channels` lives in this file.
+- **`tests/build/test_corpus_yield.py`'s 73/73/73/1145 pin does not run in CI.**
+  Every guard in that file skips when `data/truebones/clips` is absent, which is
+  always true on a fresh checkout (the corpus is gitignored, §2's "What A3 needs
+  to know" above). A3 must not treat that file's green result as a live guard on
+  a CI machine that has not first run `scripts/process_dataset_truebones.py` and
+  `scripts/build_features.py` — it is a local/dev regression check only, unless
+  and until CI is given the corpus.

@@ -14,8 +14,8 @@ from pathlib import Path
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
+from poseydon.build.index import CorpusIndex
 from poseydon.data.dataset import MotionDataset
-from poseydon.ingest.index import CorpusIndex
 from poseydon.losses.base import LOSSES, LossTerm
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process

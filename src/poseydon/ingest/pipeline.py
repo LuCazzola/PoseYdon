@@ -7,10 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from poseydon.core.animation import RigidBodyAnimation
-from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
-from poseydon.ingest.align import AlignmentParams, align, compute_alignment_params
-from poseydon.ingest.index import (
+from poseydon.build.index import (
     SEPARATOR,
     ClipRecord,
     CorpusIndex,
@@ -18,6 +15,9 @@ from poseydon.ingest.index import (
     clip_id,
     strip_skeleton_prefix,
 )
+from poseydon.core.animation import RigidBodyAnimation
+from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
+from poseydon.ingest.align import AlignmentParams, align, compute_alignment_params
 from poseydon.io.bvh import BVH
 
 ALIGNED_DIRNAME = "aligned"

@@ -10,6 +10,7 @@ corpus scale that a columnar format would be premature.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -84,12 +85,18 @@ class CorpusIndex:
     @classmethod
     def load(cls, path: str | Path) -> CorpusIndex:
         index = cls()
+        fields = {f.name for f in dataclasses.fields(ClipRecord)}
         for line in Path(path).read_text().splitlines():
             if not line.strip():
                 continue
             payload = json.loads(line)
-            payload["tags"] = tuple(payload.get("tags", ()))
-            index.add(ClipRecord(**payload))
+            # Ignore keys this version does not know: an index written by a
+            # newer build must stay readable, or a colleague's corpus becomes
+            # a TypeError about an unexpected keyword argument.
+            known = {k: v for k, v in payload.items() if k in fields}
+            if "tags" in known:
+                known["tags"] = tuple(known["tags"])
+            index.add(ClipRecord(**known))
         return index
 
     def query(

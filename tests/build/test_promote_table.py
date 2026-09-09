@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from scripts.process_dataset_truebones import PROMOTE_ROOT, rest_source
+from scripts.process_dataset_truebones import PROMOTE_ROOT
 
+from poseydon.build.corpus import rest_source
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.io.bvh import BVH
 from tests.conftest import CORPUS

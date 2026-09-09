@@ -299,7 +299,7 @@ four passes.
 |---|---|
 | per clip | `clips/<Rig>/<action>.npz` — motion arrays plus that clip's facing quaternion from `prepare.npz`; `<action>.yaml` if absent |
 | per rig | `rigs/<Rig>/skeleton.npz` — offsets, parents, raw and humanized names, reduction map, folded prepare constants |
-| per rig, schema-dependent | `rigs/<Rig>/stats.npz` — mean, std, block layout, T-pose frame |
+| per rig, schema-dependent | `rigs/<Rig>/stats.npz` — mean, std, block layout |
 | once | `index.jsonl` — one flat row per clip, joining rig-level `tags` |
 
 `--stats-only` runs the third pass alone, so changing `features:` costs seconds
@@ -353,20 +353,43 @@ while the prepared FBX still has it.
 would fail — it passes today only because the five rigs with prepared FBX
 artefacts happen to include none of the 14. Agreement by lucky coverage.
 
-Stage 2 must not paper over it. Two routes, and A2 picks one on evidence: teach
-the FBX path the same promotion (it has no `PrepareChain`, so that means a
-Blender-side equivalent driven by the same `PROMOTE_ROOT` table), or declare the
-FBX corpus un-promoted and have stage 2 refuse to fold a `mesh.npz` whose joint
-count disagrees with `skeleton.npz`. The second is cheaper and honest; the first
-is what a skinned application eventually needs. Either way the structure test
-must cover a promoted rig.
+Stage 2 must not paper over it. Measured by running the FBX pass on Camel (a
+two-step promotion, `Hips -> C_ctrl -> Bip01`): its `mesh.npz` carries 51
+joints against the promoted BVH's 49 real joints, and the two extra are
+exactly `Hips` and `C_ctrl` -- the removed locator chain, nothing else. The
+count is small, but the cost that matters is not the joint count, it is
+`PromoteRoot`'s logic: single-child-chain detection, the dead-subtree case
+(Tukan's `MESH` branch), and offset absorption onto the promoted root, all of
+which took its own task to get right against `poseydon`'s own `Animation`
+structure -- and the FBX path has no `invert` to fall back on if a Blender-side
+copy gets it wrong. Stage 2 therefore declares the FBX corpus un-promoted:
+`build_skeleton` in `poseydon/build/pipeline.py` warns and does not fold a
+`mesh.npz` whose joint count disagrees with `skeleton.npz`'s real
+(End-Site-free) joint count, naming both counts in the warning --
+`skeleton.npz`/`stats.npz` are written regardless, since neither reads
+`mesh.npz` (mesh folding does not exist yet, and this is exactly the
+condition whoever adds it must refuse on). Task 9's first full-corpus build
+found that an earlier version of this guard raised instead of warned, which
+withheld Camel's and Goat's training artefacts over a disagreement in a file
+training never reads -- corrected in task 9 fix round 1. Teaching the FBX
+path the same promotion stays open for whenever a skinned application needs
+it, but is not this decision. `test_bvh_and_fbx_agree_on_the_skeleton_structure`
+is extended to cover a promoted rig (Camel) so its passing is no longer a
+coverage accident.
 
-**`configs/model/*.yaml` gains `name_embedding_dim: 768`.** Without it
+**`configs/model/anytop.yaml` gains `name_embedding_dim: 768`.** Without it
 `AnyTop.name_projection` stays `None` and joint-name embeddings are accepted and
 silently ignored (`models/anytop.py:139`). The embeddings themselves are not built
 in this design — `text` stays `null`, T5 stays behind the `poseydon[text]` extra,
 and the test image deliberately excludes `transformers` — but the config hole is
 closed now rather than becoming a silent no-op later.
+
+Measured in plan A2: **`MoDiffAE.__init__` does not accept that keyword at all** — it takes an
+unconditional `text_dim` instead, so there is no silent-ignore hole to close there and adding
+the key would raise at instantiation. The spec previously said `configs/model/*.yaml`, which was
+wrong. This matters for §4's chosen model: the run trains MoDiffAE, so joint-name conditioning
+reaches it by a different route than AnyTop's, and A3 must not assume the two share a config
+key.
 
 Normalization is the parity spec §5 per-block policy verbatim. `foot_contact`
 takes `scale: none`; the reference-exact combination is `scale: block` with
@@ -378,6 +401,9 @@ takes `scale: none`; the reference-exact combination is `scale: block` with
 
 ```
 load clips/<Rig>/<action>.npz    prepared animation, full joint set
+reduce to rigid body             as_rigid_body(joint_translation="drop") -- MUST match
+                                  build_stats (pipeline.py); stats.npz was fit on this
+                                  distribution, not on the raw prepared animation
 apply the rig's reduction        JointEdit from rigs/<Rig>/skeleton.npz
 apply augmentations              JointEdit composed onto it
 extract features                 the schema
@@ -801,6 +827,62 @@ matching their clips, a data question rather than a code one.
 channels come back holding constant rest offsets, discarding roughly 10% of
 skeleton size in real motion on raw Truebones. Intrinsic to a rotation-based
 representation, and the reason the stage is explicit rather than silent.
+
+**Goat's `mesh.npz` disagrees with `skeleton.npz` though Goat is not
+promoted.** Task 8's mesh/skeleton joint-count guard (§2) fires on Goat too:
+33 FBX joints against 32 real BVH joints. The extra is a `Null` bone, root of
+the raw FBX armature and parent of `Hips`, confirmed present straight off
+`bpy.ops.import_scene.fbx` on the raw source file — not an artefact of
+PoseYdon's own processing. Goat is not in `PROMOTE_ROOT`, so this is a second,
+independent instance of the same "un-promoted ground locator" shape the FBX
+path already fails to strip for the 14 it does know about, not a bug in the
+guard itself (the four other rigs carrying a `mesh.npz` — Flamingo, BrownBear,
+Crab, Scorpion — all match their real BVH joint count exactly). Left as data, not fixed here.
+
+**The fix is FBX-side, and adding Goat to `PROMOTE_ROOT` would be wrong.**
+`PROMOTE_ROOT` drives the BVH `PrepareChain`, and Goat's BVH needs nothing: its
+prepared root is `Hips` at height fraction 0.724, a properly body-rooted
+skeleton with no locator to strip. Promoting it would move the root off the
+pelvis and onto the spine — exactly the failure the table's ground-locator gate
+exists to prevent, and the reason §1.2 keys that gate on the locator
+classification rather than on the presence of an offset. The `Null` is an
+artefact of the FBX export alone, which is why the two sources disagree at all.
+Closing it means either stripping the `Null` in the FBX path or regenerating
+`mesh.npz` against the promoted skeleton — both FBX-side work, and both waiting
+on the same decision §2 defers about giving that path a real stage contract.
+
+**The FBX all-takes filter drops 13 legitimate clips whose stem ends in "all".**
+`scripts/process_dataset_truebones_fbx.py:84` selects an all-takes bundle with
+`not stem.lower().endswith("all")` — a suffix check meant to exclude the
+whole-rig compilations, but `"camel-fall".endswith("all")` is also `True`. The
+rule it actually implements is "the stem ends in the letters a-l-l", which is
+wider than "-Fall": `Deer/DEER-WalkCall.fbx` is caught too, and is the clip
+that proves the mechanism is the suffix, not the word. Measured over
+`data/truebones/source/**/*.fbx`, all 13: `Buffalo-Fall`, `Camel-Fall`,
+`DEER-WalkCall`, `Gazelle-Fall`, `PolarBearB-Fall`, and under `Raptor2/` the
+four `Raptor-Fall`, `Raptor-FenceClimbFall`, `Raptor-RunFall`,
+`Raptor-RunJumpFall`, plus `roach-Fall`, `Stego-Fall`, `Tricera-Fall`,
+`Tyranno-Fall`. Since `mesh.npz` is not folded into any training artefact yet
+(§2), this has no effect on `skeleton.npz`/`stats.npz`/the clip `.npz`s
+today — but the FBX-sourced corpus is missing those takes, and whoever gives
+the FBX path a real stage contract must fix the filter, not work around its
+current output. The correct test is against the compilation's actual naming
+convention (the stem equals the rig's export prefix plus "ALL"), not a suffix
+of "all".
+
+**`tests/build/test_roundtrip_fbx.py`'s own filter is broader, and worse: it
+skips green instead of failing.** That test (`:61`) uses
+`"ALL" not in stem.upper()` to find one per-clip source file per rig — a
+SUBSTRING test, so it also excludes every per-clip file of a rig whose EXPORT
+PREFIX contains "ALL". Measured over the source tree, seven rigs are left with
+no candidate at all and hit the test's own skip branch: Alligator, Anaconda,
+Crow, HermitCrab, Lion, SabreToothTiger, Tukan. Of those, only **Tukan** is in
+`SAMPLE_RIGS`, so exactly one parametrised case silently skips green today —
+the other six are latent, and the blast radius grows with `SAMPLE_RIGS`.
+Unlike (a) this produces no wrong-but-visible artefact, only silence, against
+this project's own "a test that skips is a test that passes" rule. The fix is
+the same: match the compilation's naming convention, not a substring of "ALL"
+a legitimate export prefix can contain.
 
 ## Phasing
 

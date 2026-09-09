@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +32,30 @@ def spec_hash(spec: FeatureSpec) -> str:
 
 
 @dataclass(frozen=True)
+class BlockPolicy:
+    """How one feature block is normalized.
+
+    Declared per block in the dataset config rather than fixed in code, because
+    the right answer differs by block. Per-channel std makes a barely-moving toe
+    unit-variance, so reconstruction loss weights it as heavily as the root;
+    pooling preserves relative magnitude. More sharply: dividing a 6D rotation
+    row by a UNIFORM scalar leaves the rotation unchanged after Gram-Schmidt,
+    while dividing per-channel does not -- so pooling is what lets the rotation
+    block survive normalization at all.
+    """
+
+    name: str
+    center: bool = True
+    #: ``channel`` per (joint, channel); ``joint_block`` one scalar per (joint,
+    #: block); ``block`` one scalar per (root / non-root, block); ``none`` leaves
+    #: std at 1, for flags.
+    scale: str = "channel"
+
+
+_SCALE_MODES = ("channel", "joint_block", "block", "none")
+
+
+@dataclass(frozen=True)
 class Normalizer:
     mean: np.ndarray  # (J, D)
     std: np.ndarray  # (J, D)
@@ -46,16 +70,63 @@ class Normalizer:
             )
 
     @classmethod
-    def fit(cls, arrays: Iterable[np.ndarray], spec: FeatureSpec) -> Normalizer:
-        """Fit over clips of one skeleton, each ``(frames, joints, dim)``."""
+    def fit(
+        cls,
+        arrays: Iterable[np.ndarray],
+        spec: FeatureSpec,
+        policy: Sequence[BlockPolicy] | None = None,
+    ) -> Normalizer:
+        """Fit over clips of one skeleton, each ``(frames, joints, dim)``.
+
+        ``policy`` declares per-block centring and pooling. ``None`` keeps the
+        per-channel behaviour every existing caller expects.
+        """
         stacked = np.concatenate([np.asarray(a, dtype=np.float64) for a in arrays], axis=0)
         if stacked.ndim != 3:
             raise ValueError(f"expected (frames, joints, dim) arrays, got {stacked.ndim} dims")
-        return cls(
-            mean=stacked.mean(axis=0),
-            std=stacked.std(axis=0) + STD_EPSILON,
-            spec=spec,
-        )
+
+        mean = stacked.mean(axis=0)
+        std = stacked.std(axis=0) + STD_EPSILON
+        if policy is None:
+            return cls(mean=mean, std=std, spec=spec)
+
+        known = set(spec.names)
+        for entry in policy:
+            if entry.name not in known:
+                raise ValueError(
+                    f"policy names block `{entry.name}`, which the spec does not "
+                    f"declare. Available: {', '.join(sorted(known))}"
+                )
+            if entry.scale not in _SCALE_MODES:
+                raise ValueError(
+                    f"block `{entry.name}` has unknown scale mode `{entry.scale}`. "
+                    f"Available: {', '.join(_SCALE_MODES)}"
+                )
+
+        for entry in policy:
+            block = spec.slice(entry.name)
+            if not entry.center:
+                mean[:, block] = 0.0
+
+            if entry.scale == "channel":
+                continue
+            if entry.scale == "none":
+                std[:, block] = 1.0
+                continue
+
+            # Pool the VARIANCE, not the std: pooling std would average
+            # magnitudes rather than energies and is not the same statistic.
+            variance = stacked[:, :, block].var(axis=0)  # (J, W)
+            if entry.scale == "joint_block":
+                pooled = np.sqrt(variance.mean(axis=-1, keepdims=True))  # (J, 1)
+                std[:, block] = pooled + STD_EPSILON
+            else:  # "block": one scalar for the root, one for everything else
+                root = np.sqrt(variance[0].mean())
+                rest = np.sqrt(variance[1:].mean()) if variance.shape[0] > 1 else root
+                std[0, block] = root + STD_EPSILON
+                std[1:, block] = rest + STD_EPSILON
+
+        return cls(mean=mean, std=std, spec=spec)
 
     def normalize(self, x: np.ndarray) -> np.ndarray:
         return np.nan_to_num((x - self.mean) / self.std)

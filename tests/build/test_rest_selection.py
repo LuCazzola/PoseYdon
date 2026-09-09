@@ -83,8 +83,7 @@ def test_the_dead_tpose_key_is_gone(tmp_path):
 def test_rest_source_refuses_a_rig_that_declares_nothing(tmp_path):
     """No silent fallback. A rig with no declared rest pose is a data error
     that must stop the build, not a rig that quietly gets an arbitrary one."""
-    from scripts.process_dataset_truebones import rest_source
-
+    from poseydon.build.corpus import rest_source
     from poseydon.core.skeleton import SkeletonManifest
 
     path = tmp_path / "manifest.yaml"
@@ -103,8 +102,7 @@ def test_rest_source_refuses_a_rig_that_declares_nothing(tmp_path):
 def test_rest_source_refuses_a_declaration_outside_the_modal_set(tmp_path):
     """Trex's natural neutral pick, __STILL.bvh, IS that rig's outlier file.
     An authored value must never override the corpus's own evidence."""
-    from scripts.process_dataset_truebones import rest_source
-
+    from poseydon.build.corpus import rest_source
     from poseydon.core.skeleton import SkeletonManifest
 
     path = tmp_path / "manifest.yaml"
@@ -127,8 +125,7 @@ def test_rest_source_refuses_a_declaration_outside_the_modal_set(tmp_path):
 
 
 def test_rest_source_returns_the_declared_file(tmp_path):
-    from scripts.process_dataset_truebones import rest_source
-
+    from poseydon.build.corpus import rest_source
     from poseydon.core.skeleton import SkeletonManifest
 
     path = tmp_path / "manifest.yaml"
@@ -151,8 +148,7 @@ def test_rest_source_returns_the_declared_file(tmp_path):
 def test_every_rig_declares_a_rest_pose_that_exists_and_is_modal():
     """The declaration is a judgement about pose content and cannot be tested.
     What can be: it exists, and it agrees with the rig's own clips."""
-    from scripts.process_dataset_truebones import rest_source
-
+    from poseydon.build.corpus import rest_source
     from poseydon.core.skeleton import SkeletonManifest
 
     source = CORPUS / "source"
