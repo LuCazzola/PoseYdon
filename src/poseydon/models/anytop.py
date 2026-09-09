@@ -22,6 +22,7 @@ from poseydon.models.base import (
     TEMPORAL_VALID,
     Denoiser,
     Prediction,
+    apply_temporal_override,
     temporal_pair_mask,
 )
 from poseydon.models.modules.embeddings import sinusoidal_embedding
@@ -219,18 +220,6 @@ class AnyTop(Denoiser):
             index[:, 1:] = index[:, 1:] + start.to(device)[:, None]
         return sinusoidal_embedding(index, self.d_model)[:, :, None, :]
 
-    def _valid_with_band(
-        self, joint_valid: torch.Tensor, frame_valid: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Joint validity and pairwise frame validity, band-limited.
-
-        Index 0 of the pair mask is the REST frame, which conditions everything
-        and attends only itself; the band applies to the real frames after it.
-        The band is ANDed with the padding mask, never ORed: it NARROWS
-        attention and must never make a padded frame visible.
-        """
-        return joint_valid, temporal_pair_mask(frame_valid, self.temporal_window)
-
     def _masks(
         self,
         masks: Masks | None,
@@ -242,23 +231,24 @@ class AnyTop(Denoiser):
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
         spatial = masks.spatial().to(device) if masks is not None else None  # (B, 1, J, J)
 
-        # An explicit mask from the caller wins outright -- the band is only the
-        # default for when none was supplied, and applying it afterwards would
-        # silently narrow a mask sampling chose deliberately.
         override = cond.get(TEMPORAL_VALID)
-        if override is not None:
-            pair = override.to(device)
-        elif masks is None and not self.temporal_window:
+        if override is None and masks is None and not self.temporal_window:
             return spatial, None
+
+        frame_valid = (
+            masks.frames.to(device)
+            if masks is not None
+            else torch.ones(batch, frames, dtype=torch.bool, device=device)
+        )
+        if override is not None:
+            # The caller's mask replaces the BAND, but padding stays padding.
+            pair = apply_temporal_override(override, frame_valid)
         else:
-            frame_valid = (
-                masks.frames.to(device)
-                if masks is not None
-                else torch.ones(batch, frames, dtype=torch.bool, device=device)
-            )
-            _, pair = self._valid_with_band(
-                torch.ones(batch, joints, dtype=torch.bool, device=device), frame_valid
-            )
+            # This model's rest token attends every valid frame, which is what it
+            # did before the band existed. MoDiffAE's attends only itself; the
+            # difference is deliberate, so it is a parameter rather than one
+            # model quietly adopting the other's convention.
+            pair = temporal_pair_mask(frame_valid, self.temporal_window, rest_attends_all=True)
 
         temporal = pair.repeat_interleave(joints, dim=0)  # (B * J, T+1, T+1)
         # MultiheadAttention wants an additive float mask when it is not bool.

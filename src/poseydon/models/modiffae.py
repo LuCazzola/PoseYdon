@@ -22,12 +22,20 @@ from torch import nn
 
 from poseydon.core.batch import Cond, Masks
 from poseydon.core.topology import DEFAULT_MAX_PATH
+
+# ``TEMPORAL_VALID`` is imported here and re-exported: the sliding band the
+# reference applies is now a MODEL parameter (``temporal_window``), not
+# conditioning, because it is a property of the attention module and routing it
+# through conditioning would need ``Conditioner.collate`` to know the batch's
+# frame count, which it is never given. The key survives only as a sampling-time
+# override of the band -- never of the padding mask.
 from poseydon.models.base import (
     CLEAN_MOTION,
     MODELS,
     TEMPORAL_VALID,
     Denoiser,
     Prediction,
+    apply_temporal_override,
     temporal_pair_mask,
 )
 from poseydon.models.modules.embeddings import sinusoidal_embedding
@@ -43,11 +51,6 @@ Z_SEM = "z_sem"
 #: Conditioning key holding T5 embeddings of the joint names.
 JOINT_NAMES = "joint_names"
 
-#: Re-exported from :mod:`poseydon.models.base`. The sliding band the reference
-#: applies is now a MODEL parameter (``temporal_window``), not conditioning: it
-#: is a property of the attention module, and routing it through conditioning
-#: would need ``Conditioner.collate`` to know the batch's frame count, which it
-#: is never given. This key survives only as a sampling-time override.
 __all__ = ["JOINT_NAMES", "TEMPORAL_VALID", "Z_SEM", "MoDiffAE"]
 
 
@@ -329,15 +332,20 @@ class MoDiffAE(Denoiser):
         """
         return joint_valid, temporal_pair_mask(frame_valid, self.temporal_window)
 
+    @staticmethod
+    def _frame_valid(masks: Masks | None, batch: int, frames: int, device) -> torch.Tensor:
+        """Which frames are real. ``None`` masks mean all of them."""
+        if masks is None:
+            return torch.ones(batch, frames, dtype=torch.bool, device=device)
+        return masks.frames.to(device)
+
     def _valid(self, masks: Masks | None, batch: int, joints: int, frames: int, device):
         """Joint validity and pairwise frame validity, including the rest frame."""
         if masks is None:
             joint_valid = torch.ones(batch, joints, dtype=torch.bool, device=device)
-            frame_valid = torch.ones(batch, frames, dtype=torch.bool, device=device)
         else:
             joint_valid = masks.joints.to(device)
-            frame_valid = masks.frames.to(device)
-        return self._valid_with_band(joint_valid, frame_valid)
+        return self._valid_with_band(joint_valid, self._frame_valid(masks, batch, frames, device))
 
     def encode(self, clean, cond, masks=None, temporal_valid=None):
         """Semantic latent for a clean clip, plus any KL terms."""
@@ -346,7 +354,9 @@ class MoDiffAE(Denoiser):
         joint_valid, pair = self._valid(masks, batch, joints, frames, clean.device)
         override = temporal_valid if temporal_valid is not None else cond.get(TEMPORAL_VALID)
         if override is not None:
-            pair = override.to(clean.device)
+            pair = apply_temporal_override(
+                override, self._frame_valid(masks, batch, frames, clean.device)
+            )
         return self.semantic_encoder(
             clean,
             cond["tpose"].to(clean.device),
@@ -365,7 +375,7 @@ class MoDiffAE(Denoiser):
         joint_valid, pair = self._valid(masks, batch, joints, frames, device)
         override = cond.get(TEMPORAL_VALID)
         if override is not None:
-            pair = override.to(device)
+            pair = apply_temporal_override(override, self._frame_valid(masks, batch, frames, device))
 
         supplied = cond.get(Z_SEM)
         if supplied is not None:

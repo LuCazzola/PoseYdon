@@ -97,37 +97,73 @@ CLEAN_MOTION = "clean_motion"
 
 #: Conditioning key holding an explicit ``(B, T+1, T+1)`` frame-attention mask.
 #: A model's ``temporal_window`` is the DEFAULT band; this key, when present,
-#: replaces the computed mask outright, so sampling can dictate what attends to
-#: what. Applied after the band is built -- never before, or the band would
-#: silently narrow a mask the caller chose deliberately.
+#: REPLACES THE BAND -- the caller declared their own temporal locality, and
+#: applying the band afterwards would silently narrow a mask they chose
+#: deliberately. It does NOT replace the padding mask: see
+#: :func:`apply_temporal_override`.
 TEMPORAL_VALID = "temporal_valid"
 
 
-def temporal_pair_mask(frame_valid: torch.Tensor, window: int) -> torch.Tensor:
+def padding_pair_mask(frame_valid: torch.Tensor) -> torch.Tensor:
+    """``(B, T)`` frame validity to a ``(B, T+1, T+1)`` pair mask, and nothing else.
+
+    No band, no rest-row policy -- just which (query, key) frame pairs are real
+    data, with the rest frame prepended at index 0. Padded positions are literal
+    zero-fill (``poseydon.data.collate``), so this is the one part of the
+    temporal mask that is not a policy anybody may opt out of.
+    """
+    batch, _ = frame_valid.shape
+    leading = torch.ones(batch, 1, dtype=torch.bool, device=frame_valid.device)
+    extended = torch.cat([leading, frame_valid], dim=1)
+    return extended[:, :, None] & extended[:, None, :]
+
+
+def temporal_pair_mask(
+    frame_valid: torch.Tensor, window: int, rest_attends_all: bool = False
+) -> torch.Tensor:
     """``(B, T)`` frame validity to a band-limited ``(B, T+1, T+1)`` pair mask.
 
-    Index 0 of the pair mask is the REST frame, which conditions everything and
-    attends only itself; the band applies to the real frames after it.
+    Index 0 of the pair mask is the REST frame, which conditions everything; the
+    band applies to the real frames after it. ``rest_attends_all`` selects the
+    rest row's policy, because the two models genuinely differ: MoDiffAE's rest
+    token attends only itself (the default), AnyTop's attends every valid frame.
+    That is a per-model choice, not something one model should inherit from the
+    other by sharing this function.
 
     The band is ANDed with the padding mask, never ORed: it NARROWS attention
     and must never make a padded frame visible. ``window`` of 0 (or None)
-    disables it; 1 leaves every frame attending only itself.
+    disables it; 1 leaves every real frame attending only itself.
     """
-    batch, frames = frame_valid.shape
-    device = frame_valid.device
-
-    leading = torch.ones(batch, 1, dtype=torch.bool, device=device)
-    extended = torch.cat([leading, frame_valid], dim=1)
-    pair = extended[:, :, None] & extended[:, None, :]
+    _, frames = frame_valid.shape
+    pair = padding_pair_mask(frame_valid)
 
     if window:
-        offsets = torch.arange(frames, device=device)
+        offsets = torch.arange(frames, device=frame_valid.device)
         band = (offsets[:, None] - offsets[None, :]).abs() <= window // 2
         pair[:, 1:, 1:] &= band
 
-    # The rest frame conditions everything but attends only to itself.
-    pair[:, 0, :] = False
-    pair[:, 0, 0] = True
+    if not rest_attends_all:
+        # The rest frame conditions everything but attends only to itself.
+        pair[:, 0, :] = False
+        pair[:, 0, 0] = True
     return pair
+
+
+def apply_temporal_override(override: torch.Tensor, frame_valid: torch.Tensor) -> torch.Tensor:
+    """Intersect a caller-supplied temporal mask with the padding pair.
+
+    An override REPLACES THE BAND -- band width and rest-row policy are both the
+    caller's to choose, and narrowing their mask would defeat the point. It is
+    still ANDed with the PADDING pair: a padded frame is zero-fill, not data,
+    and no caller can make it real. Widening attention is not on the menu.
+    """
+    expected = (frame_valid.shape[0], frame_valid.shape[1] + 1, frame_valid.shape[1] + 1)
+    if tuple(override.shape) != expected:
+        raise ValueError(
+            f"`cond[{TEMPORAL_VALID!r}]` must be {expected} (T+1 for the rest frame), "
+            f"got {tuple(override.shape)}"
+        )
+    return override.to(frame_valid.device) & padding_pair_mask(frame_valid)
+
 
 MODELS: Registry[Denoiser] = Registry("model")
