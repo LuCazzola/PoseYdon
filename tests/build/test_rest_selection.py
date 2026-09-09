@@ -162,6 +162,7 @@ def test_every_rig_declares_a_rest_pose_that_exists_and_is_modal():
     manifests = sorted((CORPUS / "rigs").glob("*/manifest.yaml"))
     assert manifests, "no rig manifests found"
 
+    checked = 0
     for path in manifests:
         manifest = SkeletonManifest.load(path)
         rig_dir = source / manifest.name
@@ -172,3 +173,14 @@ def test_every_rig_declares_a_rest_pose_that_exists_and_is_modal():
             continue
         # Raises on: no declaration, missing file, or non-modal skeleton.
         rest_source(manifest, clips)
+        checked += 1
+
+    # `continue` above can silently drop a rig from the loop without failing
+    # anything else -- exactly the shape of bug this plan exists to catch
+    # (a check that can pass while checking nothing). All 73 rigs currently
+    # have a source directory and clips, so this must be exact, not a floor:
+    # an exact count is what notices a rig quietly falling out of coverage.
+    assert checked == len(manifests), (
+        f"only checked {checked}/{len(manifests)} rig manifests; a rig with "
+        "no source directory or no clips was silently skipped"
+    )

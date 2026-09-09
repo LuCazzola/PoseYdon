@@ -55,6 +55,31 @@ def _rig_of(clips) -> str:
     return clips[0].parent.name
 
 
+def _matching_clip(clips, rest_path):
+    """A non-rest clip whose joint names match the rest pose's.
+
+    Used to be "the first non-rest clip, skip if it disagrees" -- the exact
+    shape of the Crab defect this plan exists to fix: it read as testing
+    something while actually depending on sorted() happening to put a modal
+    clip first, and would silently stop testing if that ever changed. SELECT
+    for agreement instead. A rig with no clip at all matching its own rest
+    pose is a real data problem (RestRelative would reject every clip for
+    it) and must fail loudly, not be skipped past.
+    """
+    rest_names = BVH.read(rest_path).to_animation().names
+    for path in clips:
+        if path == rest_path:
+            continue
+        anim = BVH.read(path).to_animation()
+        if tuple(anim.names) == tuple(rest_names):
+            return path
+    pytest.fail(
+        f"{_rig_of(clips)}: no clip other than its declared rest pose "
+        f"({rest_path.name}) shares that rest pose's joint names -- this rig "
+        "has no clip its own round trip could exercise"
+    )
+
+
 def _apply_with(chain, anim, params):
     """Apply the chain reusing recorded parameters, refitting nothing.
 
@@ -83,10 +108,8 @@ def test_round_trip_returns_the_source_rig(rig, raw_clips):
     chain = _chain_for(rest_bvh.channels, rig)
     rig_params = chain.fit_rig(rest, resolved)
 
-    source_bvh = BVH.read(next(p for p in clips if p != _rest_path(clips)))
+    source_bvh = BVH.read(_matching_clip(clips, _rest_path(clips)))
     source = source_bvh.to_animation()
-    if tuple(source.names) != tuple(rest.names):
-        pytest.skip(f"{rig}: this clip is rigged differently from its own rest pose")
 
     prepared, params = chain.apply(source, resolve(manifest, source.names), rig_params)
 
@@ -151,9 +174,7 @@ def test_round_trip_through_features_returns_the_source_rig(rig, raw_clips):
     chain = _chain_for(rest_bvh.channels, rig)
     rig_params = chain.fit_rig(rest, resolved)
 
-    source = BVH.read(next(p for p in clips if p != _rest_path(clips))).to_animation()
-    if tuple(source.names) != tuple(rest.names):
-        pytest.skip(f"{rig}: this clip is rigged differently from its own rest pose")
+    source = BVH.read(_matching_clip(clips, _rest_path(clips))).to_animation()
 
     prepared, params = chain.apply(source, resolve(manifest, source.names), rig_params)
     reduction = build_reduction(prepared)
