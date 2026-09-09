@@ -404,12 +404,27 @@ load clips/<Rig>/<action>.npz    prepared animation, full joint set
 reduce to rigid body             as_rigid_body(joint_translation="drop") -- MUST match
                                   build_stats (pipeline.py); stats.npz was fit on this
                                   distribution, not on the raw prepared animation
-apply the rig's reduction        JointEdit from rigs/<Rig>/skeleton.npz
+apply the rig's reduction        JointReduction, built ONCE per rig and cached
+                                  (see below) -- not the JointEdit from
+                                  skeleton.npz, which cannot do this
 apply augmentations              JointEdit composed onto it
 extract features                 the schema
 normalize                        rigs/<Rig>/stats.npz, transported through the edit
 crop                             window policy
 ```
+
+`skeleton.npz` stores the reduction as `reduction_source_of` — a `JointEdit`,
+which reindexes rows and transports statistics but **cannot apply the reduction
+to an animation**: a `COLLAPSE` removal composes the victim's rotation into its
+parent, and a reindex map carries no rotations. The read path therefore builds a
+real `JointReduction` with `build_reduction`, and `skeleton.npz`'s stored map
+becomes a CONSISTENCY CHECK on it rather than its source.
+
+That build is **per rig, not per clip**, and cached. Which joints are removed is
+selected on `norm(offsets)`, `parents` and `names`, none of which differ between
+clips of one rig — the same invariant `build_skeleton` and `build_stats` rely on
+(`pipeline.py`). Applying the ops is per clip, because folding a rotation needs
+that clip's rotations. So the cost is 73 reductions for the corpus, not 1145.
 
 Statistics are loaded, not fitted. That removes the startup cost and the reason
 the dataset caches every animation in memory (`dataset.py:106-109`). `ClipView`
@@ -422,9 +437,18 @@ Four corrections ride along, each already located:
   every dataloader worker, so with `num_workers > 0` every worker draws the
   identical crop and augmentation stream. Reseeded per worker in `worker_init_fn`
   from the base seed and the worker id.
-- **`crop_start` unification.** `AnyTop` reads `cond["window_start"]`
-  (`anytop.py:207`); `MoDiffAE` reads `cond["crop_start"]` (`modiffae.py:341`).
-  They unify on `crop_start`; `AnyTop` is corrected.
+- **`crop_start` is dead in BOTH models, not merely spelled two ways.** The
+  disagreement is real — `AnyTop` reads `cond["window_start"]` (`anytop.py:207`),
+  `MoDiffAE` reads `cond["crop_start"]` (`modiffae.py:341`) — but measuring it
+  showed something worse: **nothing ever writes either key into `cond`.** No
+  conditioner emits it and `MotionTask.compute_losses` (`task.py:63-69`) passes
+  `batch.cond` plus `CLEAN_MOTION` and nothing else, while the crop offset sits
+  unused in `batch.window.start`. So `MoDiffAE` always takes its
+  `torch.zeros` default and `AnyTop` always takes `None`: every window in every
+  run to date has been positionally encoded as if it started at frame 0. Fixing
+  the spelling alone would leave that untouched. `MotionTask` must inject
+  `crop_start` from `batch.window.start`, and `AnyTop` is corrected to read that
+  name.
 - **The temporal attention band** becomes a model parameter, `temporal_window: 31`,
   intersected with the padding mask inside the model — not a conditioner.
   Attention locality is a property of the attention module; routing it through
