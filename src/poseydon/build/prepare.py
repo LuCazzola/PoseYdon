@@ -215,6 +215,18 @@ class RestRelative(PrepareStage):
         )
 
 
+def _subtree(parents: np.ndarray, root: int) -> set[int]:
+    """Every joint index descending from ``root``, ``root`` included."""
+    indices = {root}
+    frontier = [root]
+    while frontier:
+        parent = frontier.pop()
+        children = [k for k, p in enumerate(parents) if p == parent]
+        indices.update(children)
+        frontier.extend(children)
+    return indices
+
+
 @dataclass(frozen=True)
 class PromoteRoot(PrepareStage):
     """Move the root from a ground locator onto the first real body joint.
@@ -241,6 +253,13 @@ class PromoteRoot(PrepareStage):
     rotations all turn the same subtree and only their product was ever
     observable. Spec §9 states this as the contract: structure and reference
     frame, not motion values.
+
+    One rig (Tukan) has a dead sibling subtree hanging off an ancestor --
+    zero offset throughout, no motion, an FBX geometry-holder branch rather
+    than skeleton. `fit` drops it (recorded as `dead_indices`) rather than
+    raising the single-child-chain error; `invert` does not reinsert it, so
+    for this one rig the contract is structure-and-reference-frame for the
+    *skeletal* joints only -- the dropped junk never comes back.
     """
 
     #: Joint to promote. ``None`` makes every method the identity, which is what
@@ -256,6 +275,7 @@ class PromoteRoot(PrepareStage):
                 "n_removed": np.int64(0),
                 "names": np.empty(0, dtype="<U1"),
                 "offsets": np.zeros((0, 3)),
+                "dead_indices": np.empty(0, dtype=np.int64),
             }
 
         names = list(anim.names)
@@ -266,23 +286,40 @@ class PromoteRoot(PrepareStage):
             )
         index = names.index(self.target)
 
-        # Every joint above the target must have exactly one child, or the
-        # joints being sliced away are not a chain and the slice would delete
-        # a sibling subtree.
+        # Every joint above the target must have exactly one child continuing
+        # the chain toward it. An ancestor with a second child is normally the
+        # sibling-subtree hazard this check exists to catch -- but Tukan's
+        # `Hips` carries a `MESH` branch of geometry-holder joints (zero offset
+        # throughout, no motion, dead weight from the FBX export) alongside the
+        # real skeleton. Such a branch occupies no space and nothing surviving
+        # depends on it, so it is dropped outright rather than treated as an
+        # ambiguous chain; anything else with more than one child still raises.
+        dead: list[int] = []
         for joint in range(index):
             children = [k for k, p in enumerate(anim.parents) if p == joint]
-            if len(children) != 1:
+            if len(children) == 1:
+                continue
+            live = [c for c in children if index in _subtree(anim.parents, c)]
+            extra = [c for c in children if c not in live]
+            if len(live) != 1 or any(
+                not np.array_equal(anim.offsets[j], np.zeros(3))
+                for c in extra
+                for j in _subtree(anim.parents, c)
+            ):
                 raise ValueError(
                     f"cannot promote `{self.target}`: joint `{names[joint]}` above "
                     f"it has {len(children)} children, so the joints above the "
                     "target are not a single-child chain"
                 )
+            for c in extra:
+                dead.extend(_subtree(anim.parents, c))
 
         chain = np.array(names[: index + 1])
         return {
             "n_removed": np.int64(index),
             "names": chain,
             "offsets": anim.offsets[: index + 1].copy(),
+            "dead_indices": np.array(sorted(dead), dtype=np.int64),
         }
 
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
@@ -290,28 +327,33 @@ class PromoteRoot(PrepareStage):
         if index == 0:
             return anim
 
+        dead = {int(i) for i in params.get("dead_indices", np.empty(0, dtype=np.int64))}
+        keep = [j for j in range(anim.n_joints) if j >= index and j not in dead]
+        old_to_new = {old: new for new, old in enumerate(keep)}
+
         positions, rotations_world = anim.global_transforms()
 
-        translations = anim.translations[:, index:].copy()
+        translations = anim.translations[:, keep].copy()
         # The new root's translation slot holds a GLOBAL position (Animation's
         # contract for joint 0), which is exactly where the target already is.
         translations[:, 0] = positions[:, index]
 
-        rotations = anim.rotations[:, index:].copy()
+        rotations = anim.rotations[:, keep].copy()
         # Its rotation absorbs the whole chain: with no ancestors left, its
         # local rotation must equal what its world rotation was.
         rotations[:, 0] = rotations_world[:, index]
 
-        parents = anim.parents[index:] - index
-        parents = parents.astype(np.int32, copy=True)
-        parents[0] = -1
+        parents = np.array(
+            [-1 if k == 0 else old_to_new[int(anim.parents[j])] for k, j in enumerate(keep)],
+            dtype=np.int32,
+        )
 
         return Animation(
             rotations=rotations,
             translations=translations,
-            offsets=anim.offsets[index:].copy(),
+            offsets=anim.offsets[keep].copy(),
             parents=parents,
-            names=tuple(anim.names[index:]),
+            names=tuple(anim.names[j] for j in keep),
             fps=anim.fps,
         )
 
