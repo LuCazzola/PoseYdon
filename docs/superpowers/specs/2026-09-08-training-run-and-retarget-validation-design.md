@@ -305,18 +305,46 @@ four passes.
 `--stats-only` runs the third pass alone, so changing `features:` costs seconds
 rather than a corpus rebuild.
 
-Two amendments the modal-set fix forces:
+Five amendments, the first four forced by what plan A1 built and measured:
 
-**`prepare.npz` must record which clip it fitted the rest pose from.** The parity
-spec §3 established that prepared clips of one rig do not share an OFFSET block —
-each carries its own facing correction — so rig-level `offsets` in `skeleton.npz`
-have to come from the rest-pose clip specifically. With `find_tpose` now choosing
-by modal joint set and then by §1.1's authored table, that file is frequently not
-named `tpose`: for Crab it is `walk.bvh`, for Ant, Deer and Jaguar `idle.bvh`,
-for Trex `walk_loop.bvh`, and thirteen rigs have no T-pose file at all. A stage 2 that looks for
-`tpose.bvh` gets a differently-rotated skeleton, silently, and forward kinematics
-in `features/reconstruct.py` is then wrong by `R_rest · R_clip⁻¹`. Stage 1 records
-the choice; stage 2 reads it.
+**Rig-level offsets come from the clip the manifest names, via `rest_action()`.**
+The parity spec §3 established that prepared clips of one rig do not share an
+OFFSET block — each carries its own facing correction — so rig-level `offsets` in
+`skeleton.npz` have to come from the rest-pose clip specifically. A stage 2 that
+looks for `tpose.bvh` gets a differently-rotated skeleton, silently, and forward
+kinematics in `features/reconstruct.py` is then wrong by `R_rest · R_clip⁻¹`.
+
+A1 settled where that choice lives, and it is **not** `prepare.npz`: each rig's
+manifest declares `rest_pose:` (§1.1), and
+`scripts/process_dataset_truebones.py::rest_action(manifest)` derives the
+prepared-clip action slug from it — `strip_skeleton_prefix(action_slug(stem), rig)`,
+the same derivation stage 1 used when it wrote the clip. Stage 2 calls
+`rest_action`; it must not re-derive the slug and must not match on a filename.
+The value is frequently not `tpose`: Crab's is `walk`, Ant/Deer/Jaguar `idle`,
+Trex `walk_loop`, and thirteen rigs have no T-pose file at all.
+
+**`mesh.npz` is stale for the 14 promoted rigs and must be regenerated before
+stage 2 consumes it.** Its vertex skin weights are indexed by the FBX joint order,
+which `PromoteRoot` (§1.2) changes for those rigs by removing the locator chain.
+Applying weights indexed against the un-promoted skeleton to promoted motion
+deforms the mesh wrongly, and nothing in the current pipeline detects it. The FBX
+pass must be re-run for those 14 after promotion, and stage 2 should refuse a
+`mesh.npz` whose joint count disagrees with `skeleton.npz` rather than trusting
+positional alignment.
+
+**Crab's `mesh.npz` disagrees with its rest geometry by 0.998 bone lengths.**
+Measured in A1. Crab is the one rig whose rest pose now resolves to `walk.bvh`
+while its `mesh.npz` was built from the FBX T-pose, so the two describe different
+poses. `test_bvh_fbx_agree_on_rest_geometry` records this as a per-rig `xfail`
+carrying the measured number. Regenerating Crab's FBX artefacts is the fix; until
+then Crab's mesh must not be used for anything geometric.
+
+**`configs/data/truebones.yaml` still points `manifests:` at
+`data/truebones/skeletons/`**, a directory the Phase 1 layout migration deleted.
+It is why `poseydon train` fails at config load today. Stage 2 owns the config
+group, so it owns this correction.
+
+**`configs/model/*.yaml` gains `name_embedding_dim: 768`.**
 
 **`configs/model/*.yaml` gains `name_embedding_dim: 768`.** Without it
 `AnyTop.name_projection` stays `None` and joint-name embeddings are accepted and
