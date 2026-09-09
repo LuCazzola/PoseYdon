@@ -1,0 +1,30 @@
+# Stage 2. Each pluggable behaviour is a `_target_`; each value is a plain key.
+root: data/truebones
+schema: [ric_pos, rot6d, local_vel, foot_contact]
+
+corpus: {_target_: poseydon.build.corpus.PerRigDirectory, pattern: "*.bvh"}
+names:  {_target_: poseydon.build.names.Humanize, lowercase: true, expand_sides: true}
+
+# T5 stays behind the poseydon[text] extra: the test image deliberately excludes
+# transformers, so the suite must never require it and a corpus must build
+# without it.
+text: null
+
+reduce_tolerance: 1.0e-8
+
+# Parity spec §5. `scale: block` with `center: true` on every block is the
+# reference-exact combination the parity test uses.
+#
+# Each entry carries its own `_target_` so `hydra.utils.instantiate` recurses
+# into this list and returns `BlockPolicy` instances, not plain mappings -- a
+# bare list of dicts is not something Hydra turns into dataclasses on its own,
+# and a `BuildConfig` holding dicts here fails deep inside `Normalizer.fit`
+# (`entry.name`/`entry.scale` attribute access on a dict), far from where the
+# mistake was made. `scripts/build_features.py` also asserts the instantiated
+# type before calling `build_all`, so a config that forgets `_target_` fails
+# at load time with a clear message instead.
+normalize:
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: ric_pos,      center: true,  scale: joint_block}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d,        center: false, scale: joint_block}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: local_vel,    center: true,  scale: joint_block}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: foot_contact, center: false, scale: none}

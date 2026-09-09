@@ -7,3 +7,11 @@ ff_size: 512
 dropout: 0.1
 n_virtual_joints: 3
 kl_bottleneck: false
+# NOT `name_embedding_dim: 768` here: `MoDiffAE.__init__` (models/modiffae.py)
+# takes no such keyword -- its equivalent hook is `text_dim` (default 768,
+# already set), which sizes `InputProcess.text_embedding` and is applied
+# unconditionally to `cond["joint_names"]` whenever that key is present, with
+# no `is not None` gate to leave dangling the way `AnyTop.name_projection`
+# does. Adding `name_embedding_dim` here would raise `TypeError` at
+# instantiation, so the config hole this closes for AnyTop does not exist
+# for this model.

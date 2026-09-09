@@ -5,3 +5,9 @@ n_heads: 4
 ff_size: 1024
 dropout: 0.1
 value_bias: false
+# Without this, `AnyTop.name_projection` stays `None` and joint-name
+# embeddings (`cond["joint_names"]`) are accepted and silently ignored
+# (models/anytop.py:139). The embeddings themselves are not built in this
+# plan -- this closes the config hole now so it doesn't become a silent
+# no-op later.
+name_embedding_dim: 768
