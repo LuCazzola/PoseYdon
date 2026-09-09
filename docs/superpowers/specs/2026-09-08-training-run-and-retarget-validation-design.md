@@ -819,6 +819,20 @@ channels come back holding constant rest offsets, discarding roughly 10% of
 skeleton size in real motion on raw Truebones. Intrinsic to a rotation-based
 representation, and the reason the stage is explicit rather than silent.
 
+**Goat's `mesh.npz` disagrees with `skeleton.npz` though Goat is not
+promoted.** Task 8's mesh/skeleton joint-count guard (§2) fires on Goat too:
+33 FBX joints against 32 real BVH joints. The extra is a `Null` bone, root of
+the raw FBX armature and parent of `Hips`, confirmed present straight off
+`bpy.ops.import_scene.fbx` on the raw source file — not an artefact of
+PoseYdon's own processing. Goat is not in `PROMOTE_ROOT`, so this is a second,
+independent instance of the same "un-promoted ground locator" shape the FBX
+path already fails to strip for the 14 it does know about, not a bug in the
+guard itself (the four other rigs carrying a `mesh.npz` — Flamingo, BrownBear,
+Crab, Scorpion — all match their real BVH joint count exactly). Left as data,
+not fixed here: closing it means either adding Goat to `PROMOTE_ROOT` (a
+BVH-side corpus decision) or regenerating its `mesh.npz`, neither of which
+this task decides.
+
 ## Phasing
 
 **Plan A — get it training.** aarch64 CUDA spike; `.env` and the compose `UID`
