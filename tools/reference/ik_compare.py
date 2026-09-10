@@ -29,8 +29,8 @@ from poseydon.core.spec import FeatureSpec
 from poseydon.core.torch_kinematics import forward_kinematics
 from poseydon.features import features_to_anim, positions_from_features
 from poseydon.io.bvh import BVH
+from poseydon.io.render import render_skeleton
 from poseydon.solvers import IK_TERMS, GradientIK, SolverSkeleton
-from tools.render import render_skeleton
 
 SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_contact", 1)))
 ASSETS = Path("external/neural_motion_blending/assets/truebones")
@@ -44,14 +44,16 @@ def bone_error(positions, parents, offsets) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--save", default="truebones_globpool")
+    parser.add_argument("--save", default="truebones_attnpool")
+    parser.add_argument("--root", default="artifacts/transfer",
+                        help="directory transfer_compare.py wrote its .npy into")
     parser.add_argument("--sampler", default="ddpm")
     parser.add_argument("--who", default="poseydon")
     parser.add_argument("--target", default="Scorpion")
     parser.add_argument("--iterations", type=int, default=150)
     args = parser.parse_args()
 
-    root = Path("artifacts/transfer") / args.save / args.sampler
+    root = Path(args.root) / args.save / args.sampler
     features = np.load(root / f"{args.who}_Flamingo_to_{args.target}.npy")
     template = BVH.read(ASSETS / "Scorpion___SlowForward_839.bvh").to_animation().as_rigid_body()
     parents, offsets = template.parents, template.offsets
