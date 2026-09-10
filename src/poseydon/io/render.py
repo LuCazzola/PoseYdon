@@ -41,6 +41,15 @@ def _bones(parents) -> list[tuple[int, int]]:
 
 
 
+#: Breathing room around the vertical window, so a head does not touch the
+#: top edge of the frame.
+PAD = 0.06
+
+#: Floor under the vertical reach, as a fraction of the horizontal one. A clip
+#: whose character barely leaves the ground would otherwise be framed in a
+#: sliver, which reads as a letterbox rather than a room.
+MIN_VERTICAL = 0.45
+
 #: Scales the axes cube within the figure. The data limits are unaffected, so
 #: this crops empty margin rather than content. 1.55 was chosen by rendering
 #: frames 10/60/150 of all three validation pairs and looking; at 1.7 the ground
@@ -81,7 +90,7 @@ def render_skeleton(
     title: str = "",
     elev: float = 14.0,
     azim: float = -70.0,
-    zoom: float = 1.0,
+    zoom: float = 1.15,
     dpi: int = 90,
     highlight: dict[str, list[int]] | None = None,
 ) -> Path:
@@ -119,6 +128,23 @@ def render_skeleton(
     reach = radius / max(zoom, 1e-6) + 1e-6
     floor = float(view[..., 2].min())
 
+    # Vertical extent of its own. A cube spends half its height on sky the
+    # character never enters -- these rigs stand about as tall as they are wide,
+    # so an equal-sided box left a visibly empty band above every render. The
+    # box aspect below is set to MATCH these limits, so units stay square in
+    # every axis and nothing is stretched; only empty space is removed.
+    #
+    # Taken from the clip's own floor-to-ceiling span and NOT divided by
+    # `zoom`. Vertically there is no slack to reclaim -- the window already
+    # ends where the character does -- so dividing would crop heads to buy
+    # nothing. `zoom` therefore tightens the horizontal framing only, which is
+    # where the spare room actually is. Deriving this from a per-frame rise and
+    # drop instead clipped 3.46% of Coyote->Crab at zoom 1.0, because the floor
+    # can sit well below the tracked centre and the window stopped short of the
+    # character's top.
+    ceiling = float(view[..., 2].max())
+    reach_z = max((ceiling - floor) / 2.0, reach * MIN_VERTICAL) * (1.0 + PAD) + 1e-6
+
     frames = []
     figure = plt.figure(figsize=(5, 5), dpi=dpi)
     axes = figure.add_subplot(111, projection="3d")
@@ -147,17 +173,17 @@ def render_skeleton(
 
         axes.set_xlim(centre[0] - reach, centre[0] + reach)
         axes.set_ylim(centre[1] - reach, centre[1] + reach)
-        # Anchored just below the floor rather than centred on the character:
-        # a skeleton stands ON the ground, so centring would put half the frame
-        # underneath it.
-        base = min(floor, centre[2] - reach * 0.5)
-        axes.set_zlim(base, base + 2 * reach)
+        # Anchored so the ground is visible without giving it half the frame:
+        # a skeleton stands ON the floor, so a centred cube buries the lower
+        # half below it.
+        base = floor - reach_z * PAD
+        axes.set_zlim(base, base + 2 * reach_z)
         # `zoom` on the box aspect scales the CUBE inside the figure, which is
         # where most of the empty margin was: matplotlib's 3D axes reserve room
         # for tick labels and a title that this render turns off anyway. The
         # data limits above are untouched, so nothing is clipped by this -- it
         # only stops drawing the same content so small.
-        axes.set_box_aspect((1, 1, 1), zoom=BOX_ZOOM)
+        axes.set_box_aspect((reach, reach, reach_z), zoom=BOX_ZOOM)
         axes.view_init(elev=elev, azim=azim)
         axes.set_axis_off()
         axes.set_title(f"{title}\nframe {frame + 1}/{view.shape[0]}", fontsize=9)

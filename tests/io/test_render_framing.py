@@ -92,3 +92,55 @@ def test_zoom_tightens_the_frame():
     _, _, wide = _framing(_travelling_clip())
     _, _, tight = _framing(_travelling_clip(), zoom=2.0)
     assert tight < wide
+
+
+def _vertical(positions: np.ndarray, zoom: float = 1.0):
+    """The vertical window `render_skeleton` computes."""
+    from poseydon.io.render import MIN_VERTICAL, PAD
+
+    view, track, reach = _framing(positions, zoom)
+    floor, ceiling = float(view[..., 2].min()), float(view[..., 2].max())
+    reach_z = max((ceiling - floor) / 2.0, reach * MIN_VERTICAL) * (1.0 + PAD)
+    return view, track, reach, floor - reach_z * PAD, reach_z
+
+
+def _low_wide_clip(frames: int = 80, joints: int = 20) -> np.ndarray:
+    """A crab: wide, close to the ground, with the floor far below its centre.
+
+    This is the shape that broke a vertical window derived from a per-frame
+    rise and drop -- the floor sat well below the tracked centre, so the window
+    stopped short of the character's own top.
+    """
+    rng = np.random.default_rng(2)
+    body = rng.normal(scale=1.0, size=(joints, 3))
+    body[:, 2] = np.abs(body[:, 2]) * 0.25          # flat, and above the floor
+    path = np.linspace(0, 3.0, frames)
+    clip = body[None] + np.stack(
+        [path, path * 0.5, np.zeros(frames)], axis=-1
+    )[:, None]
+    clip[:, 0, 2] += 0.4                             # one joint reaching up
+    return clip
+
+
+def test_the_vertical_window_covers_the_character():
+    """Regression: a low, wide rig had its top cropped at the default zoom."""
+    view, _track, _reach, base, reach_z = _vertical(_low_wide_clip())
+    above = (view[..., 2] > base + 2 * reach_z).sum()
+    below = (view[..., 2] < base).sum()
+    assert above == 0 and below == 0, (
+        f"{above} joint-frames above the frame and {below} below it"
+    )
+
+
+def test_zoom_does_not_tighten_the_vertical_window():
+    """There is no vertical slack to reclaim, so zooming it only crops heads."""
+    *_, base_wide, reach_wide = _vertical(_low_wide_clip(), zoom=1.0)
+    *_, base_tight, reach_tight = _vertical(_low_wide_clip(), zoom=1.3)
+    assert reach_tight == reach_wide and base_tight == base_wide
+
+
+def test_the_ground_is_never_above_the_bottom_of_the_frame():
+    """The floor must stay visible: it is the only depth cue in the render."""
+    view, _track, _reach, base, reach_z = _vertical(_low_wide_clip())
+    floor = float(view[..., 2].min())
+    assert base <= floor <= base + 2 * reach_z

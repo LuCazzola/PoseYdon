@@ -50,6 +50,11 @@ services:
       # with PermissionError. Only the retarget-validation callback uploads
       # artifacts, so nothing caught this until it ran.
       WANDB_DATA_DIR: /tmp/wandb-data
+      # Same root cause as WANDB_DATA_DIR: the container user has no home, so
+      # $XDG_CACHE_HOME resolves to `/.cache`, which is not writable. wandb's
+      # own logger reports "mkdir /.cache: permission denied" at startup and
+      # the artifact cache lands in the same place.
+      WANDB_CACHE_DIR: /tmp/wandb-cache
     shm_size: "8gb"
 
   # Reference comparison only. Not used by the test suite.
