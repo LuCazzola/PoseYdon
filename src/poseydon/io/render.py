@@ -77,6 +77,40 @@ TILE_COLOURS = ((0.55, 0.55, 0.60, 0.20), (0.80, 0.80, 0.84, 0.11))
 CONTACT_COLOUR = "#2ca02c"
 
 
+
+def camera(view: np.ndarray, zoom: float = 1.0):
+    """Where the camera sits and how much it sees: ``(track, reach, reach_z, floor)``.
+
+    Split out of `render_skeleton` so it has exactly ONE implementation. The
+    tests used to recompute this themselves, which meant they exercised a copy:
+    a mutation that reframed the camera on the whole trajectory -- the very bug
+    this logic exists to fix -- left the whole suite green.
+
+    A camera that FOLLOWS the character at a fixed reach, rather than one framing
+    wide enough for the whole trajectory. Framing the trajectory makes the
+    subject small in exact proportion to how far it travels -- on the validation
+    clips the character spans about 1 unit while the path spans 2-3, so it
+    occupied roughly a third of the frame and read as "far away".
+
+    The reach is FIXED for the clip and the centre is smoothed, so nothing
+    rescales per frame. Smoothing comes FIRST and the reach is sized against the
+    path actually used: sizing against the unsmoothed centre and framing on the
+    smoothed one leaves the bound unguaranteed wherever smoothing lags a fast
+    move.
+
+    The vertical extent is its own quantity, taken from the clip's floor-to-
+    ceiling span and NOT divided by ``zoom``: there is no vertical slack to
+    reclaim, so dividing would crop heads to buy nothing.
+    """
+    track = _smooth_path(view.mean(axis=1))
+    radius = float(np.abs(view - track[:, None]).max()) * 1.1
+    reach = radius / max(zoom, 1e-6) + 1e-6
+    floor = float(view[..., 2].min())
+    ceiling = float(view[..., 2].max())
+    reach_z = max((ceiling - floor) / 2.0, reach * MIN_VERTICAL) * (1.0 + PAD) + 1e-6
+    return track, reach, reach_z, floor
+
+
 def _ground(view: np.ndarray, reach: float, floor: float):
     """A checkerboard covering everywhere the character goes, plus a margin.
 
@@ -200,46 +234,8 @@ def render_skeleton(
     bones = _bones(parents)
     highlight = _with_contacts(highlight, contacts, view.shape)
 
-    # A camera that FOLLOWS the character at a fixed reach, rather than one
-    # framing wide enough for the whole trajectory. Framing the trajectory
-    # makes the subject small in exact proportion to how far it travels -- on
-    # these clips the character spans about 1 unit while the path spans 2-3, so
-    # it occupied roughly a third of the frame and read as "far away".
-    #
-    # The reach is FIXED for the clip and the centre is smoothed, so nothing
-    # rescales per frame: that rescaling is what the previous single framing was
-    # avoiding, and it is avoided here too. Sized from the character's own
-    # largest half-extent, which measured 0.00% clipped joint-frames across all
-    # three validation pairs at `zoom=1.0`, against 37-51% for simply winding
-    # the old framing in to a comparable size.
-    # Smooth FIRST, then size the reach against the path actually used. Sizing
-    # it against the unsmoothed centre and then framing on the smoothed one
-    # leaves the bound unguaranteed: wherever smoothing lags a fast move, the
-    # character can sit further from the camera centre than the reach allows.
-    # Real clips measured 0.00% clipped either way, which is precisely why this
-    # needed a test rather than an eyeball.
-    track = _smooth_path(view.mean(axis=1))
-    radius = float(np.abs(view - track[:, None]).max()) * 1.1
-    reach = radius / max(zoom, 1e-6) + 1e-6
-    floor = float(view[..., 2].min())
-
-    # Vertical extent of its own. A cube spends half its height on sky the
-    # character never enters -- these rigs stand about as tall as they are wide,
-    # so an equal-sided box left a visibly empty band above every render. The
-    # box aspect below is set to MATCH these limits, so units stay square in
-    # every axis and nothing is stretched; only empty space is removed.
-    #
-    # Taken from the clip's own floor-to-ceiling span and NOT divided by
-    # `zoom`. Vertically there is no slack to reclaim -- the window already
-    # ends where the character does -- so dividing would crop heads to buy
-    # nothing. `zoom` therefore tightens the horizontal framing only, which is
-    # where the spare room actually is. Deriving this from a per-frame rise and
-    # drop instead clipped 3.46% of Coyote->Crab at zoom 1.0, because the floor
-    # can sit well below the tracked centre and the window stopped short of the
-    # character's top.
-    ground = _ground(view, reach, float(view[..., 2].min()))
-    ceiling = float(view[..., 2].max())
-    reach_z = max((ceiling - floor) / 2.0, reach * MIN_VERTICAL) * (1.0 + PAD) + 1e-6
+    track, reach, reach_z, floor = camera(view, zoom)
+    ground = _ground(view, reach, floor)
 
     frames = []
     figure = plt.figure(figsize=(5, 5), dpi=dpi)

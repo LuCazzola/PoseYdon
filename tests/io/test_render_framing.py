@@ -12,15 +12,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from poseydon.io.render import _smooth_path, to_view
+from poseydon.io.render import _smooth_path, camera, to_view
 
 
 def _framing(positions: np.ndarray, zoom: float = 1.0):
-    """The framing `render_skeleton` computes, without drawing anything."""
+    """The framing `render_skeleton` actually uses.
+
+    Calls `camera` rather than recomputing it. An earlier version of this helper
+    reimplemented the formula, so the tests exercised a COPY: a mutation that
+    reframed the camera on the whole trajectory -- the exact bug this logic
+    exists to prevent -- left the entire suite green.
+    """
     view = to_view(np.asarray(positions, dtype=np.float64))
-    track = _smooth_path(view.mean(axis=1))
-    radius = float(np.abs(view - track[:, None]).max()) * 1.1
-    return view, track, radius / max(zoom, 1e-6)
+    track, reach, _reach_z, _floor = camera(view, zoom)
+    return view, track, reach
 
 
 def _travelling_clip(frames: int = 120, joints: int = 12, travel: float = 12.0) -> np.ndarray:
@@ -96,12 +101,11 @@ def test_zoom_tightens_the_frame():
 
 
 def _vertical(positions: np.ndarray, zoom: float = 1.0):
-    """The vertical window `render_skeleton` computes."""
-    from poseydon.io.render import MIN_VERTICAL, PAD
+    """The vertical window `render_skeleton` actually uses -- again, not a copy."""
+    from poseydon.io.render import PAD
 
-    view, track, reach = _framing(positions, zoom)
-    floor, ceiling = float(view[..., 2].min()), float(view[..., 2].max())
-    reach_z = max((ceiling - floor) / 2.0, reach * MIN_VERTICAL) * (1.0 + PAD)
+    view = to_view(np.asarray(positions, dtype=np.float64))
+    track, reach, reach_z, floor = camera(view, zoom)
     return view, track, reach, floor - reach_z * PAD, reach_z
 
 
