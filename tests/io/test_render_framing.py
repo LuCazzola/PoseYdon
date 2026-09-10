@@ -10,6 +10,7 @@ every frame instead.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from poseydon.io.render import _smooth_path, to_view
 
@@ -235,3 +236,51 @@ def test_a_static_highlight_still_works():
 
     for frame in (0, 7):
         np.testing.assert_array_equal(_selected([2, 5], frame), [2, 5])
+
+
+def test_contacts_are_drawn_green_without_being_asked():
+    """The renderer's job, not each caller's.
+
+    Every feature vector carries a foot-contact channel. A render that drops it
+    throws away the one signal that says whether a foot is MEANT to be planted,
+    so a foot sliding while flagged down looks identical to a foot stepping.
+    """
+    from poseydon.io.render import CONTACT_COLOUR, _with_contacts
+
+    contacts = np.zeros((6, 3), dtype=bool)
+    contacts[2, 1] = True
+    merged = _with_contacts(None, contacts, (6, 3, 3))
+    assert list(merged) == [CONTACT_COLOUR]
+    np.testing.assert_array_equal(merged[CONTACT_COLOUR], contacts)
+
+
+def test_contacts_compose_with_an_explicit_highlight():
+    from poseydon.io.render import CONTACT_COLOUR, _with_contacts
+
+    merged = _with_contacts({"#0000ff": [0, 2]}, np.ones((4, 3), dtype=bool), (4, 3, 3))
+    assert set(merged) == {CONTACT_COLOUR, "#0000ff"}
+
+
+def test_a_caller_can_override_the_contact_colour():
+    from poseydon.io.render import CONTACT_COLOUR, _with_contacts
+
+    explicit = np.zeros((4, 3), dtype=bool)
+    merged = _with_contacts({CONTACT_COLOUR: explicit}, np.ones((4, 3), dtype=bool), (4, 3, 3))
+    np.testing.assert_array_equal(merged[CONTACT_COLOUR], explicit)
+
+
+def test_a_misshaped_contact_mask_is_refused_not_ignored():
+    """Silently dropping it would render an empty highlight, which reads as
+    "the model predicted no contacts" -- a wrong answer that looks like data."""
+    from poseydon.io.render import _with_contacts
+
+    with pytest.raises(ValueError, match="one flag per"):
+        _with_contacts(None, np.ones((5, 9), dtype=bool), (6, 3, 3))
+
+
+def test_no_contacts_leaves_the_highlight_alone():
+    from poseydon.io.render import _with_contacts
+
+    assert _with_contacts(None, None, (4, 3, 3)) is None
+    highlight = {"#ff0000": [1]}
+    assert _with_contacts(highlight, None, (4, 3, 3)) is highlight

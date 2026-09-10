@@ -83,6 +83,32 @@ def root_trajectory(
     return positions
 
 
+#: A predicted contact channel is a continuous value; this is where it becomes
+#: a flag. The channel is trained against {0, 1} targets, so the midpoint is the
+#: natural cut and matches what `losses.footskate` reads.
+CONTACT_THRESHOLD = 0.5
+
+
+def contact_flags_from(
+    features: np.ndarray, spec: FeatureSpec, threshold: float = CONTACT_THRESHOLD
+) -> np.ndarray | None:
+    """The model's own foot-contact flags, ``(frames, joints)`` boolean.
+
+    ``None`` when the feature set carries no ``foot_contact`` block, so a caller
+    can pass the result straight through without first asking whether the run
+    declared it -- a recipe may legitimately omit the block.
+
+    This is the model's CLAIM about which feet are down, not contact re-derived
+    from the output geometry (`training.metrics.contact_flags` does that). The
+    difference matters wherever the two are compared: measuring the claim
+    against a re-derivation of the same positions grades the output against
+    itself.
+    """
+    if "foot_contact" not in {name for name, _ in spec.blocks}:
+        return None
+    return np.asarray(features)[..., spec.slice("foot_contact")][..., 0] > threshold
+
+
 def positions_from_features(
     features: np.ndarray, spec: FeatureSpec
 ) -> np.ndarray:

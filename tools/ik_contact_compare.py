@@ -34,6 +34,10 @@ FEATURES = "artifacts/headtohead-full/truebones_attnpool/ddpm/reference_Flamingo
 TEMPLATE = "external/neural_motion_blending/assets/truebones/Scorpion___SlowForward_839.bvh"
 OUT = "artifacts/contact"
 
+#: Contact highlight. The base joints are drawn red, so a red highlight is
+#: invisible against them -- green is the one that reads at a glance.
+CONTACT_COLOUR = "#2ca02c"
+
 
 def solve(targets, skeleton, contact, weight, smooth, iterations, lr):
     terms = [(1.0, IK_TERMS.get("position")())]
@@ -95,7 +99,7 @@ def main() -> int:
         render_skeleton(
             out, template.parents, solved, 30,
             f"{label}  (contact={weight}, smooth={smooth})  skate={skate:.5f}",
-            highlight={"#e6194b": contact},
+            highlight={CONTACT_COLOUR: contact},
         )
         print(f"{label:10s} contact={weight:<4} skate {skate:.5f}  tracking {track:.5f}"
               f"  -> {out}")
@@ -104,7 +108,7 @@ def main() -> int:
     render_skeleton(
         f"{args.out}/raw_positions.mp4", template.parents, targets_np, 30,
         f"raw predicted positions  skate={foot_skate(targets_np, contact, scale=scale):.5f}",
-        highlight={"#e6194b": contact},
+        highlight={CONTACT_COLOUR: contact},
     )
     print(f"{'raw':10s} (no solve)      -> {args.out}/raw_positions.mp4")
     return 0

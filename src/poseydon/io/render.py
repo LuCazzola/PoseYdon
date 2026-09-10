@@ -71,6 +71,11 @@ GROUND_MARGIN = 3
 #: is a motion cue, not something to read.
 TILE_COLOURS = ((0.55, 0.55, 0.60, 0.20), (0.80, 0.80, 0.84, 0.11))
 
+#: Joints the model marked as touching the ground. Green because the base joints
+#: are drawn red -- a red highlight is invisible against them, which made the
+#: first contact render useless.
+CONTACT_COLOUR = "#2ca02c"
+
 
 def _ground(view: np.ndarray, reach: float, floor: float):
     """A checkerboard covering everywhere the character goes, plus a margin.
@@ -108,6 +113,23 @@ def _visible_ground(ground, centre, reach):
         return None
     mesh_x, mesh_y = np.meshgrid(xs[i0 : i1 + 1], ys[j0 : j1 + 1], indexing="ij")
     return mesh_x, mesh_y, np.full_like(mesh_x, floor), colours[i0:i1, j0:j1]
+
+
+def _with_contacts(highlight, contacts, shape) -> dict[str, Any] | None:
+    """Fold a contact mask into the highlight map, checking its shape first.
+
+    A silently ignored mask of the wrong shape is worse than no mask: the render
+    looks fine and shows nothing, which reads as "no contacts predicted".
+    """
+    if contacts is None:
+        return highlight
+    mask = np.asarray(contacts)
+    if mask.shape != shape[:2]:
+        raise ValueError(
+            f"contacts must be one flag per (frame, joint) of positions "
+            f"{shape[:2]}, got {mask.shape}"
+        )
+    return {CONTACT_COLOUR: mask.astype(bool), **(highlight or {})}
 
 
 def _selected(selector, frame: int) -> np.ndarray:
@@ -154,23 +176,29 @@ def render_skeleton(
     zoom: float = 1.15,
     dpi: int = 90,
     highlight: dict[str, Any] | None = None,
+    contacts: np.ndarray | None = None,
 ) -> Path:
     """Write an MP4 of a moving skeleton. ``positions`` is ``(F, J, 3)``.
 
     ``zoom`` scales the framing: values above 1 move the camera closer, so 2.0
     fills roughly twice the frame.
 
+    ``contacts`` is a ``(frames, joints)`` boolean mask of the model's own
+    foot-contact channel; those joints are drawn green on the frames they are
+    flagged. Every feature vector carries that channel, so a render that omits
+    it is throwing away the one signal that says whether a foot is meant to be
+    planted -- and a foot sliding while flagged down is the failure this is for.
+
     ``highlight`` maps a colour to either a fixed list of joint indices -- for
     checking which side of a character is which -- or a ``(frames, joints)``
-    boolean mask, for a property that changes over time. Foot contact is the
-    reason the second form exists: it is predicted per frame, so a static list
-    cannot show whether the model is marking the right joints at the right
-    moments.
+    boolean mask, for any other property that changes over time. It composes
+    with ``contacts``; an explicit ``CONTACT_COLOUR`` entry wins.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     view = to_view(np.asarray(positions, dtype=np.float64))
     bones = _bones(parents)
+    highlight = _with_contacts(highlight, contacts, view.shape)
 
     # A camera that FOLLOWS the character at a fixed reach, rather than one
     # framing wide enough for the whole trajectory. Framing the trajectory

@@ -34,7 +34,12 @@ from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.batch import Masks
 from poseydon.data.collate import collate
 from poseydon.data.dataset import ClipView, Item, MotionDataset
-from poseydon.features import RECONSTRUCTORS, extract_features, positions_from_features
+from poseydon.features import (
+    RECONSTRUCTORS,
+    contact_flags_from,
+    extract_features,
+    positions_from_features,
+)
 from poseydon.io.bvh import BVH
 from poseydon.models.base import Denoiser
 from poseydon.ops.retarget import Retarget
@@ -256,6 +261,9 @@ def run_retarget(
         solved,
         fps=round(template.fps),
         title=f"{record.clip_id}{SEPARATOR}{target_rig}  ({method})",
+        # The model's own contact channel, drawn on the joints it flagged. A
+        # foot sliding while marked down is visible here and nowhere else.
+        contacts=contact_flags_from(features, target_batch.spec),
     )
 
     return RetargetResult(
