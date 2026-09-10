@@ -41,13 +41,25 @@ def _train(args: argparse.Namespace) -> int:
     import lightning as L
     from omegaconf import OmegaConf
 
-    from poseydon.training.build import build_datamodule, build_module
+    from poseydon.training.build import (
+        build_callbacks,
+        build_datamodule,
+        build_logger,
+        build_module,
+        run_name,
+    )
     from poseydon.training.recipe import write_recipe
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
     if args.print_config:
         print(OmegaConf.to_yaml(config))
         return 0
+
+    # `--out` is a directory OF runs; this run gets its own inside it, holding
+    # its recipe, its checkpoints and its logs together. Named from the config
+    # rather than from the clock so that re-running the same configuration --
+    # or resuming it -- lands back in the same place.
+    run_dir = Path(args.out) / run_name(config)
 
     L.seed_everything(config.seed, workers=True)
     data = build_datamodule(config)
@@ -56,7 +68,7 @@ def _train(args: argparse.Namespace) -> int:
     # What this run was trained with, beside the checkpoints it writes. The
     # module carries the same mapping into every checkpoint's hyperparameters,
     # so a checkpoint moved away from its run directory stays self-describing.
-    print(f"wrote {write_recipe(config, args.out)}")
+    print(f"wrote {write_recipe(config, run_dir)}")
 
     trainer = L.Trainer(
         max_steps=config.trainer.max_steps,
@@ -65,13 +77,17 @@ def _train(args: argparse.Namespace) -> int:
         precision=config.trainer.precision,
         log_every_n_steps=config.trainer.log_every_n_steps,
         gradient_clip_val=config.trainer.gradient_clip_val,
-        default_root_dir=args.out,
+        default_root_dir=str(run_dir),
+        callbacks=build_callbacks(run_dir),
+        # None means no `WANDB_API_KEY`; `False` is how Lightning is told to
+        # log nowhere at all, rather than to fall back to its own default.
+        logger=build_logger(config, run_dir) or False,
         enable_progress_bar=not args.quiet,
         # A corpus with no validation split should not have one invented for it.
         limit_val_batches=1.0 if data.has_validation else 0,
         num_sanity_val_steps=2 if data.has_validation else 0,
     )
-    trainer.fit(module, datamodule=data)
+    trainer.fit(module, datamodule=data, ckpt_path=args.resume)
     return 0
 
 
@@ -244,7 +260,10 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("overrides", nargs="*", help="Hydra overrides, e.g. model=anytop")
     train.add_argument("--config-dir", default=CONFIG_DIR)
     train.add_argument("--config-name", default="train")
-    train.add_argument("--out", default="runs")
+    train.add_argument("--out", default="runs", help="directory of runs; this run gets one inside")
+    train.add_argument(
+        "--resume", default=None, help="checkpoint to continue from, e.g. <run>/checkpoints/last.ckpt"
+    )
     train.add_argument("--print-config", action="store_true", help="show the config and exit")
     train.add_argument("--quiet", action="store_true")
     train.set_defaults(func=_train)

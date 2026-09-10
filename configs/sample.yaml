@@ -1,5 +1,14 @@
 defaults:
   - data: truebones
+  # Same group `configs/train.yaml` composes, and for the same reason: the
+  # recipe check compares `dataset.reduce_tolerance` and `dataset.normalize`
+  # across the two, so composing it on one side only would reject every
+  # legitimate sample.
+  - dataset: truebones
+  # Training runs `modiffae`; sampling a run checkpoint therefore needs
+  # `model=modiffae` on the command line. Left as `anytop` deliberately -- the
+  # recipe check names the override in its error rather than silently
+  # sampling the wrong architecture -- see `training/recipe.py`.
   - model: anytop
   - process: gaussian
   - _self_

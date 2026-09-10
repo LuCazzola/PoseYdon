@@ -66,9 +66,22 @@ class MotionLitModule(L.LightningModule):
         return losses["total"]
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(
+        optimizer = torch.optim.AdamW(
             self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
         )
+        # The reference's training_loop.py:65-69 exactly. Stepped per OPTIMIZER
+        # STEP, not per epoch: this corpus's "epoch" is an arbitrary pass over a
+        # weighted sampler, and an epoch-stepped schedule would decay roughly a
+        # thousand times too slowly over 600k steps.
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": torch.optim.lr_scheduler.StepLR(
+                    optimizer, step_size=10_000, gamma=0.99
+                ),
+                "interval": "step",
+            },
+        }
 
 
 class MotionDataModule(L.LightningDataModule):

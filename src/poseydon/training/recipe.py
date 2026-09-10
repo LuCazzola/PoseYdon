@@ -24,8 +24,12 @@ RECIPE_FILE = "recipe.yaml"
 DEFAULT_RECONSTRUCT = "positions_ik"
 
 # Dotted paths into the composed config, recorded verbatim. `dataset.*` is the
-# stage-2 build group: absent from a composed train config today, recorded as
-# null, and picked up automatically if that group is ever composed in.
+# stage-2 build group -- `configs/dataset/truebones.yaml`, composed into BOTH
+# `train.yaml` and `sample.yaml` so these record the tolerance and the block
+# policy the corpus was built under rather than a pair of nulls that compared
+# equal forever. What they record is the DECLARED policy, not provenance read
+# back out of `rigs/<Rig>/stats.npz`: they catch a policy that changed since
+# the checkpoint was trained, not a config edited without a rebuild.
 RECORDED: tuple[str, ...] = (
     "features",
     "conditioners",
@@ -43,6 +47,10 @@ RECORDED: tuple[str, ...] = (
 # measured under. `losses`, `data.window` and `reconstruct` are recorded for
 # the record only -- sampling legitimately configures no losses, a different
 # window length and a different reconstruction than training did.
+#
+# Adding a path here invalidates every recipe written before it: a key the
+# recorded side lacks compares `<absent>` against a real value and raises. A
+# new entry needs a missing-on-one-side escape, or a migration.
 CHECKED: tuple[str, ...] = (
     "features",
     "conditioners",
@@ -113,28 +121,77 @@ def recipe_from_checkpoint(
     return None
 
 
+#: Placeholder for a key one side has and the other does not, so a missing key
+#: reads as missing rather than as a literal `None` someone configured.
+ABSENT = "<absent>"
+
+
+def _rows(path: str, was: Any, now: Any) -> list[tuple[str, Any, Any]]:
+    """One row per field that actually differs.
+
+    `model` and `process` are whole config nodes, and printing two nine-key
+    dicts in full leaves the reader to diff them by eye -- for a message whose
+    entire purpose is to be acted on. Recursing one level turns that into
+    `model.dropout: trained with 0.2, configured 0.1`.
+    """
+    if isinstance(was, Mapping) and isinstance(now, Mapping):
+        # A different `_target_` is a different config GROUP, not nine
+        # differing fields: listing the fields of two unrelated models buries
+        # the one line the reader can act on.
+        if was.get("_target_") != now.get("_target_"):
+            return [(f"{path}._target_", was.get("_target_", ABSENT),
+                     now.get("_target_", ABSENT))]
+        keys = list(was) + [key for key in now if key not in was]
+        return [
+            (f"{path}.{key}", was.get(key, ABSENT), now.get(key, ABSENT))
+            for key in keys
+            if was.get(key, ABSENT) != now.get(key, ABSENT)
+        ]
+    return [(path, was, now)]
+
+
+def _override_hint(rows: list[tuple[str, Any, Any]]) -> str:
+    """The command-line override that would fix a wrong config GROUP.
+
+    `configs/sample.yaml` defaults to `model: anytop` while the run trains
+    `modiffae`, so the first person to sample a run checkpoint meets this
+    message. Telling them `model=modiffae` is the whole difference between a
+    guard that reports a problem and one that answers it.
+    """
+    hints = []
+    for path, was, _ in rows:
+        group, _, field = path.rpartition(".")
+        if field == "_target_" and isinstance(was, str):
+            # `poseydon.models.modiffae.MoDiffAE` -> `configs/model/modiffae.yaml`
+            hints.append(f"{group}={was.rsplit('.', 2)[-2]}")
+    if not hints:
+        return ""
+    return "\nThis is a different config group. Re-run with: " + " ".join(hints)
+
+
 def check_recipe(active: DictConfig, recorded: DictConfig) -> None:
     """Raise unless a recorded recipe agrees with the configuration in force.
 
     `active` may be a composed config or another recipe: both carry the checked
     keys at the same paths.
     """
-    disagreements = [
-        (path, _plain(OmegaConf.select(recorded, path)), _plain(OmegaConf.select(active, path)))
-        for path in CHECKED
-        if _plain(OmegaConf.select(recorded, path)) != _plain(OmegaConf.select(active, path))
-    ]
-    if not disagreements:
+    rows: list[tuple[str, Any, Any]] = []
+    for path in CHECKED:
+        was = _plain(OmegaConf.select(recorded, path, default=ABSENT))
+        now = _plain(OmegaConf.select(active, path, default=ABSENT))
+        if was != now:
+            rows.extend(_rows(path, was, now))
+    if not rows:
         return
 
     lines = "\n".join(
         f"  {path}:\n    trained with: {was!r}\n    configured:   {now!r}"
-        for path, was, now in disagreements
+        for path, was, now in rows
     )
     raise ValueError(
         "this checkpoint was trained under a different configuration, and using "
         "it under this one would produce the right shapes with the wrong "
-        f"meaning:\n{lines}\n"
+        f"meaning:\n{lines}{_override_hint(rows)}\n"
         "Override the config to match the recipe, or point at a checkpoint "
         "trained under it."
     )

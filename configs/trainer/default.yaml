@@ -1,6 +1,11 @@
-max_steps: 100000
+# 600 000 steps at a measured E[0.431 s/step] = 71.8 h (3.0 days) at batch 16.
+# See the design spec §4, "What a step costs, measured". A deliberate departure
+# from the reference's 450 000: the measurement, not parity, chose it.
+max_steps: 600000
 accelerator: auto
 devices: 1
-precision: 32-true
+# Measured 1.4x over 32-true, 13.2 GB peak on the worst batch against 128 GB
+# available. Not fp16: bf16 needs no loss scaling.
+precision: bf16-mixed
 log_every_n_steps: 50
 gradient_clip_val: 1.0

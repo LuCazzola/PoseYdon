@@ -2,7 +2,15 @@
 #   poseydon train model=anytop process=flow features=[rot6d,local_vel]
 defaults:
   - data: truebones
-  - model: anytop
+  # The stage-2 build group. Composed here so the recipe records the reduction
+  # tolerance and the normalization policy the corpus was built under as REAL
+  # values: recorded as `null` they sat in `CHECKED` comparing None against
+  # None, two of six entries in the list that decides whether a checkpoint is
+  # safe to sample, contributing nothing while looking like the four that do.
+  # `configs/sample.yaml` composes the same group -- one-sided composition
+  # would reject every legitimate sample.
+  - dataset: truebones
+  - model: modiffae
   - process: gaussian
   - trainer: default
   - _self_
@@ -42,10 +50,14 @@ augmentations:
 
 # Weighted loss terms. Each declares the feature blocks it needs, checked
 # against `features` above before the first step.
+# `--lambda_geo 1.0` is passed explicitly by the reference's paper command;
+# `--lambda_fs` defaults to 0 there and is never passed. Foot skate stays a
+# MEASURED diagnostic (Plan B's validation scalar), not a training term -- the
+# shipped `geodesic: 0.1, footskate: 0.5` was neither the reference nor a
+# measured choice.
 losses:
   simple: 1.0
-  geodesic: 0.1
-  footskate: 0.5
+  geodesic: 1.0
 
 optimizer:
   learning_rate: 1e-4

@@ -5,8 +5,15 @@ root: data/truebones
 manifests: data/truebones/rigs
 index: data/truebones/index.jsonl
 
-batch_size: 8
-num_workers: 0
+# Batch 16, not the reference's 10: measured E[0.431 s/step] against 1.054 at
+# batch 32, and 13.2 GB peak against 128 GB available. See design spec §4.
+batch_size: 16
+num_workers: 4
+
+# Weighted sampling over rigs, weight 1 / (n_rigs * n_clips_of_rig). Without it
+# Trex's 70 clips dominate a corpus whose smallest rigs have 4 (parity spec
+# §10). Off only for a deliberate experiment.
+balanced: true
 
 window:
   _target_: poseydon.data.window.RandomCrop
