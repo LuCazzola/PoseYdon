@@ -22,7 +22,7 @@ seed: 0
 features: [ric_pos, rot6d, local_vel, foot_contact]
 
 # Only declared conditioning is loaded, collated and moved to device.
-conditioners: [topology, tpose, norm_stats]
+conditioners: [topology, tpose, norm_stats, joint_names]
 
 # Structural or feature-space edits applied per-sample at read time, each
 # gated by its own probability and applied in the declared order.

@@ -15,7 +15,12 @@ defaults:
 
 seed: 0
 features: [ric_pos, rot6d, local_vel, foot_contact]
-conditioners: [topology, tpose, norm_stats]
+# Sampling must declare the SAME conditioning the checkpoint trained under.
+# `MoDiffAE` treats `joint_names` as optional and skips the term in silence
+# when it is absent, so a checkpoint trained with names and sampled without
+# them produces plausible-looking garbage and no error -- exactly the failure
+# that made the first reference-checkpoint retarget probe look broken.
+conditioners: [topology, tpose, norm_stats, joint_names]
 losses: {}
 optimizer: {learning_rate: 1e-4, weight_decay: 0.0}
 

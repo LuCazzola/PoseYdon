@@ -27,6 +27,7 @@ import numpy as np
 import torch
 
 from poseydon.build.index import CorpusIndex
+from poseydon.conditioners.skeleton import JointNames
 from poseydon.data.dataset import MotionDataset
 from poseydon.data.normalize import Normalizer
 from poseydon.io.render import render_skeleton
@@ -43,6 +44,34 @@ OUT = Path("runs/reference-retarget")
 #: The one joint whose name PoseYdon and the reference disagree on. Everything
 #: else matches by name; only Flamingo's root was renamed.
 ALIASES = {"Hips": "Bip01_Pelvis"}
+
+#: T5 embeddings keyed by the REFERENCE's joint names, from
+#: `tools/reference/build_t5_cache.py`.
+REFERENCE_T5 = REFERENCE / "t5_cache.npz"
+
+
+class ReferenceJointNames(JointNames):
+    """Joint-name conditioning as the REFERENCE computed it.
+
+    The reference trains with `skip_t5: False` and `cond_mask_prob: 0.0`, so
+    these embeddings are on every forward pass and never masked. The first run
+    of this probe omitted them entirely -- `MoDiffAE` reads the key with
+    `cond.get` and skips the term in silence -- and produced motion that looked
+    broken for exactly that reason.
+
+    The shipped `JointNames` cache is keyed by OUR joint names, which differ
+    from the reference's on Flamingo's root (`Hips` vs `Bip01_Pelvis`). Parity
+    needs the reference's own row, so this reads the reference's cache and
+    resolves through `ALIASES`.
+    """
+
+    def __init__(self) -> None:
+        with np.load(REFERENCE_T5, allow_pickle=True) as data:
+            self._table = {name: data[name].astype("float32") for name in data.files}
+        self._dim = 768
+
+    def _lookup(self, name: str):
+        return self._table[ALIASES.get(name, name)]
 
 
 def reference_normalizer(rig: str, dataset: MotionDataset) -> Normalizer:
@@ -84,6 +113,11 @@ def main() -> None:
         split="train",
         seed=0,
     )
+
+    # Joint names as the reference computed them. Appended rather than
+    # declared, because the registered `joint_names` conditioner reads OUR
+    # cache and this probe needs the reference's rows (see ReferenceJointNames).
+    dataset.conditioners.append(ReferenceJointNames())
 
     # Override BEFORE anything reads them; the dataset caches per rig.
     for rig in ("Flamingo", "Scorpion"):
