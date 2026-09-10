@@ -73,7 +73,7 @@ docker compose run --rm fbx blender -b --python-expr \
 Ingest a BVH corpus, train, and sample:
 
 ```bash
-poseydon ingest <bvh_dir> --manifests data/truebones/skeletons --out data/truebones
+poseydon ingest <bvh_dir> --manifests data/truebones/rigs --out data/truebones
 poseydon train  trainer=debug
 poseydon sample --checkpoint runs/**/last.ckpt skeleton=Goat n_samples=4 --render
 ```
@@ -150,6 +150,8 @@ sample:  ckpt -> Operation -> Sampler (+ Controls) -> features -> Anim -> BVH
 A dataset is a folder of BVH files plus one YAML manifest per skeleton. Joints are
 referenced by **name**, never by index, so a re-exported rig fails loudly instead
 of silently mirroring the character.
+
+`data/truebones/rigs/Flamingo/manifest.yaml`:
 
 ```yaml
 skeleton: Flamingo
@@ -303,9 +305,18 @@ If you add a test here, break the thing it covers and watch it fail first.
 
 ## Documents
 
-- `docs/superpowers/specs/2026-08-30-poseydon-design.md` — architecture and the
-  findings that motivated each decision
-- `docs/superpowers/plans/` — implementation plans
+`docs/` records why the code looks the way it does. Specs argue a design and the
+measurements behind it; plans break a spec into reviewable tasks. Both are kept
+after the work lands, because the reasoning is the part that is expensive to
+reconstruct.
+
+| document | what it settles |
+|---|---|
+| [specs/…data-pipeline-and-training-parity-design](docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md) | the representation, normalization policy, and what parity with the reference means |
+| [specs/…training-run-and-retarget-validation-design](docs/superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md) | the training recipe and how retargeting is watched during it |
+| [plans/](docs/superpowers/plans/) | the task breakdown each spec was executed through |
+
+See [docs/README.md](docs/README.md) for how to read them.
 
 ## Reference
 
