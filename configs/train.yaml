@@ -62,3 +62,19 @@ losses:
 optimizer:
   learning_rate: 1e-4
   weight_decay: 0.0
+
+# Retargeting, watched during training. Training loss says the model denoises;
+# it says nothing about whether a Flamingo's semantics land on a Scorpion --
+# and that is the task. Each firing writes `.npz` + `.bvh` + `.mp4` per pair
+# and logs six scalars, uploading all three files as ONE wandb artifact aliased
+# with the step (a video renders but cannot be diffed or opened in Blender).
+#
+# `every_n_steps` matches the checkpoint interval, so every observation has a
+# checkpoint beside it. Drop the whole block to train without it.
+validation:
+  every_n_steps: 25000
+  run_at_start: true
+  pairs:
+    - {content: {rig: Flamingo, action: onelegbent}, target: Scorpion}
+    - {content: {rig: Coyote,   action: attack3},    target: Crab}
+    - {content: {rig: Goat,     action: headbutt},   target: Raptor}

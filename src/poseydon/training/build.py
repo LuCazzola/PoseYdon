@@ -108,7 +108,33 @@ def build_logger(config: DictConfig, run_dir: Path):
     )
 
 
-def build_callbacks(run_dir: Path, logger: object = None) -> list:
+def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | None:
+    """The retarget-validation callback, or None when the run does not declare one.
+
+    Gated on the `validation:` block, so a config without it behaves exactly as
+    a run did before this existed. `DDPM` rather than the config's sampler: a
+    validation retarget must solve the whole trajectory, and the sampler a run
+    trains under says nothing about how it should be sampled.
+    """
+    block = config.get("validation")
+    if not block or not block.get("pairs"):
+        return None
+    from poseydon.sampling.diffusion import DDPM
+    from poseydon.training.validation import RetargetValidation
+
+    return RetargetValidation(
+        pairs=OmegaConf.to_container(block.pairs, resolve=True),
+        dataset=dataset,
+        process=build_process(config),
+        sampler=DDPM(),
+        out_dir=Path(run_dir) / "retargets",
+        every_n_steps=int(block.get("every_n_steps", 25_000)),
+        run_at_start=bool(block.get("run_at_start", True)),
+        seed=int(config.get("seed", 0)),
+    )
+
+
+def build_callbacks(run_dir: Path, logger: object = None, validation=None) -> list:
     """Checkpoints on a step interval, and the learning rate beside them.
 
     `every_n_train_steps=25000` matches the reference's `save_interval`;
@@ -136,6 +162,8 @@ def build_callbacks(run_dir: Path, logger: object = None) -> list:
     # but a run that refuses to start is still a run lost.
     if logger:
         callbacks.append(LearningRateMonitor(logging_interval="step"))
+    if validation is not None:
+        callbacks.append(validation)
     return callbacks
 
 

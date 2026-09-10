@@ -46,6 +46,7 @@ def _train(args: argparse.Namespace) -> int:
         build_datamodule,
         build_logger,
         build_module,
+        build_validation,
         run_name,
     )
     from poseydon.training.recipe import write_recipe
@@ -71,6 +72,9 @@ def _train(args: argparse.Namespace) -> int:
     print(f"wrote {write_recipe(config, run_dir)}")
 
     logger = build_logger(config, run_dir)
+    # Retargeting is the task; training loss does not measure it. Reads the
+    # TRAIN dataset because the three pairs are fixed clips, not a split.
+    validation = build_validation(config, run_dir, data.train_dataset)
     trainer = L.Trainer(
         max_steps=config.trainer.max_steps,
         accelerator=config.trainer.accelerator,
@@ -81,7 +85,7 @@ def _train(args: argparse.Namespace) -> int:
         default_root_dir=str(run_dir),
         # Built once and shared: `build_callbacks` needs to know whether a
         # logger exists, because LearningRateMonitor cannot run without one.
-        callbacks=build_callbacks(run_dir, logger),
+        callbacks=build_callbacks(run_dir, logger, validation),
         # None means no `WANDB_API_KEY`; `False` is how Lightning is told to
         # log nowhere at all, rather than to fall back to its own default.
         logger=logger or False,
