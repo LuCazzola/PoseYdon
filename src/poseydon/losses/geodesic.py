@@ -8,7 +8,13 @@ import torch
 
 from poseydon.core.batch import MotionBatch
 from poseydon.core.spec import Block
-from poseydon.losses.base import LOSSES, LossTerm, masked_mean, raw_block
+from poseydon.losses.base import (
+    LOSSES,
+    LossTerm,
+    masked_mean,
+    masked_mean_per_sample,
+    raw_block,
+)
 
 
 def rot6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
@@ -56,13 +62,11 @@ class GeodesicLoss(LossTerm):
     name = "geodesic"
     needs = (Block("rot6d", space="raw"),)
 
-    def __call__(
-        self,
-        x0_hat: torch.Tensor,
-        x0: torch.Tensor,
-        batch: MotionBatch,
-        aux: dict[str, Any],
-    ) -> torch.Tensor:
+    @staticmethod
+    def _angles_and_mask(
+        x0_hat: torch.Tensor, x0: torch.Tensor, batch: MotionBatch
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Shared by `__call__` and `per_sample`, so the two cannot drift."""
         predicted = raw_block(batch, x0_hat, "rot6d").permute(0, 1, 3, 2)
         target = raw_block(batch, x0, "rot6d").permute(0, 1, 3, 2)
 
@@ -70,4 +74,24 @@ class GeodesicLoss(LossTerm):
         mask = (
             batch.masks.joints[:, :, None] & batch.masks.frames[:, None, :]
         ).to(angles.dtype)
+        return angles, mask
+
+    def __call__(
+        self,
+        x0_hat: torch.Tensor,
+        x0: torch.Tensor,
+        batch: MotionBatch,
+        aux: dict[str, Any],
+    ) -> torch.Tensor:
+        angles, mask = self._angles_and_mask(x0_hat, x0, batch)
         return masked_mean(angles, mask)
+
+    def per_sample(
+        self,
+        x0_hat: torch.Tensor,
+        x0: torch.Tensor,
+        batch: MotionBatch,
+        aux: dict[str, Any],
+    ) -> torch.Tensor:
+        angles, mask = self._angles_and_mask(x0_hat, x0, batch)
+        return masked_mean_per_sample(angles, mask)

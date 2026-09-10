@@ -12,10 +12,25 @@ text: null
 
 reduce_tolerance: 1.0e-8
 
-# Parity spec §5. Per-block policy: `ric_pos` and `local_vel` are centred and
-# scaled per joint block; `rot6d` is scaled per joint block but not centred
-# (a 6D rotation has no zero to centre around); `foot_contact` is a {0,1}
-# flag, left un-centred and unscaled (`scale: none`).
+# Parity spec §5. Per-block policy: `ric_pos`, `rot6d` and `local_vel` are all
+# centred and scaled per joint block; `foot_contact` is a {0,1} flag, left
+# un-centred and unscaled (`scale: none`).
+#
+# `rot6d` USED TO SHIP `center: false`, on the argument that "a 6D rotation has
+# no zero to centre around". That argument is about reconstruction, and it does
+# not survive contact with the data. Measured over six rigs, un-centred `rot6d`
+# normalizes to mean +4.697, std 29.450, max 620.6 -- i.e. not normalized at
+# all, because dividing an un-centred value by the std ABOUT ITS MEAN leaves
+# the whole mean offset behind, scaled up. Centring it gives mean 0.000, std
+# 0.971, max 18.4, and drops the `simple` loss from ~1e3 to ~1. The reference
+# centres its rotations too: its `cond.npy` carries a real per-channel mean
+# (|avg| 0.44) and std (0.18) for the rot6d columns, so `center: false` was
+# never the faithful choice either.
+#
+# Centring is safe precisely because it is a STORAGE transform and exactly
+# invertible: every loss that needs true rotations reads through
+# `losses/base.py::raw_block`, which undoes normalization first. That helper is
+# why a 6D row's validity is not a normalization concern.
 #
 # Note, separate from what is declared above: `scale: block` with
 # `center: true` on EVERY block is an alternative combination -- the one the
@@ -31,6 +46,6 @@ reduce_tolerance: 1.0e-8
 # at load time with a clear message instead.
 normalize:
   - {_target_: poseydon.data.normalize.BlockPolicy, name: ric_pos,      center: true,  scale: joint_block}
-  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d,        center: false, scale: joint_block}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d,        center: true,  scale: joint_block}
   - {_target_: poseydon.data.normalize.BlockPolicy, name: local_vel,    center: true,  scale: joint_block}
   - {_target_: poseydon.data.normalize.BlockPolicy, name: foot_contact, center: false, scale: none}

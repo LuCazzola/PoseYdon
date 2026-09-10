@@ -7,7 +7,13 @@ from typing import Any
 import torch
 
 from poseydon.core.batch import MotionBatch
-from poseydon.losses.base import LOSSES, LossTerm, element_mask, masked_mean
+from poseydon.losses.base import (
+    LOSSES,
+    LossTerm,
+    element_mask,
+    masked_mean,
+    masked_mean_per_sample,
+)
 
 
 @LOSSES.register("simple")
@@ -24,3 +30,12 @@ class SimpleLoss(LossTerm):
         aux: dict[str, Any],
     ) -> torch.Tensor:
         return masked_mean((x0_hat - x0) ** 2, element_mask(batch))
+
+    def per_sample(
+        self,
+        x0_hat: torch.Tensor,
+        x0: torch.Tensor,
+        batch: MotionBatch,
+        aux: dict[str, Any],
+    ) -> torch.Tensor:
+        return masked_mean_per_sample((x0_hat - x0) ** 2, element_mask(batch))

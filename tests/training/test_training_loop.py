@@ -333,3 +333,133 @@ def test_train_hands_the_trainer_the_configured_run(tmp_path, monkeypatch):
     trainer = captured["trainer"]
     assert trainer["max_steps"] == 600_000
     assert trainer["precision"] == "bf16-mixed"
+
+
+# --------------------------------------------------------------------------
+# Losses split by noise level
+# --------------------------------------------------------------------------
+
+
+def test_losses_are_reported_per_noise_quartile():
+    """A diffusion batch mean mixes noise levels and reads as instability.
+
+    Every sample in a batch gets an independent timestep, so the batch mean
+    swings with whichever levels happened to be drawn -- a curve that looks
+    like it is not converging when it may be converging fine. The split is what
+    makes that legible.
+    """
+    import torch
+
+    from poseydon.losses.base import LOSSES
+    from poseydon.training.task import MotionTask
+
+    class _Process:
+        num_steps = 1000
+
+        def sample_t(self, batch_size, device="cpu"):
+            # One sample in each quartile, deliberately.
+            return torch.tensor([10, 300, 600, 900], device=device)
+
+        def corrupt(self, z0, t, noise):
+            return z0
+
+        def to_z0(self, pred, z_t, t):
+            return pred
+
+    batch = _quartile_batch()
+
+    class _Model(torch.nn.Module):
+        requires = ()
+
+        def prepare(self, b):
+            return b.x
+
+        def restore(self, x, b):
+            return x
+
+        def forward(self, z_t, t, cond, masks=None):
+            from poseydon.models.base import Prediction
+
+            return Prediction(out=torch.zeros_like(z_t), aux={})
+
+    task = MotionTask(
+        model=_Model(),
+        process=_Process(),
+        losses=[("simple", 1.0, LOSSES.get("simple")())],
+    )
+    terms = task.compute_losses(batch)
+
+    for index in range(1, 5):
+        assert f"simple/noise_q{index}" in terms, f"quartile {index} missing"
+    # Diagnostics only: they must never reach the objective.
+    assert not terms["total"].requires_grad or terms["simple/noise_q1"].requires_grad is False
+
+
+def test_the_quartile_split_can_be_turned_off():
+    """It costs a few reductions per step; a caller that does not want them
+    should not pay, and nothing else should change when they are off.
+    """
+    import torch
+
+    from poseydon.losses.base import LOSSES
+    from poseydon.training.task import MotionTask
+
+    class _Process:
+        num_steps = 1000
+
+        def sample_t(self, batch_size, device="cpu"):
+            return torch.zeros(batch_size, dtype=torch.long, device=device)
+
+        def corrupt(self, z0, t, noise):
+            return z0
+
+        def to_z0(self, pred, z_t, t):
+            return pred
+
+    class _Model(torch.nn.Module):
+        requires = ()
+
+        def prepare(self, b):
+            return b.x
+
+        def restore(self, x, b):
+            return x
+
+        def forward(self, z_t, t, cond, masks=None):
+            from poseydon.models.base import Prediction
+
+            return Prediction(out=torch.zeros_like(z_t), aux={})
+
+    batch = _quartile_batch()
+    task = MotionTask(
+        model=_Model(),
+        process=_Process(),
+        losses=[("simple", 1.0, LOSSES.get("simple")())],
+        noise_quartiles=False,
+    )
+    terms = task.compute_losses(batch)
+    assert not any("noise_q" in key for key in terms)
+    assert "simple" in terms and "total" in terms
+
+
+def _quartile_batch():
+    """Four samples, four joints, eight frames -- shape is all this needs."""
+    import torch
+
+    from poseydon.core.batch import Cond, Masks, MotionBatch, WindowInfo
+    from poseydon.core.spec import FeatureSpec
+
+    spec = FeatureSpec((("ric_pos", 3),))
+    return MotionBatch(
+        x=torch.randn(4, 4, spec.dim, 8),
+        spec=spec,
+        masks=Masks(
+            frames=torch.ones(4, 8, dtype=torch.bool),
+            joints=torch.ones(4, 4, dtype=torch.bool),
+        ),
+        window=WindowInfo(
+            start=torch.zeros(4, dtype=torch.long),
+            source_length=torch.full((4,), 8, dtype=torch.long),
+        ),
+        cond=Cond({}),
+    )

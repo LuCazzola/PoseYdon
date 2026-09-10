@@ -29,6 +29,24 @@ class LossTerm(ABC):
     name: ClassVar[str]
     needs: ClassVar[tuple[Block, ...]] = ()
 
+    def per_sample(
+        self,
+        x0_hat: torch.Tensor,
+        x0: torch.Tensor,
+        batch: MotionBatch,
+        aux: dict[str, Any],
+    ) -> torch.Tensor | None:
+        """``(B,)`` unreduced values, or None when this term cannot give them.
+
+        Diffusion training draws a different noise level per sample, so a
+        batch-mean loss mixes "nearly clean" and "nearly pure noise" samples
+        into one number that swings with whatever timesteps happened to be
+        drawn. Terms that implement this let the task report the loss split by
+        noise quartile, which is what makes that swing readable instead of
+        alarming. Returning None simply omits the term from that breakdown.
+        """
+        return None
+
     def validate(self, spec: FeatureSpec) -> None:
         """Raise unless every needed block exists in this representation."""
         for block in self.needs:
@@ -68,6 +86,22 @@ def masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """
     total = (values * mask).sum()
     count = mask.sum().clamp(min=1.0)
+    return total / count
+
+
+def masked_mean_per_sample(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """``(B,)`` masked mean, one entry per batch element.
+
+    NOT the same statistic as :func:`masked_mean`, and deliberately so: this
+    weights every sample equally, while `masked_mean` weights every unmasked
+    ELEMENT equally, so a 63-joint rig counts for more than a 28-joint one.
+    The training objective keeps the element weighting; this exists for
+    per-sample diagnostics, where the question is "how well did THIS sample
+    do", and mixing the two would report a number the loss never optimised.
+    """
+    dims = tuple(range(1, values.ndim))
+    total = (values * mask).sum(dim=dims)
+    count = mask.sum(dim=dims).clamp(min=1.0)
     return total / count
 
 

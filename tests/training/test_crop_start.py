@@ -22,6 +22,10 @@ SPEC = FeatureSpec((("ric_pos", 3),))
 class _IdentityProcess:
     """The process is not what this test is about: no noise, timestep zero."""
 
+    #: `Process` declares this, and `MotionTask` reads it to bucket losses by
+    #: noise level. A stub that omits it is not a Process.
+    num_steps = 1000
+
     def sample_t(self, batch_size, device="cpu"):
         return torch.zeros(batch_size, dtype=torch.long, device=device)
 

@@ -31,11 +31,17 @@ class MotionTask(nn.Module):
         model: Denoiser,
         process: Process,
         losses: Sequence[tuple[str, float, LossTerm]],
+        noise_quartiles: bool = True,
     ) -> None:
         super().__init__()
         self.model = model
         self.process = process
         self.losses = list(losses)
+        #: Report each loss split by the noise level it was measured at.
+        #: On by default: it is a handful of reductions per step against a
+        #: model forward and backward, and without it a diffusion loss curve is
+        #: close to unreadable.
+        self.noise_quartiles = noise_quartiles
 
     def setup_checks(self, batch: MotionBatch) -> None:
         """Validate the whole configuration against one real batch.
@@ -85,7 +91,47 @@ class MotionTask(nn.Module):
             terms[name] = value
             total = total + weight * value
         terms["total"] = total
+
+        if self.noise_quartiles:
+            terms.update(self._by_noise_quartile(x0_hat, batch, prediction.aux, t))
         return terms
+
+    def _by_noise_quartile(
+        self,
+        x0_hat: torch.Tensor,
+        batch: MotionBatch,
+        aux: dict,
+        t: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Each loss split by how noisy the sample it was measured on is.
+
+        Diffusion draws an independent noise level per sample, so a batch mean
+        mixes nearly-clean and nearly-pure-noise samples into one number. That
+        number then swings with whichever timesteps happened to be drawn, which
+        reads as instability when it is nothing of the kind. Splitting by
+        quartile separates "the model is not learning" from "this batch drew
+        four samples at 90% noise".
+
+        Diagnostics only: these never enter `total`, and they are detached, so
+        they cannot affect a gradient.
+        """
+        span = float(self.process.num_steps)
+        # `t` is an index for a discrete process and already in [0, 1) for a
+        # continuous one; dividing by `num_steps` normalises both to a fraction.
+        fraction = t.float() / span if span > 1 else t.float()
+        quartile = (fraction * 4).clamp(0, 3).long()
+
+        out: dict[str, torch.Tensor] = {}
+        for name, _, term in self.losses:
+            values = term.per_sample(x0_hat, batch.x, batch, aux)
+            if values is None:
+                continue
+            values = values.detach()
+            for index in range(4):
+                selected = values[quartile == index]
+                if selected.numel():
+                    out[f"{name}/noise_q{index + 1}"] = selected.mean()
+        return out
 
     def forward(self, batch: MotionBatch) -> torch.Tensor:
         return self.compute_losses(batch)["total"]
