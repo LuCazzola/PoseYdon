@@ -20,9 +20,42 @@ import numpy as np
 
 from poseydon.core.spec import FeatureSpec
 
-# Guards against dividing by the standard deviation of a constant channel, such
-# as a contact flag that never fires or a joint that never moves.
+# Added to every standard deviation, matching the reference
+# (`data_loaders/truebones/data/dataset.py:159`, `std += 1e-6 # for stability`).
 STD_EPSILON = 1e-6
+
+#: Below this, a channel is treated as CONSTANT and left unscaled (std 1.0)
+#: rather than divided by something near zero.
+#:
+#: `STD_EPSILON` alone is not a guard, it is an amplifier. A channel that never
+#: varies gets `std = 0 + 1e-6`, so dividing by it multiplies by a million. For
+#: a CENTRED block that is harmless -- the constant becomes 0 before the divide
+#: -- but `rot6d` ships `center: false` (a 6D rotation has no zero to centre
+#: around), so a joint that never rotates carries a raw ~1.0 straight into
+#: `1.0 / 1e-6 = 1e6`. Measured on the built corpus: 12 of 73 rigs, `rot6d`
+#: only, 144 channels sitting exactly at the epsilon -- Alligator 30 channels,
+#: Turtle 24, Ant 18, FireAnt/Roach/Scorpion-2 12 each. Under balanced sampling
+#: that reached ~16% of batches and put the `simple` loss at ~1e10.
+#:
+#: 1e-4 is not a guess. Across all 73 rigs and every block, 168 channels fall
+#: below 1e-4 and 168 below 1e-3 -- the SAME channels, because nothing at all
+#: lies in that decade -- while the 1st percentile of real variation is 4.9e-3.
+#: The threshold sits in an empty gap, so its exact value changes nothing.
+#:
+#: This is a deliberate divergence from the reference, which applies the bare
+#: `+ 1e-6` and has no such guard. The arithmetic there is faithfully copied;
+#: what differs is that this corpus contains zero-variance `rot6d` channels.
+#: A channel with no variance carries no information, and scaling float noise
+#: by a million does not create any -- it only drowns the channels that do.
+STD_CONSTANT_THRESHOLD = 1e-4
+
+
+def _unscale_constants(std: np.ndarray) -> np.ndarray:
+    """Leave constant channels alone instead of dividing by ~zero.
+
+    See :data:`STD_CONSTANT_THRESHOLD` for why this exists and why 1e-4.
+    """
+    return np.where(std < STD_CONSTANT_THRESHOLD, 1.0, std)
 
 
 def spec_hash(spec: FeatureSpec) -> str:
@@ -88,7 +121,7 @@ class Normalizer:
         mean = stacked.mean(axis=0)
         std = stacked.std(axis=0) + STD_EPSILON
         if policy is None:
-            return cls(mean=mean, std=std, spec=spec)
+            return cls(mean=mean, std=_unscale_constants(std), spec=spec)
 
         known = set(spec.names)
         for entry in policy:
@@ -126,7 +159,10 @@ class Normalizer:
                 std[0, block] = root + STD_EPSILON
                 std[1:, block] = rest + STD_EPSILON
 
-        return cls(mean=mean, std=std, spec=spec)
+        # After pooling, not before: `joint_block` and `block` replace the
+        # per-channel std outright, so flooring earlier would be overwritten.
+        # `scale: none` blocks are already exactly 1.0 and unaffected.
+        return cls(mean=mean, std=_unscale_constants(std), spec=spec)
 
     def normalize(self, x: np.ndarray) -> np.ndarray:
         return np.nan_to_num((x - self.mean) / self.std)

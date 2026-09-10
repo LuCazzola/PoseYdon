@@ -536,6 +536,34 @@ passed explicitly; PoseYdon currently ships `geodesic: 0.1, footskate: 0.5`,
 which is neither. Foot skate is still *measured*, as a validation scalar — the
 right place for a diagnostic that is not a training objective.
 
+### Constant channels are left unscaled — a deliberate divergence
+
+The reference normalizes with a bare `std += 1e-6`
+(`data_loaders/truebones/data/dataset.py:159`). That arithmetic is copied
+faithfully here, and for a CENTRED block it is harmless: a constant becomes 0
+before the divide. But `rot6d` ships `center: false` — a 6D rotation has no zero
+to centre around (§5) — so a joint that never rotates carries a raw ~1.0 into
+`1.0 / 1e-6 = 1e6`.
+
+Measured on the built corpus: **12 of 73 rigs**, `rot6d` only, **144 channels
+sitting exactly at the epsilon** — Alligator 30, Turtle 24, Ant 18, FireAnt,
+Roach and Scorpion-2 12 each, plus five more. Balanced sampling draws rigs
+uniformly, so that reached roughly **16% of batches** and put the `simple` loss
+at **~1e10**, swamping every gradient.
+
+`Normalizer.fit` therefore leaves a channel whose standard deviation falls below
+`STD_CONSTANT_THRESHOLD = 1e-4` unscaled at 1.0, instead of dividing by
+something near zero. The threshold is measured, not chosen: across all 73 rigs
+and every block, 168 channels fall below 1e-4 and the same 168 fall below 1e-3
+— nothing whatever lies in that decade — while the 1st percentile of real
+variation is 4.9e-3. Its exact value changes nothing.
+
+After the change, the largest `1/std` in the corpus falls from 1e6 to 8.1e2 and
+`simple` from ~1e10 to ~2.7e2, falling across steps. The divergence is
+deliberate and recorded here because parity is otherwise this project's default:
+a channel with no variance carries no information, and multiplying float noise
+by a million does not create any — it only drowns the channels that do.
+
 ### Logging
 
 A `WandbLogger`, project `poseydon`, entity from `.env`, run name derived from

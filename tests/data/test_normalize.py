@@ -154,3 +154,41 @@ def test_the_policy_survives_save_and_load(tmp_path):
     np.testing.assert_allclose(back.mean, fit.mean)
     np.testing.assert_allclose(back.std, fit.std)
     assert back.spec.blocks == fit.spec.blocks
+
+
+def test_a_constant_channel_is_left_unscaled_not_divided_by_epsilon():
+    """`STD_EPSILON` alone is an amplifier, not a guard.
+
+    A channel that never varies gets `std = 0 + 1e-6`, so dividing by it
+    multiplies by a million. For a CENTRED block that is harmless -- the
+    constant becomes 0 first -- but `rot6d` ships `center: false`, so a joint
+    that never rotates carries a raw ~1.0 into `1.0 / 1e-6 = 1e6`. Measured on
+    the real corpus this hit 12 of 73 rigs and put the `simple` loss at ~1e10.
+    """
+    spec = FeatureSpec((("rot6d", 6),))
+    # Two joints, 20 frames: joint 0 rotates, joint 1 never does.
+    frames = np.zeros((20, 2, 6))
+    frames[:, 0, :] = np.random.default_rng(0).normal(size=(20, 6))
+    frames[:, 1, :] = 1.0
+
+    policy = [BlockPolicy(name="rot6d", center=False, scale="joint_block")]
+    normalizer = Normalizer.fit([frames], spec, policy)
+
+    assert normalizer.std[1, 0] == 1.0, "the constant joint must be left unscaled"
+    normalized = normalizer.normalize(frames)
+    assert np.abs(normalized[:, 1, :]).max() <= 1.0, "a constant must not be amplified"
+    # And the moving joint is still genuinely scaled.
+    assert normalizer.std[0, 0] != 1.0
+
+
+def test_the_threshold_sits_below_real_variation():
+    """1e-4 must not swallow a channel that genuinely, if slightly, varies.
+
+    The corpus's 1st percentile of real variation is 4.9e-3, well clear.
+    """
+    spec = FeatureSpec((("ric_pos", 3),))
+    frames = np.zeros((50, 1, 3))
+    frames[:, 0, :] = np.linspace(0, 5e-3, 50)[:, None]  # small but real
+
+    normalizer = Normalizer.fit([frames], spec, [BlockPolicy("ric_pos", True, "channel")])
+    assert normalizer.std[0, 0] != 1.0, "real variation was flattened"
