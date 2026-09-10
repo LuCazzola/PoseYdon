@@ -106,3 +106,32 @@ def test_the_train_loader_actually_wires_the_worker_hook(monkeypatch):
     monkeypatch.setattr(torch.utils.data, "get_worker_info", lambda: info)
     loader.worker_init_fn(3)
     assert dataset.seeded == 3, "the hook never reached the dataset"
+
+
+def test_cond_to_moves_nested_payloads():
+    """`Cond.to` used to skip half of what it claimed to move.
+
+    `topology` and `norm_stats` collate to DICTS of tensors, and a dict has no
+    `.to`, so a flat comprehension left them behind while the caller believed
+    the whole Cond had moved. It went unnoticed because MoDiffAE moves each
+    cond tensor itself -- the bug only appears in a model that trusts the
+    method, which is what the method exists for. Uses meta tensors so the test
+    needs no second device.
+    """
+    import torch
+
+    from poseydon.core.batch import Cond
+
+    cond = Cond({
+        "flat": torch.zeros(2),
+        "topology": {"hops": torch.zeros(2, 2), "relations": torch.zeros(2, 2)},
+        "listed": [torch.zeros(2)],
+        "not_a_tensor": "left alone",
+    })
+    moved = cond.to("meta")
+
+    assert moved["flat"].device.type == "meta"
+    assert moved["topology"]["hops"].device.type == "meta", "nested dict was not moved"
+    assert moved["topology"]["relations"].device.type == "meta"
+    assert moved["listed"][0].device.type == "meta", "nested list was not moved"
+    assert moved["not_a_tensor"] == "left alone"

@@ -10,6 +10,7 @@ this file.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -100,11 +101,26 @@ class Cond:
         return self.payloads.get(name, default)
 
     def to(self, device: torch.device | str) -> Cond:
-        moved = {
-            key: value.to(device) if hasattr(value, "to") else value
-            for key, value in self.payloads.items()
-        }
-        return Cond(payloads=moved)
+        """Every tensor in here, on `device` -- including nested ones.
+
+        The flat version of this silently did nothing for half the payloads:
+        `topology` and `norm_stats` collate to DICTS of tensors, and a dict has
+        no `.to`, so they stayed on the CPU while the caller believed the whole
+        `Cond` had moved. It went unnoticed because `MoDiffAE` calls
+        `.to(device)` on each cond tensor itself; a model that trusted this
+        method would fault, and the trust is what the method is for.
+        """
+
+        def move(value: Any) -> Any:
+            if hasattr(value, "to"):
+                return value.to(device)
+            if isinstance(value, Mapping):
+                return {key: move(inner) for key, inner in value.items()}
+            if isinstance(value, (list, tuple)):
+                return type(value)(move(inner) for inner in value)
+            return value
+
+        return Cond(payloads={key: move(value) for key, value in self.payloads.items()})
 
 
 @dataclass(frozen=True)
