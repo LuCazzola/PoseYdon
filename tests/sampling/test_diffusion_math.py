@@ -341,3 +341,32 @@ def test_every_step_of_the_trajectory_is_visited_once():
         generator=torch.Generator().manual_seed(0),
     )
     assert sorted(recorder.states) == list(range(7))
+
+
+def test_ddim_carries_the_noise_term_along_the_trajectory():
+    """Dropping the eps term is invisible at the destination.
+
+    The terminal alpha-bar is 1, so the final step is `1 * z0 + 0 * eps` and
+    the output is the prediction either way. The term only does work in the
+    middle of the ladder, where it carries the noise the state has not shed
+    yet.
+
+    Made visible with a model that predicts ZERO: correct DDIM keeps the
+    trajectory populated by the eps term alone, while dropping it collapses
+    every intermediate state to exactly zero.
+    """
+    process = _process(steps=10)
+    recorder = _Recorder()
+    DDIM().sample(
+        _Constant(torch.zeros(SHAPE)), process, SHAPE, Cond({}),
+        controls=[recorder], start=torch.randn(SHAPE, generator=torch.Generator().manual_seed(0)),
+    )
+
+    middle = recorder.states[process.num_steps // 2]
+    assert float(middle.abs().max()) > 1e-3, (
+        "the trajectory collapsed to zero -- the eps term is not being carried"
+    )
+    # And it decays towards the prediction rather than staying put.
+    early = float(recorder.states[process.num_steps - 1].std())
+    late = float(recorder.states[0].std())
+    assert late < early, "the state must approach the prediction as t falls"
