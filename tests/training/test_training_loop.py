@@ -97,9 +97,20 @@ def test_the_checkpoint_callback_saves_every_25000_steps_and_keeps_them_all(tmp_
 
 def test_the_learning_rate_is_logged_per_step(tmp_path):
     monitor = next(
-        c for c in build_callbacks(tmp_path) if isinstance(c, LearningRateMonitor)
+        c for c in build_callbacks(tmp_path, logger=object()) if isinstance(c, LearningRateMonitor)
     )
     assert monitor.logging_interval == "step"
+
+
+def test_no_logger_means_no_learning_rate_monitor(tmp_path):
+    """LearningRateMonitor has nowhere to write without a logger, and Lightning
+    raises `MisconfigurationException` at `on_train_start` rather than shrugging.
+    Adding it unconditionally turned "no WANDB_API_KEY" from "train unlogged"
+    into "do not train at all".
+    """
+    callbacks = build_callbacks(tmp_path, logger=None)
+    assert not any(isinstance(c, LearningRateMonitor) for c in callbacks)
+    assert any(isinstance(c, ModelCheckpoint) for c in callbacks), "checkpoints still happen"
 
 
 # --------------------------------------------------------------------------
@@ -108,9 +119,35 @@ def test_the_learning_rate_is_logged_per_step(tmp_path):
 
 
 def test_a_missing_api_key_costs_no_run(tmp_path, monkeypatch, config):
-    """Unlogged training beats no training."""
+    """Unlogged training beats no training.
+
+    Asserting `build_logger(...) is None` alone is NOT this claim: the earlier
+    form of this test did exactly that and stayed green while
+    `poseydon train` died at `on_train_start` with
+    `MisconfigurationException: Cannot use LearningRateMonitor callback with
+    Trainer that has no logger`. The claim is about the TRAINER, so build one
+    the way the CLI does and let Lightning validate the combination.
+    """
+    import lightning as L
+
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
-    assert build_logger(config, tmp_path) is None
+    logger = build_logger(config, tmp_path)
+    assert logger is None
+
+    trainer = L.Trainer(
+        max_steps=1,
+        accelerator="cpu",
+        logger=logger or False,
+        callbacks=build_callbacks(tmp_path, logger),
+        enable_progress_bar=False,
+        limit_val_batches=0,
+        num_sanity_val_steps=0,
+    )
+    # The crash was raised by the callback's own setup, so reaching it is the
+    # assertion -- Lightning connects callbacks when the Trainer is built and
+    # validates them against the logger on train start.
+    for callback in trainer.callbacks:
+        assert not isinstance(callback, LearningRateMonitor)
 
 
 def test_the_logger_is_told_the_project_the_entity_and_the_run(tmp_path, monkeypatch, config):

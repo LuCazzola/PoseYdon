@@ -70,6 +70,7 @@ def _train(args: argparse.Namespace) -> int:
     # so a checkpoint moved away from its run directory stays self-describing.
     print(f"wrote {write_recipe(config, run_dir)}")
 
+    logger = build_logger(config, run_dir)
     trainer = L.Trainer(
         max_steps=config.trainer.max_steps,
         accelerator=config.trainer.accelerator,
@@ -78,10 +79,12 @@ def _train(args: argparse.Namespace) -> int:
         log_every_n_steps=config.trainer.log_every_n_steps,
         gradient_clip_val=config.trainer.gradient_clip_val,
         default_root_dir=str(run_dir),
-        callbacks=build_callbacks(run_dir),
+        # Built once and shared: `build_callbacks` needs to know whether a
+        # logger exists, because LearningRateMonitor cannot run without one.
+        callbacks=build_callbacks(run_dir, logger),
         # None means no `WANDB_API_KEY`; `False` is how Lightning is told to
         # log nowhere at all, rather than to fall back to its own default.
-        logger=build_logger(config, run_dir) or False,
+        logger=logger or False,
         enable_progress_bar=not args.quiet,
         # A corpus with no validation split should not have one invented for it.
         limit_val_batches=1.0 if data.has_validation else 0,

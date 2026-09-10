@@ -45,7 +45,13 @@ def build_dataset(config: DictConfig, split: str | None = None) -> MotionDataset
         # recipe RECORDS is the value the read path actually applies -- a
         # recorded number the dataset ignores would be a second guard that
         # reads as working while checking nothing.
-        reduce_tolerance=float(OmegaConf.select(config, "dataset.reduce_tolerance") or 1e-8),
+        # `is None`, not `or`: a configured `reduce_tolerance: 0.0` is falsy, and
+        # `or` would silently substitute 1e-8 while the recipe went on recording
+        # 0.0 -- exactly the recorded-but-ignored value the comment above rejects.
+        reduce_tolerance=float(
+            _tolerance if (_tolerance := OmegaConf.select(config, "dataset.reduce_tolerance"))
+            is not None else 1e-8
+        ),
     )
 
 
@@ -102,7 +108,7 @@ def build_logger(config: DictConfig, run_dir: Path):
     )
 
 
-def build_callbacks(run_dir: Path) -> list:
+def build_callbacks(run_dir: Path, logger: object = None) -> list:
     """Checkpoints on a step interval, and the learning rate beside them.
 
     `every_n_train_steps=25000` matches the reference's `save_interval`;
@@ -114,15 +120,23 @@ def build_callbacks(run_dir: Path) -> list:
     """
     from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 
-    return [
+    callbacks = [
         ModelCheckpoint(
             dirpath=str(Path(run_dir) / "checkpoints"),
             save_last=True,
             every_n_train_steps=25_000,
             save_top_k=-1,
-        ),
-        LearningRateMonitor(logging_interval="step"),
+        )
     ]
+    # LearningRateMonitor has nowhere to write without a logger, and Lightning
+    # does not shrug: it raises MisconfigurationException at `on_train_start`.
+    # Adding it unconditionally therefore turned "no WANDB_API_KEY" from
+    # "train unlogged" into "do not train at all" -- the opposite of what the
+    # missing key is supposed to cost. It fails at startup rather than mid-run,
+    # but a run that refuses to start is still a run lost.
+    if logger:
+        callbacks.append(LearningRateMonitor(logging_interval="step"))
+    return callbacks
 
 
 def build_model(config: DictConfig, feature_dim: int) -> Denoiser:
