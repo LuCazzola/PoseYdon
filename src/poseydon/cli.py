@@ -94,6 +94,45 @@ def _train(args: argparse.Namespace) -> int:
     return 0
 
 
+def _checkpoint_recipe(config, checkpoint: str | None, verb: str):
+    """A checkpoint's weights and the recipe it was trained under.
+
+    Both `sample` and `retarget` recompose their config from a yaml that knows
+    nothing about the checkpoint, so a `features:` disagreeing with the one it
+    was trained under would otherwise produce the right shapes with the wrong
+    meaning. Raises ValueError when the recorded recipe and the config in force
+    disagree; returns `(None, None)` when no checkpoint was given at all.
+    """
+    import torch
+
+    from poseydon.training.recipe import check_recipe, recipe_from_checkpoint
+
+    if not checkpoint:
+        print(f"no --checkpoint given: {verb} from an untrained model", file=sys.stderr)
+        return None, None
+
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    recorded = recipe_from_checkpoint(state, checkpoint)
+    if recorded is None:
+        print(
+            f"{checkpoint} carries no recipe and none sits beside it: "
+            "cannot verify it against this config",
+            file=sys.stderr,
+        )
+    else:
+        check_recipe(config, recorded)
+    return state, recorded
+
+
+def _load_weights(model, state) -> None:
+    """The denoiser's own parameters, out of a Lightning checkpoint."""
+    model.load_state_dict(
+        {k.removeprefix("task.model."): v
+         for k, v in state.get("state_dict", state).items()
+         if k.startswith("task.model.")}
+    )
+
+
 def _sample(args: argparse.Namespace) -> int:
     import numpy as np
     import torch
@@ -104,7 +143,6 @@ def _sample(args: argparse.Namespace) -> int:
     from poseydon.features import reconstruct
     from poseydon.io.bvh import BVH
     from poseydon.training.build import build_dataset, build_model, build_process
-    from poseydon.training.recipe import check_recipe, recipe_from_checkpoint
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
     torch.manual_seed(config.seed)
@@ -112,24 +150,11 @@ def _sample(args: argparse.Namespace) -> int:
     # Before anything is built: this config recomposes from `configs/sample.yaml`
     # and knows nothing about the checkpoint, so a `features:` that disagrees
     # with the one it was trained under would otherwise sample silent garbage.
-    state = None
-    if args.checkpoint:
-        state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
-        recorded = recipe_from_checkpoint(state, args.checkpoint)
-        if recorded is None:
-            print(
-                f"{args.checkpoint} carries no recipe and none sits beside it: "
-                "cannot verify it against this config",
-                file=sys.stderr,
-            )
-        else:
-            try:
-                check_recipe(config, recorded)
-            except ValueError as mismatch:
-                print(mismatch, file=sys.stderr)
-                return 1
-    else:
-        print("no --checkpoint given: sampling from an untrained model", file=sys.stderr)
+    try:
+        state, _recorded = _checkpoint_recipe(config, args.checkpoint, "sampling")
+    except ValueError as mismatch:
+        print(mismatch, file=sys.stderr)
+        return 1
 
     dataset = build_dataset(config)
     skeleton = config.skeleton or dataset.records[0].skeleton
@@ -145,11 +170,7 @@ def _sample(args: argparse.Namespace) -> int:
     model = build_model(config, feature_dim=template.spec.dim).eval()
 
     if state is not None:
-        model.load_state_dict(
-            {k.removeprefix("task.model."): v
-             for k, v in state.get("state_dict", state).items()
-             if k.startswith("task.model.")}
-        )
+        _load_weights(model, state)
 
     n, frames = config.n_samples, config.n_frames
     joints = template.n_joints
@@ -202,6 +223,78 @@ def _sample(args: argparse.Namespace) -> int:
                 fps=round(reference.fps), title=f"{skeleton}  ({method})", zoom=args.zoom,
             )
             print(f"wrote {stem}.mp4")
+    return 0
+
+
+def _retarget(args: argparse.Namespace) -> int:
+    import torch
+
+    from poseydon.ops.retarget_run import run_retarget
+    from poseydon.sampling.diffusion import DDPM
+    from poseydon.training.build import build_dataset, build_model, build_process
+    from poseydon.training.recipe import DEFAULT_RECONSTRUCT
+
+    # AnyTop has no semantic encoder, so `configs/sample.yaml`'s default model
+    # group cannot express a retarget AT ALL -- `Retarget.run` refuses it rather
+    # than returning unconditional motion. This verb therefore defaults to the
+    # model that can, and an explicit `model=...` still wins.
+    overrides = list(args.overrides)
+    if not any(o.startswith(("model=", "model.")) for o in overrides):
+        overrides.insert(0, "model=modiffae")
+
+    config = _compose(args.config_dir, args.config_name, overrides)
+    torch.manual_seed(config.seed)
+
+    try:
+        state, recorded = _checkpoint_recipe(config, args.checkpoint, "retargeting")
+    except ValueError as mismatch:
+        print(mismatch, file=sys.stderr)
+        return 1
+
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    dataset = build_dataset(config)
+    model = build_model(config, feature_dim=dataset.spec.dim).eval().to(device)
+    if state is not None:
+        _load_weights(model, state)
+
+    # How a generated tensor is turned back into a skeleton is the recipe's to
+    # say, not this verb's: `sample`, `retarget` and the training-time
+    # validation callback all read the same recorded choice, so they cannot
+    # disagree about what the checkpoint's output means. `None` lets
+    # `run_retarget` fall back to the recipe module's default.
+    method = str(recorded["reconstruct"]) if recorded and "reconstruct" in recorded else None
+    if method is None and recorded is not None:
+        print(
+            f"{args.checkpoint}'s recipe records no reconstruction; "
+            f"falling back to `{DEFAULT_RECONSTRUCT}`",
+            file=sys.stderr,
+        )
+
+    try:
+        result = run_retarget(
+            model=model,
+            process=build_process(config),
+            # DDPM, per spec section 6: retargeting has no transition zone to
+            # anchor, so DDIM inversion buys nothing.
+            sampler=DDPM(),
+            dataset=dataset,
+            content=args.content,
+            target_rig=args.target,
+            out_dir=args.out,
+            device=device,
+            generator=torch.Generator(device=device).manual_seed(config.seed),
+            reconstruct=method,
+        )
+    except (LookupError, ValueError) as failure:
+        print(failure, file=sys.stderr)
+        return 1
+
+    for path in result.paths:
+        print(f"wrote {path}")
+    print(
+        f"  {result.solved_positions.shape[0]} frames on {args.target}, "
+        f"{result.solved_positions.shape[1]} joints, reconstruct={result.reconstruct}"
+    )
     return 0
 
 
@@ -282,6 +375,23 @@ def main(argv: list[str] | None = None) -> int:
         "--zoom", type=float, default=1.0, help="render framing; >1 moves the camera closer"
     )
     sample.set_defaults(func=_sample)
+
+    retarget = sub.add_parser(
+        "retarget", help="carry one clip's motion onto another rig and write BVH"
+    )
+    retarget.add_argument("overrides", nargs="*")
+    retarget.add_argument("--config-dir", default=CONFIG_DIR)
+    retarget.add_argument("--config-name", default="sample")
+    retarget.add_argument("--checkpoint", default=None)
+    retarget.add_argument(
+        "--content", required=True, help="the clip to take motion FROM, as `<rig>/<action>`"
+    )
+    retarget.add_argument("--target", required=True, help="the rig to decode onto")
+    retarget.add_argument("--out", default="retargets", help="directory for the three files")
+    retarget.add_argument(
+        "--device", default=None, help="cpu or cuda; defaults to cuda when one is visible"
+    )
+    retarget.set_defaults(func=_retarget)
 
     listing = sub.add_parser("list", help="show the components available by name")
     listing.add_argument("kind", nargs="?", default=None)
