@@ -161,7 +161,7 @@ class MotionBatch:
 
     def block(self, name: str) -> torch.Tensor:
         """(B, J, width, T) for one named feature block."""
-        return self.x[:, :, self.spec.slice(name), :]
+        return self.spec.take(self.x, name, axis=2)
 
     def to(self, device: torch.device | str) -> MotionBatch:
         return replace(

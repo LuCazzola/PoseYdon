@@ -41,7 +41,7 @@ def local_rotations(features: np.ndarray, spec: FeatureSpec, parents: np.ndarray
     is harmless: they are End Sites and carry no rotation.
     """
     _require(spec, "rot6d")
-    block = features[..., spec.slice("rot6d")]
+    block = spec.take(features, "rot6d")
     matrices = rot6d_to_matrix(block, layout=_REFERENCE_6D_LAYOUT)
     quats = matrix_to_quat(matrices)
 
@@ -64,8 +64,8 @@ def root_trajectory(
     Height is stored per frame and does come back exactly.
     """
     _require(spec, "ric_pos", "local_vel")
-    height = features[:, 0, spec.slice("ric_pos")][:, 1]
-    velocity = features[:, 0, spec.slice("local_vel")]
+    height = spec.take(features[:, 0], "ric_pos")[:, 1]
+    velocity = spec.take(features[:, 0], "local_vel")
 
     n_frames = features.shape[0]
     positions = np.zeros((n_frames, 3), dtype=np.float64)
@@ -106,7 +106,7 @@ def contact_flags_from(
     """
     if "foot_contact" not in {name for name, _ in spec.blocks}:
         return None
-    return np.asarray(features)[..., spec.slice("foot_contact")][..., 0] > threshold
+    return spec.take(np.asarray(features), "foot_contact", drop=True) > threshold
 
 
 def positions_from_features(
@@ -124,10 +124,10 @@ def positions_from_features(
     BVH, because a BVH stores rotations.
     """
     _require(spec, "ric_pos", "local_vel", "rot6d")
-    ric = features[..., spec.slice("ric_pos")]
+    ric = spec.take(features, "ric_pos")
 
     facing = matrix_to_quat(
-        rot6d_to_matrix(features[:, 0, spec.slice("rot6d")], layout=_REFERENCE_6D_LAYOUT)
+        rot6d_to_matrix(spec.take(features[:, 0], "rot6d"), layout=_REFERENCE_6D_LAYOUT)
     )
     root = root_trajectory(features, spec, facing)
 
@@ -161,7 +161,7 @@ def features_to_anim(
     rotations = local_rotations(features, spec, template.parents)
 
     facing = matrix_to_quat(
-        rot6d_to_matrix(features[:, 0, spec.slice("rot6d")], layout=_REFERENCE_6D_LAYOUT)
+        rot6d_to_matrix(spec.take(features[:, 0], "rot6d"), layout=_REFERENCE_6D_LAYOUT)
     )
     root_pos = root_trajectory(features, spec, facing)
 

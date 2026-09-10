@@ -114,8 +114,8 @@ def raw_block(batch: MotionBatch, tensor: torch.Tensor, name: str) -> torch.Tens
     the rotations the animation contains. This helper is why that cannot happen
     here by accident.
     """
-    where = batch.spec.slice(name)
-    values = tensor[:, :, where, :]
+    spec = batch.spec
+    values = spec.take(tensor, name, axis=2)
 
     stats = batch.cond.get(NORM_STATS)
     if stats is None:
@@ -123,7 +123,8 @@ def raw_block(batch: MotionBatch, tensor: torch.Tensor, name: str) -> torch.Tens
             f"block `{name}` was requested in raw space, but no `{NORM_STATS}` "
             "conditioner is configured to undo normalization"
         )
-    mean, std = stats["mean"], stats["std"]
-    mean = mean[:, :, where, None].to(values.device, values.dtype)
-    std = std[:, :, where, None].to(values.device, values.dtype)
+    # Statistics are (B, J, D): the same block, one axis short of the values,
+    # then unsqueezed to broadcast over frames.
+    mean = spec.take(stats["mean"], name, axis=2)[..., None].to(values.device, values.dtype)
+    std = spec.take(stats["std"], name, axis=2)[..., None].to(values.device, values.dtype)
     return values * std + mean

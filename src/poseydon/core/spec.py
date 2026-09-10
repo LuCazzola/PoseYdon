@@ -9,7 +9,7 @@ silently reading whatever happens to sit there.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 Space = Literal["raw", "normalized"]
 
@@ -54,6 +54,38 @@ class FeatureSpec:
             f"feature block `{name}` is not in this representation. "
             f"Present: {', '.join(self.names) or '(none)'}"
         )
+
+    def take(self, tensor: Any, name: str, axis: int = -1, *, drop: bool = False) -> Any:
+        """The named block of ``tensor``, sliced along ``axis``.
+
+        Works on numpy arrays and torch tensors alike -- it only builds an index.
+
+        ``axis`` is explicit and NOT guessed, because the channel axis is not the
+        same everywhere in this repo: features are ``(F, J, D)`` with channels
+        last, a `MotionBatch` is ``(B, J, D, T)`` with channels at 2, and fitted
+        statistics are ``(J, D)`` with channels at 1. A helper that assumed the
+        last axis would silently read frames as channels on the training path.
+
+        ``drop=True`` removes the block axis for a width-1 block, and refuses
+        loudly for any other width. Callers were writing that squeeze by hand as
+        a bare ``[..., 0]``, which is undocumented and wrong the moment a block
+        grows a channel.
+        """
+        where = self.slice(name)
+        index: list[Any] = [slice(None)] * tensor.ndim
+        index[axis] = where
+        block = tensor[tuple(index)]
+        if not drop:
+            return block
+        width = where.stop - where.start
+        if width != 1:
+            raise ValueError(
+                f"`drop=True` removes the block axis, but `{name}` is "
+                f"{width} wide, not 1"
+            )
+        drop_index: list[Any] = [slice(None)] * block.ndim
+        drop_index[axis] = 0
+        return block[tuple(drop_index)]
 
     def __contains__(self, name: object) -> bool:
         return name in self.names
