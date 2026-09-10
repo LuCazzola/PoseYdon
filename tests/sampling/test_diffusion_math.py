@@ -18,6 +18,7 @@ import torch
 from poseydon.core.batch import Cond
 from poseydon.models.base import Prediction
 from poseydon.process.gaussian import GaussianDiffusion, cosine_betas, linear_betas
+from poseydon.sampling.base import Control
 from poseydon.sampling.diffusion import DDIM, DDPM
 
 SHAPE = (2, 3, 13, 5)
@@ -275,3 +276,68 @@ def test_ddim_inversion_round_trips():
     noise = DDIM().invert(model, process, z0, Cond({}))
     back = DDIM().sample(model, process, SHAPE, Cond({}), start=noise)
     torch.testing.assert_close(back, z0, atol=1e-3, rtol=1e-3)
+
+
+class _Recorder(Control):
+    """Captures the state after every step, through the real control hook.
+
+    `sample` only returns the destination, and through a constant model the
+    destination is exactly the prediction -- so anything that happens along the
+    way is invisible from the outside. This is how the trajectory itself gets
+    asserted on.
+    """
+
+    def __init__(self) -> None:
+        self.states: dict[int, torch.Tensor] = {}
+
+    def after_step(self, z_t, t, cond):
+        self.states[int(t[0])] = z_t.clone()
+        return z_t
+
+
+def test_the_ancestral_noise_is_scaled_by_the_standard_deviation():
+    """`variance.sqrt()`, not `variance`. Asserted as a LOWER BOUND.
+
+    The step injects noise of standard deviation sqrt(posterior_variance), and
+    that noise is independent of the posterior mean, so the observed spread
+    across seeds cannot fall below it -- it is larger, because the state also
+    carries noise accumulated from every later step. Any tighter claim would
+    mean recomputing the update here, which is testing a copy.
+
+    Scaling by the variance instead is a 4x error at this step (0.238 against
+    0.488) and shrinks the accumulated spread at every step above it, so the
+    bound catches it. A determinism check cannot: a fixed generator reproduces
+    a wrongly-scaled sample just as faithfully.
+    """
+    process = _process(steps=10)
+    z0 = torch.zeros(SHAPE)
+    step = 5
+
+    seen = []
+    for seed in range(48):
+        recorder = _Recorder()
+        DDPM().sample(
+            _Constant(z0), process, SHAPE, Cond({}), controls=[recorder],
+            generator=torch.Generator().manual_seed(seed),
+        )
+        seen.append(recorder.states[step])
+
+    spread = float(torch.stack(seen).std(dim=0).mean())
+    injected = float(process.posterior_variance[step].sqrt())
+    assert spread >= injected * 0.95, (
+        f"spread across seeds is {spread:.5f}, below the {injected:.5f} the step "
+        f"injects on its own -- the noise is being scaled by the variance "
+        f"({float(process.posterior_variance[step]):.5f}) rather than its root"
+    )
+
+
+def test_every_step_of_the_trajectory_is_visited_once():
+    """The loop must not skip or repeat a step -- a schedule bug the
+    destination cannot reveal."""
+    process = _process(steps=7)
+    recorder = _Recorder()
+    DDPM().sample(
+        _Constant(torch.zeros(SHAPE)), process, SHAPE, Cond({}), controls=[recorder],
+        generator=torch.Generator().manual_seed(0),
+    )
+    assert sorted(recorder.states) == list(range(7))

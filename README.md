@@ -1,21 +1,55 @@
-# PoseYdon
+<p align="center">
+  <img src="assets/media/logo_poseydon.png" alt="PoseYdon" width="620">
+</p>
 
-A modular repository for deep learning on motion — synthesis first, then editing,
-in-betweening and retargeting.
+<p align="center">
+  <b>Research infrastructure for neural motion.</b><br>
+  Generation, editing, in-betweening and cross-topology retargeting —
+  on one representation, one training loop, one set of contracts.
+</p>
 
-It exists because the MDM lineage hardcodes nearly every choice it makes. Feature
-layout, joint counts, skeleton metadata, loss composition and sampling behaviour
-are fixed in Python constants or inlined into forward passes, so ablation is slow
-and each new dataset or model is a fork rather than a plugin.
+---
 
-Here, components swap through configuration:
+MDM is the cornerstone of this field and deserves to be. It is also five years of
+accumulated assumptions: feature layout, joint counts, skeleton metadata, loss
+composition and sampling behaviour are fixed in Python constants or inlined into
+forward passes. Every new dataset is a fork. Every ablation is a patch. Every
+follow-up paper reimplements the same preprocessing slightly differently, and the
+differences are invisible until the numbers disagree.
+
+PoseYdon is a fresh starting point for that work. It keeps what the lineage got
+right — the diffusion formulation, the 13-dimensional per-joint representation,
+the graph-attention backbone — and rebuilds the scaffolding around it so the
+interesting parts are the parts you change:
 
 ```bash
 poseydon train                                  # defaults
 poseydon train process=flow                     # flow matching instead of diffusion
 poseydon train features=[rot6d,local_vel]       # a different representation, no re-ingest
 poseydon train model=modiffae losses='{simple:1.0,kl:1e-3}'
+poseydon retarget --content Flamingo/onelegbent --target Scorpion
 ```
+
+Nothing above is a fork or a flag added to a monolith: the process, the feature
+set, the model and the loss are separate objects the config composes.
+
+### Verified against the work it builds on
+
+The claim that a rewrite is faithful is worth nothing unless it is measured, so
+it is. `external/neural_motion_blending/` is a read-only checkout of the
+published implementation, and the parity tools drive BOTH codebases from the same
+weights and the same noise:
+
+| what | agreement |
+|---|---|
+| features, 7 rigs, every block | ~1e-6, foot contact **bit-exact** |
+| DDPM sampling, 200 frames x 100 steps | **2.97e-06** relative |
+| DDIM sampling, 200 frames x 100 steps | **8.39e-07** relative |
+
+Where PoseYdon deliberately differs — invertible preparation, centred
+per-channel normalization, a constant-channel guard — it is documented as a
+choice with the measurement behind it, not left as an accident.
+
 
 ## Quick start
 
@@ -143,9 +177,18 @@ features: [ric_pos, rot6d, local_vel, foot_contact]   # 13 dims
 features: [rot6d, local_vel]                          # 9 dims, same files
 ```
 
-A `FeatureSpec` names every block's slice, so a loss asks for `spec.slice("rot6d")`
-and fails loudly against a representation without rotations — rather than a magic
-`[..., 3:9]` reading whatever sits there.
+A `FeatureSpec` owns the layout, so a loss asks for the block by name and fails
+loudly against a representation without rotations — rather than a magic
+`[..., 3:9]` reading whatever sits there:
+
+```python
+spec.take(features, "rot6d")                  # (F, J, 6)
+spec.take(batch.x, "rot6d", axis=2)           # (B, J, 6, T) — channels are not last here
+spec.take(features, "foot_contact", drop=True)  # (F, J), refuses on a wider block
+```
+
+`axis` is explicit because the channel axis genuinely differs by layout, and a
+helper that guessed would read frames as channels on the training path.
 
 ### Only declared conditioning is loaded
 
@@ -154,12 +197,15 @@ padding makes unavoidable, and where the window came from. Everything else is a
 declared conditioner:
 
 ```yaml
-conditioners: [topology, tpose, norm_stats]   # a topology-aware model
-conditioners: []                              # unconditional
+conditioners: [topology, tpose, norm_stats, joint_names]   # topology-aware
+conditioners: []                                           # unconditional
 ```
 
 Models declare what they need; the mismatch is caught in the first second of a
-run, not forty minutes in.
+run, not forty minutes in. `conditioners` is also recorded in the checkpoint's
+recipe and checked at sampling time, so a model trained with joint-name
+embeddings cannot be sampled without them — a mismatch that produces
+plausible-looking garbage and no error otherwise.
 
 ### Latent models subclass, they do not get an injected autoencoder
 
@@ -169,13 +215,43 @@ branches on model kind, and configuration never mentions autoencoding.
 
 ### Sampling separates three things the reference conflates
 
-A **Sampler** solves the trajectory (`DDPM`, `DDIM` with inversion, `Euler`).
+A **Sampler** solves the trajectory (`DDPM`, `DDIM` with inversion and an
+`eta` that interpolates to ancestral sampling, `Euler`).
 A **Control** applies an edit at each step (guidance, imputation, latent mixing).
 An **Operation** is the user-facing verb (`generate`, `inbetween`, `blend`).
 
 In-betweening needs no model change at all — it is imputation applied during
 sampling. In the reference, blending lives inside `MoDiffAE.forward`, which is why
 in-betweening was unreachable there.
+
+## Retargeting, and watching it during training
+
+Cross-topology transfer is the capability the architecture exists for: a semantic
+latent is pooled over joints, so a 40-joint encode decodes onto a 63-joint rig
+with nothing reshaped and no per-pair training.
+
+```bash
+poseydon retarget --content Flamingo/onelegbent --target Scorpion
+```
+
+`LatentPin` holds the content clip's latent fixed while the target rig's
+conditioning drives the decode. Because it is a Control rather than model code,
+the same mechanism serves blending and in-betweening.
+
+Training can watch it. A `validation:` block retargets fixed pairs on an
+interval, writes `.npz` + `.bvh` + `.mp4` for each, and logs six scalars plus one
+wandb artifact per firing:
+
+```yaml
+validation:
+  every_n_steps: 25000
+  pairs:
+    - {content: {rig: Flamingo, action: onelegbent}, target: Scorpion}
+    - {content: {rig: Goat,     action: headbutt},   target: Raptor}
+```
+
+Training loss says the model denoises. It says nothing about whether a
+Flamingo's semantics land on a Scorpion, and that is the task.
 
 ## Layout
 
@@ -208,6 +284,22 @@ decimals — not by float64.
 
 Tests requiring those fixtures skip when the reference checkout is absent, so a
 fresh clone still runs everything else.
+
+### Passing is not the same as covering
+
+A green suite proves nothing about a test that cannot fail. The parity and unit
+tests are periodically checked by **mutation**: deliberately breaking a
+behaviour and confirming something goes red.
+
+That has already earned its place twice. The camera tests reimplemented the
+framing formula instead of calling it, so they exercised a copy and stayed green
+through the exact regression they were written for. And the whole diffusion
+core — `corrupt`, the posterior, both sampler loops — survived eleven separate
+mutations untouched, including signal and noise swapped in the forward process.
+The math was right, verified against the reference to 3e-06; nothing in CI would
+have noticed it breaking.
+
+If you add a test here, break the thing it covers and watch it fail first.
 
 ## Documents
 
