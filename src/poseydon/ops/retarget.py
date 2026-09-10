@@ -56,7 +56,11 @@ class Retarget(Operation):
         # ONCE, before the trajectory: the latent describes the content, which
         # does not change as the target is denoised. Encoding per step would be
         # the same answer computed a thousand times.
-        self._latent, _ = encode(self.content.to(device), self.content_cond)
+        # BOTH move: `Cond` carries topology, tpose and normalization tensors,
+        # and encoding a CUDA clip against CPU conditioning faults inside the
+        # model. The stub model in the tests ignores `cond`, so the suite
+        # cannot see this one -- it only shows up on a real GPU run.
+        self._latent, _ = encode(self.content.to(device), self.content_cond.to(device))
         return super().run(
             model, process, sampler, shape, cond, device, generator, masks
         )
