@@ -8,6 +8,7 @@ on a current install without pinning the whole stack backwards.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -109,6 +110,14 @@ def _visible_ground(ground, centre, reach):
     return mesh_x, mesh_y, np.full_like(mesh_x, floor), colours[i0:i1, j0:j1]
 
 
+def _selected(selector, frame: int) -> np.ndarray:
+    """Joint indices to highlight on `frame`, from a list or a per-frame mask."""
+    array = np.asarray(selector)
+    if array.ndim == 2:                       # (frames, joints) boolean mask
+        return np.flatnonzero(array[frame])
+    return array.astype(int)
+
+
 def _smooth_path(path: np.ndarray, window: int = 9) -> np.ndarray:
     """Moving average of a camera path, so tracking does not jitter per frame.
 
@@ -144,13 +153,19 @@ def render_skeleton(
     azim: float = -70.0,
     zoom: float = 1.15,
     dpi: int = 90,
-    highlight: dict[str, list[int]] | None = None,
+    highlight: dict[str, Any] | None = None,
 ) -> Path:
     """Write an MP4 of a moving skeleton. ``positions`` is ``(F, J, 3)``.
 
     ``zoom`` scales the framing: values above 1 move the camera closer, so 2.0
-    fills roughly twice the frame. ``highlight`` maps a colour to joint indices,
-    for checking which side of the character is which.
+    fills roughly twice the frame.
+
+    ``highlight`` maps a colour to either a fixed list of joint indices -- for
+    checking which side of a character is which -- or a ``(frames, joints)``
+    boolean mask, for a property that changes over time. Foot contact is the
+    reason the second form exists: it is predicted per frame, so a static list
+    cannot show whether the model is marking the right joints at the right
+    moments.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,9 +237,10 @@ def render_skeleton(
             )
         axes.scatter(*joints.T, s=6, color="#d62728", depthshade=False)
 
-        for colour, indices in (highlight or {}).items():
-            picked = joints[list(indices)]
-            axes.scatter(*picked.T, s=55, color=colour, depthshade=False)
+        for colour, selector in (highlight or {}).items():
+            picked = joints[_selected(selector, frame)]
+            if len(picked):
+                axes.scatter(*picked.T, s=55, color=colour, depthshade=False)
 
         axes.set_xlim(centre[0] - reach, centre[0] + reach)
         axes.set_ylim(centre[1] - reach, centre[1] + reach)

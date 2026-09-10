@@ -209,3 +209,29 @@ def test_the_tiles_alternate():
     _xs, _ys, colours, _floor = _ground(view, reach, 0.0)
     assert not np.allclose(colours[0, 0], colours[0, 1])
     assert np.allclose(colours[0, 0], colours[1, 1])
+
+
+def test_a_highlight_can_change_per_frame():
+    """Foot contact is predicted per frame, so a static joint list cannot show it.
+
+    Without this, the only way to highlight contacts would be a fixed set of
+    "foot" joints -- which shows where the feet ARE, never when the model thinks
+    they are down, and so cannot expose a wrong prediction.
+    """
+    from poseydon.io.render import _selected
+
+    mask = np.zeros((4, 5), dtype=bool)
+    mask[0, [1, 3]] = True
+    mask[2, [4]] = True
+
+    np.testing.assert_array_equal(_selected(mask, 0), [1, 3])
+    np.testing.assert_array_equal(_selected(mask, 1), [])
+    np.testing.assert_array_equal(_selected(mask, 2), [4])
+
+
+def test_a_static_highlight_still_works():
+    """The existing form -- a fixed list of joints -- must be unaffected."""
+    from poseydon.io.render import _selected
+
+    for frame in (0, 7):
+        np.testing.assert_array_equal(_selected([2, 5], frame), [2, 5])
