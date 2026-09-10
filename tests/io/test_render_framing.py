@@ -144,3 +144,68 @@ def test_the_ground_is_never_above_the_bottom_of_the_frame():
     view, _track, _reach, base, reach_z = _vertical(_low_wide_clip())
     floor = float(view[..., 2].min())
     assert base <= floor <= base + 2 * reach_z
+
+
+def test_the_ground_covers_the_whole_path_not_just_one_view():
+    """The camera follows the character, so the ground must exist ahead of it.
+
+    Sized to the current view instead, the render shows the character walking
+    to the edge of a floating slab.
+    """
+    from poseydon.io.render import _ground
+
+    clip = _travelling_clip(frames=120, travel=12.0)
+    view, _track, reach = _framing(clip)
+    xs, ys, _colours, _floor = _ground(view, reach, float(view[..., 2].min()))
+
+    flat = view.reshape(-1, 3)[:, :2]
+    assert xs[0] < flat[:, 0].min() and xs[-1] > flat[:, 0].max()
+    assert ys[0] < flat[:, 1].min() and ys[-1] > flat[:, 1].max()
+
+
+def test_the_tiles_are_world_anchored_so_travel_is_visible():
+    """The whole reason for a checkerboard.
+
+    With a camera that follows the character, a ground drawn relative to the
+    CAMERA moves with it, and the skeleton appears to run on the spot. The tile
+    grid must be fixed in world space, so the character's offset within a tile
+    changes as it travels.
+    """
+    from poseydon.io.render import _ground
+
+    clip = _travelling_clip(frames=120, travel=12.0)
+    view, track, reach = _framing(clip)
+    xs, _ys, _colours, _floor = _ground(view, reach, float(view[..., 2].min()))
+    tile = float(xs[1] - xs[0])
+
+    phase = [(float(track[f, 0]) - xs[0]) / tile % 1.0 for f in (0, 40, 80, 119)]
+    assert len(set(np.round(phase, 2))) > 1, (
+        "the character keeps the same position within a tile across the whole "
+        "clip -- the ground is moving with the camera"
+    )
+
+
+def test_only_the_visible_tiles_are_drawn():
+    """A long walk must not put thousands of quads through matplotlib."""
+    from poseydon.io.render import _ground, _visible_ground
+
+    clip = _travelling_clip(frames=400, travel=200.0)
+    view, track, reach = _framing(clip)
+    ground = _ground(view, reach, float(view[..., 2].min()))
+    whole = ground[2].size
+
+    mesh_x, _mesh_y, _mesh_z, colours = _visible_ground(ground, track[0], reach)
+    assert colours.size < whole / 10, (
+        f"drew {colours.size} tiles of {whole} for one view"
+    )
+    # And it must actually cover the view, not merely be small.
+    assert mesh_x.min() <= track[0, 0] - reach and mesh_x.max() >= track[0, 0] + reach
+
+
+def test_the_tiles_alternate():
+    from poseydon.io.render import _ground
+
+    view, _track, reach = _framing(_travelling_clip())
+    _xs, _ys, colours, _floor = _ground(view, reach, 0.0)
+    assert not np.allclose(colours[0, 0], colours[0, 1])
+    assert np.allclose(colours[0, 0], colours[1, 1])

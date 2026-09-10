@@ -56,6 +56,58 @@ MIN_VERTICAL = 0.45
 #: plane is cut by the figure edge and reads as a platform rather than a floor.
 BOX_ZOOM = 1.55
 
+#: Ground tile size, as a fraction of the horizontal reach. About four tiles
+#: across the view: coarse enough to stay quiet behind the skeleton, fine enough
+#: that a walking character visibly crosses them.
+TILE = 0.5
+
+#: How far the ground extends past the character's path, in tiles. The camera
+#: follows the character, so the ground has to exist wherever the camera can
+#: look or the render shows a cliff edge.
+GROUND_MARGIN = 3
+
+#: The two tile colours, RGBA. Deliberately close together and faint: the floor
+#: is a motion cue, not something to read.
+TILE_COLOURS = ((0.55, 0.55, 0.60, 0.20), (0.80, 0.80, 0.84, 0.11))
+
+
+def _ground(view: np.ndarray, reach: float, floor: float):
+    """A checkerboard covering everywhere the character goes, plus a margin.
+
+    Built from the PATH rather than from the camera, so the tiles stay put on
+    the ground while the view moves over them. That is the whole point: with a
+    camera that follows the character, a plain quad moving with it gives no cue
+    that anything is travelling at all -- the skeleton appears to run on the
+    spot.
+    """
+    flat = view.reshape(-1, 3)[:, :2]
+    tile = max(reach * TILE, 1e-6)
+    low = flat.min(axis=0) - tile * GROUND_MARGIN
+    high = flat.max(axis=0) + tile * GROUND_MARGIN
+    counts = np.maximum(np.ceil((high - low) / tile).astype(int), 1)
+    xs = low[0] + np.arange(counts[0] + 1) * tile
+    ys = low[1] + np.arange(counts[1] + 1) * tile
+    parity = (np.arange(counts[0])[:, None] + np.arange(counts[1])[None, :]) % 2
+    colours = np.array(TILE_COLOURS)[parity]
+    return xs, ys, colours, floor
+
+
+def _visible_ground(ground, centre, reach):
+    """The tiles the camera can currently see, so a long path costs nothing.
+
+    Drawing the whole floor every frame would put thousands of quads through
+    matplotlib for the handful that land inside the axes limits.
+    """
+    xs, ys, colours, floor = ground
+    i = np.searchsorted(xs, [centre[0] - reach, centre[0] + reach])
+    j = np.searchsorted(ys, [centre[1] - reach, centre[1] + reach])
+    i0, i1 = max(int(i[0]) - 1, 0), min(int(i[1]) + 1, len(xs) - 1)
+    j0, j1 = max(int(j[0]) - 1, 0), min(int(j[1]) + 1, len(ys) - 1)
+    if i1 <= i0 or j1 <= j0:
+        return None
+    mesh_x, mesh_y = np.meshgrid(xs[i0 : i1 + 1], ys[j0 : j1 + 1], indexing="ij")
+    return mesh_x, mesh_y, np.full_like(mesh_x, floor), colours[i0:i1, j0:j1]
+
 
 def _smooth_path(path: np.ndarray, window: int = 9) -> np.ndarray:
     """Moving average of a camera path, so tracking does not jitter per frame.
@@ -142,6 +194,7 @@ def render_skeleton(
     # drop instead clipped 3.46% of Coyote->Crab at zoom 1.0, because the floor
     # can sit well below the tracked centre and the window stopped short of the
     # character's top.
+    ground = _ground(view, reach, float(view[..., 2].min()))
     ceiling = float(view[..., 2].max())
     reach_z = max((ceiling - floor) / 2.0, reach * MIN_VERTICAL) * (1.0 + PAD) + 1e-6
 
@@ -154,11 +207,13 @@ def render_skeleton(
         joints = view[frame]
 
         centre = track[frame]
-        grid = np.linspace(-reach, reach, 2)
-        mesh_a, mesh_b = np.meshgrid(grid + centre[0], grid + centre[1])
-        axes.plot_surface(
-            mesh_a, mesh_b, np.full_like(mesh_a, floor), alpha=0.12, color="#888888"
-        )
+        tiles = _visible_ground(ground, centre, reach)
+        if tiles is not None:
+            mesh_a, mesh_b, mesh_c, facecolours = tiles
+            axes.plot_surface(
+                mesh_a, mesh_b, mesh_c, facecolors=facecolours, shade=False,
+                linewidth=0, antialiased=False,
+            )
 
         for parent, child in bones:
             axes.plot(
