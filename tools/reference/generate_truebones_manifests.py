@@ -22,7 +22,7 @@ silently mirrors the character, so this asks the real loader instead.
 Names are stable across loaders where they overlap, which is exactly why
 PoseYdon's manifests reference joints by name.
 
-    docker compose run --rm compat python tools/reference/generate_truebones_manifests.py --out data/truebones/skeletons
+    docker compose run --rm compat python tools/reference/generate_truebones_manifests.py --out data/truebones/rigs
 """
 
 from __future__ import annotations
@@ -223,7 +223,7 @@ contact:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("data/truebones/skeletons"))
+    parser.add_argument("--out", type=Path, default=Path("data/truebones/rigs"))
     parser.add_argument("--raw-root", type=Path, default=RAW_ROOT)
     parser.add_argument(
         "--species", nargs="*", default=None, help="default: every species with face joints"

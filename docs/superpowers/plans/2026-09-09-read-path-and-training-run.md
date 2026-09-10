@@ -20,7 +20,7 @@
 - **Do not touch `data/truebones/source/`.** It is a paid, irreplaceable corpus of 1153 raw BVH.
 - **Do not rebuild the corpus.** `data/truebones/{clips,rigs,index.jsonl}` is current: 73 rigs, 73 `skeleton.npz`, 73 `stats.npz`, 1145 clip `.npz`, 1145 index rows. If a task needs it rebuilt, that is a signal the task is wrong.
 - **The round trip is non-negotiable** (spec §9): structure and reference frame must remain recoverable. Nothing in this plan may drop a joint, a name, a parent, or a prepare constant from any artefact.
-- **Run recipe, exact values:** `batch_size: 16`, `max_steps: 600000`, `precision: bf16-mixed`, `lr 1e-4`, `d_model: 128`, `n_layers_semantic: 4`, `n_layers_stochastic: 4`, `n_heads: 4`, `ff_size: 512`, `n_virtual_joints: 5`, balanced sampling, `losses: {simple: 1.0, geodesic: 1.0}`.
+- **Run recipe, exact values:** `batch_size: 16`, `max_steps: 600000`, `precision: bf16-mixed`, `lr 1e-4`, `d_model: 128`, `n_layers_semantic: 4`, `n_layers_stochastic: 4`, `n_heads: 4`, `ff_size: 1024`, `n_virtual_joints: 5`, balanced sampling, `losses: {simple: 1.0, geodesic: 1.0}`.
 - **wandb:** project `poseydon`, entity `lcazzola-fondazione-bruno-kessler` (from `.env`; `entity: poseydon` fails — `poseydon` is the project). `.env` is gitignored and already carries `WANDB_API_KEY`, `WANDB_ENTITY`, `UID`, `GID`. Never write a key into a config, a test, or `.env.example`.
 - **Measured baseline to preserve:** the CPU suite is 258 passed / 7 skipped / 10 xfailed before this plan starts. A task that reduces the passing count without explaining why has broken something.
 

@@ -241,7 +241,11 @@ def test_the_model_is_the_attention_pooled_modiffae_of_the_paper_command(config)
     assert config.model.n_layers_semantic == 4
     assert config.model.n_layers_stochastic == 4
     assert config.model.n_heads == 4
-    assert config.model.ff_size == 512
+    # 1024, measured from the reference checkpoint's own FFN weight
+    # (`semantic_encoder.backbone.layers.0.ffn.0.weight` is (1024, 128)) --
+    # not 512, which an earlier plan asserted as authoritative without
+    # checking it against the weights.
+    assert config.model.ff_size == 1024
     assert config.model.n_virtual_joints == 5
     assert config.model.temporal_window == 31
 

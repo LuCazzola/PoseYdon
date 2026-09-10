@@ -237,7 +237,11 @@ def _face_joints(name, anim):
 def _resolved(name, anim):
     from poseydon.core.skeleton import SkeletonManifest, resolve
 
-    manifest = SkeletonManifest.load(Path("data/truebones/skeletons") / f"{name}.yaml")
+    # Entity-first layout: `rigs/<Rig>/manifest.yaml`. The flat
+    # `skeletons/<Rig>.yaml` this used to read was deleted by the migration,
+    # so this tool has been unable to write its BVH since -- it got as far as
+    # the feature comparison and then raised.
+    manifest = SkeletonManifest.load(Path("data/truebones/rigs") / name / "manifest.yaml")
     return resolve(manifest, anim.names)
 
 

@@ -488,7 +488,7 @@ Per parity spec §10:
   maps to `trainer.fit(ckpt_path=...)`.
 
 Run recipe, mirroring `docs/TRAIN.md`'s MoDiffAE command with the attention-pool
-variant: `n_virtual_joints: 5`, `d_model: 128`, 4 layers, `lr 1e-4`, balanced —
+variant: `n_virtual_joints: 5`, `d_model: 128`, 4 layers, `ff_size: 1024`, `lr 1e-4`, balanced —
 and two deliberate departures from the reference, **`batch_size 16`** (not 10)
 and **600 000 steps** (not 450 000), taken on measured evidence rather than by
 preference. `precision: bf16-mixed`.

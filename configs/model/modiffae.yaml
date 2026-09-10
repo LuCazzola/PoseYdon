@@ -3,7 +3,14 @@ d_model: 128
 n_layers_semantic: 4
 n_layers_stochastic: 4
 n_heads: 4
-ff_size: 512
+# 1024, not 512. Measured from the reference's own checkpoint:
+# `semantic_encoder.backbone.layers.0.ffn.0.weight` is (1024, 128), and the
+# 600k attn-pool weights load into this model with strict=True only at that
+# width. An earlier plan asserted 512 as a "not negotiable" run-recipe value
+# without checking it against the weights, and it went unquestioned because it
+# was stated as authoritative -- the whole model trained at half the
+# reference's FFN width.
+ff_size: 1024
 dropout: 0.1
 n_virtual_joints: 5
 kl_bottleneck: false
