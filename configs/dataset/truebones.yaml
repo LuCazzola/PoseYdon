@@ -13,8 +13,27 @@ text: null
 reduce_tolerance: 1.0e-8
 
 # Parity spec §5. Per-block policy: `ric_pos`, `rot6d` and `local_vel` are all
-# centred and scaled per joint block; `foot_contact` is a {0,1} flag, left
-# un-centred and unscaled (`scale: none`).
+# centred and scaled PER CHANNEL; `foot_contact` is a {0,1} flag, left
+# un-centred and unscaled (`scale: none`). This is what the reference does.
+#
+# `joint_block` pooling was tried and rejected on measurement. Its argument --
+# parity spec §5's "per-channel std makes a barely-moving toe dominate" -- is
+# the claim that a joint's quietest channels are numerical noise, and that
+# giving them unit variance would make the model chase it. That claim is false
+# for this corpus. Measured over ten rigs, the lowest-sigma channel of each
+# joint has a lag-1 autocorrelation of +0.941 (66% above 0.9, only 5.7% below
+# 0.3): those channels are SMOOTH, slow, real motion -- a tail, a toe, a jaw --
+# not noise. Pooling therefore under-weights genuine detail by the within-joint
+# sigma spread, which is a median 3.7x and 23x at the 90th percentile, and that
+# detail is exactly what makes a retarget read as correct.
+#
+# Per-channel also measures equal or better everywhere it differs: p99 3.45 vs
+# 3.82, |z|>10 0.021% vs 0.024%, max 36.1 vs 36.2, std 0.952 vs 0.957.
+#
+# Genuinely constant channels are NOT amplified: `Normalizer.fit` floors any
+# sigma below `STD_CONSTANT_THRESHOLD` to 1.0 first. Per-channel scaling puts
+# 9.99% of channels through that guard against pooling's 8.98% -- pooling was
+# hiding those constants inside a block average rather than handling them.
 #
 # `rot6d` USED TO SHIP `center: false`, on the argument that "a 6D rotation has
 # no zero to centre around". That argument is about reconstruction, and it does
@@ -45,7 +64,7 @@ reduce_tolerance: 1.0e-8
 # type before calling `build_all`, so a config that forgets `_target_` fails
 # at load time with a clear message instead.
 normalize:
-  - {_target_: poseydon.data.normalize.BlockPolicy, name: ric_pos,      center: true,  scale: joint_block}
-  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d,        center: true,  scale: joint_block}
-  - {_target_: poseydon.data.normalize.BlockPolicy, name: local_vel,    center: true,  scale: joint_block}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: ric_pos,      center: true,  scale: channel}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d,        center: true,  scale: channel}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: local_vel,    center: true,  scale: channel}
   - {_target_: poseydon.data.normalize.BlockPolicy, name: foot_contact, center: false, scale: none}

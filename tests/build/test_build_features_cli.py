@@ -59,7 +59,13 @@ def test_schema_and_normalize_round_trip_into_a_build_config(tmp_path):
         # assertion that actually catches it; equality against a dict-shaped
         # thing would pass either way.
         assert isinstance(entry, BlockPolicy), f"{entry!r} did not instantiate into BlockPolicy"
-    assert config.normalize[0] == BlockPolicy("ric_pos", center=True, scale="joint_block")
+    # Pinned deliberately: this is the shipped normalization recipe, and a
+    # silent change to it changes what every checkpoint means. `scale` moved
+    # from "joint_block" to "channel" on measurement -- a joint's quietest
+    # channels turned out to be smooth real motion (lag-1 autocorrelation
+    # +0.941), not the noise pooling was introduced to suppress. See the
+    # comment in configs/dataset/truebones.yaml.
+    assert config.normalize[0] == BlockPolicy("ric_pos", center=True, scale="channel")
     assert config.normalize[3] == BlockPolicy("foot_contact", center=False, scale="none")
 
 
