@@ -127,23 +127,38 @@ class RetargetValidation(L.Callback):
         try:
             model.eval()
             with torch.no_grad():
+                # Per PAIR, not per firing. A failure in the first pair's upload
+                # used to cost the other two as well -- three observations lost
+                # to one transient error, when two of them were still available.
+                artifact = self._artifact(trainer)
                 for pair in self.pairs:
-                    scalars.update(self._one(pair, model, step, device, generator, trainer))
+                    try:
+                        scalars.update(
+                            self._one(pair, model, step, device, generator, trainer, artifact)
+                        )
+                    except Exception as error:  # noqa: BLE001 -- see the class docstring
+                        self._warn(f"pair {pair.slug}", step, error)
+            # Whatever survived is still worth logging and uploading.
             self._log(trainer, scalars, step)
+            self._commit(trainer, artifact, step)
         except Exception as error:  # noqa: BLE001 -- see the class docstring
-            warnings.warn(
-                f"retarget validation failed at step {step} and was skipped: "
-                f"{error!r}. Training continues.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            log.warning("retarget validation failed at step %d: %r", step, error)
+            self._warn("the firing", step, error)
         finally:
             if was_training:
                 model.train()
         return scalars
 
-    def _one(self, pair, model, step, device, generator, trainer) -> dict[str, float]:
+    @staticmethod
+    def _warn(what: str, step: int, error: Exception) -> None:
+        warnings.warn(
+            f"retarget validation: {what} failed at step {step} and was skipped: "
+            f"{error!r}. Training continues.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        log.warning("retarget validation: %s failed at step %d: %r", what, step, error)
+
+    def _one(self, pair, model, step, device, generator, trainer, artifact) -> dict[str, float]:
         out = self.out_dir / f"step-{step}"
         out.mkdir(parents=True, exist_ok=True)
         result = run_retarget(
@@ -165,24 +180,51 @@ class RetargetValidation(L.Callback):
             target_rig=pair.target,
             device=device,
         )
-        self._upload(trainer, pair, result, step)
+        self._upload(trainer, pair, result, step, artifact)
         return {f"retarget/{pair.slug}/{k}": float(v) for k, v in metrics.items()}
 
-    def _upload(self, trainer, pair, result, step) -> None:
-        """One artifact per firing, plus the mp4 as a playable video."""
-        logger = getattr(trainer, "logger", None)
-        experiment = getattr(logger, "experiment", None)
-        if experiment is None or not hasattr(experiment, "log_artifact"):
+    @staticmethod
+    def _experiment(trainer):
+        """The live wandb run, or None when this trainer logs nowhere."""
+        experiment = getattr(getattr(trainer, "logger", None), "experiment", None)
+        return experiment if hasattr(experiment, "log_artifact") else None
+
+    def _artifact(self, trainer):
+        """ONE artifact for the whole firing, or None without a wandb run.
+
+        Built once here rather than per pair: `log_artifact` under a name that
+        already exists creates a new VERSION, so building it inside the pair
+        loop produced three versions per firing with the `step-<n>` alias on
+        whichever pair happened to go last -- i.e. fetching `step-25000` next
+        week returned one third of the observation. Caught by the GPU smoke run.
+        """
+        experiment = self._experiment(trainer)
+        if experiment is None:
+            return None
+        import wandb
+
+        return wandb.Artifact(f"retarget-{experiment.id}", type=ARTIFACT_TYPE)
+
+    def _upload(self, trainer, pair, result, step, artifact) -> None:
+        """This pair's three files into the firing's artifact, plus a playable video."""
+        experiment = self._experiment(trainer)
+        if experiment is None:
             return
         import wandb
 
-        artifact = wandb.Artifact(f"retarget-{experiment.id}", type=ARTIFACT_TYPE)
-        for path in (result.npz, result.bvh, result.mp4):
-            artifact.add_file(str(path), name=f"{pair.slug}/{Path(path).name}")
-        experiment.log_artifact(artifact, aliases=[f"step-{step}"])
+        if artifact is not None:
+            for path in (result.npz, result.bvh, result.mp4):
+                artifact.add_file(str(path), name=f"{pair.slug}/{Path(path).name}")
         experiment.log(
             {f"retarget/{pair.slug}/video": wandb.Video(str(result.mp4))}, step=step
         )
+
+    def _commit(self, trainer, artifact, step: int) -> None:
+        """Upload the firing's artifact, aliased with the step it observed."""
+        experiment = self._experiment(trainer)
+        if experiment is None or artifact is None or not artifact.manifest.entries:
+            return
+        experiment.log_artifact(artifact, aliases=[f"step-{step}"])
 
     def _log(self, trainer, scalars: dict[str, float], step: int) -> None:
         """Per-pair scalars, plus the across-pair mean of each metric.

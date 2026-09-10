@@ -44,6 +44,12 @@ services:
       WANDB_API_KEY: ${WANDB_API_KEY:-}
       WANDB_ENTITY: ${WANDB_ENTITY:-}
       WANDB_DIR: /tmp/wandb
+      # Artifact STAGING is a separate directory from WANDB_DIR, and it defaults
+      # under $XDG_DATA_HOME -- which resolves to `/.local/share` for a container
+      # user with no home, and is not writable. Every artifact upload then fails
+      # with PermissionError. Only the retarget-validation callback uploads
+      # artifacts, so nothing caught this until it ran.
+      WANDB_DATA_DIR: /tmp/wandb-data
     shm_size: "8gb"
 
   # Reference comparison only. Not used by the test suite.

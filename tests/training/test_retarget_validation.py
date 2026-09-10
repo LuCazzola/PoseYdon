@@ -199,3 +199,127 @@ def test_a_zero_interval_is_refused():
         RetargetValidation(
             pairs=PAIRS, dataset=None, process=None, sampler=None, out_dir=".", every_n_steps=0
         )
+
+
+def test_one_bad_pair_does_not_cost_the_others(tmp_path, monkeypatch):
+    """Found by the GPU smoke run, not by design.
+
+    wandb stages artifacts under `$XDG_DATA_HOME`, which is unwritable for a
+    container user with no home, so the FIRST pair's upload raised and the
+    other two were never attempted -- three observations lost to one error when
+    two were still available. The staging path is fixed in `docker-compose.yml`;
+    this is the containment that makes the next such surprise cost one pair.
+    """
+    from poseydon.training import validation as module
+
+    seen: list[str] = []
+
+    def flaky(**kw):
+        seen.append(kw["content"])
+        if kw["content"].startswith("Flamingo"):
+            raise PermissionError("staging directory is not writable")
+        return SimpleNamespace(npz="a.npz", bvh="a.bvh", mp4="a.mp4")
+
+    monkeypatch.setattr(module, "run_retarget", flaky)
+    monkeypatch.setattr(module, "retarget_metrics", lambda *a, **k: {"foot_skate": 3.0})
+
+    logger = _Logger()
+    callback = RetargetValidation(
+        pairs=PAIRS, dataset=object(), process=object(), sampler=object(), out_dir=tmp_path
+    )
+    with pytest.warns(RuntimeWarning, match="Flamingo_onelegbent__to__Scorpion"):
+        scalars = callback.run(_trainer(step=7, logger=logger), _module(_Model()))
+
+    assert seen == ["Flamingo/onelegbent", "Coyote/attack3"], "the second pair was skipped too"
+    assert scalars["retarget/Coyote_attack3__to__Crab/foot_skate"] == 3.0
+    assert "retarget/Flamingo_onelegbent__to__Scorpion/foot_skate" not in scalars
+    # The surviving pair still reaches the logger.
+    assert logger.metrics and logger.metrics[0][1] == 7
+
+
+class _Artifact:
+    def __init__(self, name, type) -> None:
+        self.name, self.type = name, type
+        self.files: list[str] = []
+        self.manifest = SimpleNamespace(entries=self.files)
+
+    def add_file(self, path, name=None) -> None:
+        self.files.append(name or path)
+
+
+class _Experiment:
+    """Enough of a wandb run to see the artifact SHAPE, not just that one was made."""
+
+    id = "abc123"
+
+    def __init__(self) -> None:
+        self.logged: list[tuple[_Artifact, list[str]]] = []
+        self.events: list[dict] = []
+
+    def log_artifact(self, artifact, aliases=None) -> None:
+        self.logged.append((artifact, list(aliases or [])))
+
+    def log(self, data, step=None) -> None:
+        self.events.append(data)
+
+
+@pytest.fixture
+def _wandb(monkeypatch):
+    import sys
+
+    stub = SimpleNamespace(Artifact=_Artifact, Video=lambda path: f"video:{path}")
+    monkeypatch.setitem(sys.modules, "wandb", stub)
+    return stub
+
+
+def test_one_artifact_per_firing_holds_every_pair(tmp_path, monkeypatch, _wandb):
+    """Regression: it used to be one artifact VERSION PER PAIR.
+
+    `log_artifact` under an existing name creates a new version, so building the
+    artifact inside the pair loop left the `step-<n>` alias on whichever pair
+    went last -- fetching `step-25000` returned one third of the observation.
+    The GPU smoke run showed six versions where two were intended; nothing in
+    the suite could see it, because nothing asserted the shape.
+    """
+    experiment = _Experiment()
+    logger = _Logger()
+    logger.experiment = experiment
+
+    callback = _callback(tmp_path, monkeypatch, results=None)
+    callback.run(_trainer(step=25_000, logger=logger), _module(_Model()))
+
+    assert len(experiment.logged) == 1, "one artifact per firing, not one per pair"
+    artifact, aliases = experiment.logged[0]
+    assert aliases == ["step-25000"]
+    assert artifact.type == "retarget-validation"
+    assert artifact.name == "retarget-abc123"
+    assert sorted(artifact.files) == [
+        "Coyote_attack3__to__Crab/a.bvh",
+        "Coyote_attack3__to__Crab/a.mp4",
+        "Coyote_attack3__to__Crab/a.npz",
+        "Flamingo_onelegbent__to__Scorpion/a.bvh",
+        "Flamingo_onelegbent__to__Scorpion/a.mp4",
+        "Flamingo_onelegbent__to__Scorpion/a.npz",
+    ]
+    # The mp4 additionally as a playable video, one per pair.
+    assert sum("video" in k for e in experiment.events for k in e) == 2
+
+
+def test_a_firing_where_every_pair_failed_uploads_nothing(tmp_path, monkeypatch, _wandb):
+    """An empty artifact is a version that says a run produced output. It did not."""
+    from poseydon.training import validation as module
+
+    experiment = _Experiment()
+    logger = _Logger()
+    logger.experiment = experiment
+
+    def always_fails(**kw):
+        raise RuntimeError("no")
+
+    monkeypatch.setattr(module, "run_retarget", always_fails)
+    callback = RetargetValidation(
+        pairs=PAIRS, dataset=object(), process=object(), sampler=object(), out_dir=tmp_path
+    )
+    with pytest.warns(RuntimeWarning):
+        callback.run(_trainer(step=5, logger=logger), _module(_Model()))
+    assert experiment.logged == []
