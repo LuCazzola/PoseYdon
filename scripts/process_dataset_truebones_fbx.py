@@ -48,7 +48,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from poseydon.build.index import action_slug, strip_skeleton_prefix
+from poseydon.build.index import action_slug, is_all_takes_bundle, strip_skeleton_prefix
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
@@ -72,16 +72,14 @@ def process_species(
     if not species_dir.is_dir():
         return 0, [f"{species}: no raw directory at {species_dir}"]
 
-    # "ALL" files are Truebones' own all-takes compilations -- every
-    # animation of the rig concatenated into one clip, e.g. `GoatAll.fbx`,
-    # `scorpionALL.fbx`, `Flamingo-ALL.fbx` -- not a distinct action, and they
-    # have no BVH counterpart to pair basenames against. They are always the
-    # WHOLE stem ending in "all"; a hyphenated take that merely starts with
-    # the rig name plus "ALL" (Anaconda ships `AnacondaALL-Twistrattle.fbx`
-    # alongside the real `AnacondaALL.fbx`) is a real, separate clip and must
-    # not be swept up by a bare substring match.
+    # "ALL" files are Truebones' own all-takes compilations -- every animation
+    # of the rig concatenated into one clip, e.g. `GoatAll.fbx` -- not a
+    # distinct action, and with no BVH counterpart to pair basenames against.
+    # `is_all_takes_bundle` is the shared rule; this used to be a bare
+    # `stem.lower().endswith("all")`, which also dropped 13 real takes
+    # (`Camel-Fall`, `DEER-WalkCall`, ...).
     sources = sorted(
-        p for p in species_dir.glob("*.fbx") if not p.stem.lower().endswith("all")
+        p for p in species_dir.glob("*.fbx") if not is_all_takes_bundle(p.stem, species)
     )
     if not sources:
         return 0, [f"{species}: no .fbx files in {species_dir}"]

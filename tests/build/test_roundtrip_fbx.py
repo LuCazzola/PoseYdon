@@ -32,6 +32,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from poseydon.build.index import is_all_takes_bundle
 from tests.conftest import CORPUS, SAMPLE_RIGS
 
 bpy = pytest.importorskip("bpy", reason="FBX round trip needs Blender")
@@ -57,8 +58,14 @@ def _first_per_clip_fbx(rig: str):
         pytest.skip(f"{rig}: no source directory")
     # "ALL" files are Truebones' own all-takes compilations (e.g.
     # `Flamingo-ALL.fbx`, `CrabAll.fbx`, `RaptorALL.fbx`) -- not a distinct
-    # clip. `process_dataset_truebones_fbx.py` excludes them the same way.
-    fbxs = sorted(p for p in source_dir.glob("*.fbx") if "ALL" not in p.stem.upper())
+    # clip. `process_dataset_truebones_fbx.py` excludes them the same way,
+    # through this same predicate. It used to be `"ALL" not in stem.upper()`
+    # here, a SUBSTRING test that excluded every file of a rig whose export
+    # prefix contains "ALL" -- Tukan's is `TUKAN`, so this rig's case fell
+    # through to the skip below and passed green while asserting nothing.
+    fbxs = sorted(
+        p for p in source_dir.glob("*.fbx") if not is_all_takes_bundle(p.stem, rig)
+    )
     if not fbxs:
         pytest.skip(f"{rig}: no per-clip source FBX")
     return fbxs[0]

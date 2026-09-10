@@ -39,6 +39,40 @@ def strip_skeleton_prefix(action: str, skeleton: str) -> str:
     return action
 
 
+def is_all_takes_bundle(stem: str, rig: str) -> bool:
+    """Is this filename stem Truebones' all-takes compilation for ``rig``?
+
+    Every rig ships one file holding all of its takes concatenated --
+    ``GoatAll.fbx``, ``scorpionALL.fbx``, ``Flamingo-ALL.fbx``, ``Camel_ALL.fbx``
+    -- which is not a distinct action and has no BVH counterpart, so consumers
+    of the raw corpus must exclude it. The convention is that a bundle's stem is
+    the rig's export PREFIX plus "ALL" and NOTHING else.
+
+    Neither half of "and nothing else" is optional, and getting either wrong
+    costs real clips:
+
+    * A suffix test (``stem.lower().endswith("all")``) also drops the 13 takes
+      whose stem merely ends in those letters -- ``Camel-Fall``, ``Stego-Fall``,
+      and ``DEER-WalkCall``, which shows the mechanism is the suffix rather than
+      the word "fall".
+    * A substring test (``"ALL" in stem.upper()``) additionally drops every file
+      of a rig whose export prefix contains "ALL" -- Alligator, Anaconda, Crow,
+      HermitCrab, Lion, SabreToothTiger, Tukan -- leaving those rigs with no
+      clips at all.
+
+    The prefix is not always ``rig``: Truebones exports some rigs under an alias
+    (``Dragon/WyvernALL.fbx``, ``Jaws/SharkALL.fbx``, ``Raptor2/RaptorALL.fbx``),
+    so any single unseparated token is accepted as a prefix, and ``rig`` itself
+    is accepted whatever separators its own name contains. What is rejected
+    either way is a stem carrying a take name beside the prefix, in either
+    position: ``Camel-Fall`` before "all", ``AnacondaALL-Twistrattle`` after it.
+    """
+    if not stem.lower().endswith("all"):
+        return False
+    prefix = stem[: -len("all")].rstrip("-_")
+    return bool(prefix) and (prefix.isalnum() or action_slug(prefix) == action_slug(rig))
+
+
 def clip_id(skeleton: str, action: str) -> str:
     """Deterministic clip identity: ``{skeleton}__{action}``."""
     if SEPARATOR in skeleton:
