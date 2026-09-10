@@ -51,9 +51,12 @@ reduce_tolerance: 1.0e-8
 # `losses/base.py::raw_block`, which undoes normalization first. That helper is
 # why a 6D row's validity is not a normalization concern.
 #
-# Note, separate from what is declared above: `scale: block` with
-# `center: true` on EVERY block is an alternative combination -- the one the
-# parity test uses to check reference-exactness -- not what this config ships.
+# (An earlier comment here claimed `scale: block` with `center: true` on every
+# block was "the combination the parity test uses". No test in the tree uses
+# it -- `tests/features/test_reference_parity.py` compares FEATURES, before
+# normalization, and `tests/build/test_pipeline.py` declares its own policy.
+# The claim was removed rather than corrected, because it was describing a
+# test that does not exist.)
 #
 # Each entry carries its own `_target_` so `hydra.utils.instantiate` recurses
 # into this list and returns `BlockPolicy` instances, not plain mappings -- a

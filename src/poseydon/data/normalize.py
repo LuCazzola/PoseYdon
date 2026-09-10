@@ -28,14 +28,20 @@ STD_EPSILON = 1e-6
 #: rather than divided by something near zero.
 #:
 #: `STD_EPSILON` alone is not a guard, it is an amplifier. A channel that never
-#: varies gets `std = 0 + 1e-6`, so dividing by it multiplies by a million. For
-#: a CENTRED block that is harmless -- the constant becomes 0 before the divide
-#: -- but `rot6d` ships `center: false` (a 6D rotation has no zero to centre
-#: around), so a joint that never rotates carries a raw ~1.0 straight into
-#: `1.0 / 1e-6 = 1e6`. Measured on the built corpus: 12 of 73 rigs, `rot6d`
-#: only, 144 channels sitting exactly at the epsilon -- Alligator 30 channels,
-#: Turtle 24, Ant 18, FireAnt/Roach/Scorpion-2 12 each. Under balanced sampling
-#: that reached ~16% of batches and put the `simple` loss at ~1e10.
+#: varies gets `std = 0 + 1e-6`, so dividing by it multiplies by a million.
+#:
+#: Centring hides that for a constant channel -- the value becomes 0 before the
+#: divide -- and every real block is centred now. It was found the hard way,
+#: when `rot6d` still shipped `center: false`: a joint that never rotates
+#: carried a raw ~1.0 straight into `1.0 / 1e-6 = 1e6`, across 12 of 73 rigs
+#: and 144 channels sitting exactly at the epsilon, reaching ~16% of batches
+#: under balanced sampling and putting `simple` at ~1e10.
+#:
+#: The floor stays, and is not redundant: centring only removes the MEAN, so a
+#: channel with a tiny but non-zero spread still divides by something near
+#: zero and amplifies float noise. `rot6d` is centred now (see
+#: `configs/dataset/truebones.yaml`), so that specific 1e6 cannot recur -- this
+#: guards the general case, whatever a future policy centres or does not.
 #:
 #: 1e-4 is not a guess. Across all 73 rigs and every block, 168 channels fall
 #: below 1e-4 and 168 below 1e-3 -- the SAME channels, because nothing at all

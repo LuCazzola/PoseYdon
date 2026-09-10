@@ -160,10 +160,13 @@ def test_a_constant_channel_is_left_unscaled_not_divided_by_epsilon():
     """`STD_EPSILON` alone is an amplifier, not a guard.
 
     A channel that never varies gets `std = 0 + 1e-6`, so dividing by it
-    multiplies by a million. For a CENTRED block that is harmless -- the
-    constant becomes 0 first -- but `rot6d` ships `center: false`, so a joint
-    that never rotates carries a raw ~1.0 into `1.0 / 1e-6 = 1e6`. Measured on
-    the real corpus this hit 12 of 73 rigs and put the `simple` loss at ~1e10.
+    multiplies by a million. This was found when `rot6d` still shipped
+    `center: false` -- a joint that never rotates carried a raw ~1.0 into
+    `1.0 / 1e-6 = 1e6`, across 12 of 73 rigs, putting `simple` at ~1e10.
+
+    `rot6d` is centred now, so that particular route is closed, and this test
+    builds its own un-centred policy precisely so the guard stays covered
+    whatever the shipped config happens to centre.
     """
     spec = FeatureSpec((("rot6d", 6),))
     # Two joints, 20 frames: joint 0 rotates, joint 1 never does.

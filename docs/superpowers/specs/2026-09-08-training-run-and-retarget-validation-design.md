@@ -536,33 +536,54 @@ passed explicitly; PoseYdon currently ships `geodesic: 0.1, footskate: 0.5`,
 which is neither. Foot skate is still *measured*, as a validation scalar — the
 right place for a diagnostic that is not a training objective.
 
-### Constant channels are left unscaled — a deliberate divergence
+### Normalization — two deliberate divergences from the reference
 
-The reference normalizes with a bare `std += 1e-6`
-(`data_loaders/truebones/data/dataset.py:159`). That arithmetic is copied
-faithfully here, and for a CENTRED block it is harmless: a constant becomes 0
-before the divide. But `rot6d` ships `center: false` — a 6D rotation has no zero
-to centre around (§5) — so a joint that never rotates carries a raw ~1.0 into
-`1.0 / 1e-6 = 1e6`.
+Both were found by measuring, not by reading, and both are recorded here
+because parity is otherwise this project's default.
 
-Measured on the built corpus: **12 of 73 rigs**, `rot6d` only, **144 channels
-sitting exactly at the epsilon** — Alligator 30, Turtle 24, Ant 18, FireAnt,
-Roach and Scorpion-2 12 each, plus five more. Balanced sampling draws rigs
-uniformly, so that reached roughly **16% of batches** and put the `simple` loss
-at **~1e10**, swamping every gradient.
+**1. Constant channels are left unscaled.** The reference normalizes with a
+bare `std += 1e-6` (`data_loaders/truebones/data/dataset.py:159`). That
+arithmetic is copied faithfully, but it is an amplifier, not a guard: a channel
+that never varies gets `std = 0 + 1e-6`, so dividing by it multiplies by a
+million. `Normalizer.fit` therefore floors any standard deviation below
+`STD_CONSTANT_THRESHOLD = 1e-4` to 1.0.
 
-`Normalizer.fit` therefore leaves a channel whose standard deviation falls below
-`STD_CONSTANT_THRESHOLD = 1e-4` unscaled at 1.0, instead of dividing by
-something near zero. The threshold is measured, not chosen: across all 73 rigs
-and every block, 168 channels fall below 1e-4 and the same 168 fall below 1e-3
-— nothing whatever lies in that decade — while the 1st percentile of real
-variation is 4.9e-3. Its exact value changes nothing.
+The threshold is measured, not chosen: across all 73 rigs and every block, 168
+channels fall below 1e-4 and the same 168 fall below 1e-3 — nothing whatever
+lies in that decade — while the 1st percentile of real variation is 4.9e-3.
+Its exact value changes nothing. A channel with no variance carries no
+information, and multiplying float noise by a million does not create any.
 
-After the change, the largest `1/std` in the corpus falls from 1e6 to 8.1e2 and
-`simple` from ~1e10 to ~2.7e2, falling across steps. The divergence is
-deliberate and recorded here because parity is otherwise this project's default:
-a channel with no variance carries no information, and multiplying float noise
-by a million does not create any — it only drowns the channels that do.
+**2. `rot6d` is centred, and every real block is scaled per channel.** An
+earlier draft of this spec shipped `rot6d` with `center: false`, on the
+argument that a 6D rotation has no zero to centre around. That argument is
+about reconstruction and does not survive contact with the data: dividing an
+un-centred value by the standard deviation *about its mean* leaves the whole
+mean offset behind, scaled up. Measured over six rigs, un-centred `rot6d`
+normalized to mean +4.697, std 29.450, max 620.6 — not normalized at all —
+and put the `simple` loss at ~1e3. It is the reason the first training run was
+stopped.
+
+This is not in fact a divergence but a *correction toward* the reference,
+which centres its rotations too: its `cond.npy` carries a real per-channel mean
+(|avg| 0.44) and std (0.18) for the rot6d columns.
+
+`joint_block` pooling was then tried and rejected on measurement. Its argument
+— §5's "per-channel std makes a barely-moving toe dominate" — is the claim
+that a joint's quietest channels are numerical noise. Measured over ten rigs,
+the lowest-sigma channel of each joint has a lag-1 autocorrelation of **+0.941**
+(66% above 0.9, only 5.7% below 0.3): those channels are smooth, slow, *real*
+motion, and pooling under-weights them by a median 3.7x (23x at p90). Per
+channel also measures equal or better everywhere it differs — p99 3.45 vs 3.82,
+`|z|>10` 0.021% vs 0.024% — and is what the reference does.
+
+Centring is safe because it is a storage transform and exactly invertible:
+every loss needing true rotations reads through `losses/base.py::raw_block`,
+which undoes normalization first.
+
+After both, every block is ~N(0,1) across the corpus: `ric_pos` 0.016/1.103,
+`rot6d` -0.006/1.054, `local_vel` 0.032/1.232.
+
 
 ### Logging
 
