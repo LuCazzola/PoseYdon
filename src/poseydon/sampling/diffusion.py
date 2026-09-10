@@ -66,7 +66,13 @@ class DDIM(Sampler):
     """
 
     def __init__(self, steps: int | None = None, eta: float = 0.0) -> None:
+        if eta < 0.0:
+            raise ValueError(f"eta must be non-negative, got {eta}")
         self.steps = steps
+        #: 0 is deterministic DDIM; 1 reproduces DDPM's ancestral noise. Values
+        #: between interpolate. This was accepted and then ignored for the whole
+        #: life of the class -- `sample` never read it, so `DDIM(eta=1.0)` ran
+        #: fully deterministic and said nothing.
         self.eta = eta
 
     def _schedule(self, process: GaussianDiffusion) -> list[int]:
@@ -82,6 +88,15 @@ class DDIM(Sampler):
         if step < 0:
             return torch.ones((), device=device)
         return process.alphas_cumprod[step].to(device)
+
+    def _sigma(self, alpha: torch.Tensor, alpha_prev: torch.Tensor) -> torch.Tensor:
+        """How much of the step is taken as fresh noise rather than direction."""
+        if self.eta == 0.0:
+            return torch.zeros_like(alpha)
+        ratio = (1.0 - alpha_prev) / (1.0 - alpha).clamp(min=1e-12)
+        return self.eta * (ratio * (1.0 - alpha / alpha_prev.clamp(min=1e-12))).clamp(
+            min=0.0
+        ).sqrt()
 
     def sample(
         self,
@@ -112,8 +127,20 @@ class DDIM(Sampler):
 
             z0 = gaussian.to_z0(model(z_t, t, cond, masks).out, z_t, t)
             eps = gaussian.to_eps(z0, z_t, t)
+            alpha = self._alpha_bar(gaussian, step, device)
             alpha_prev = self._alpha_bar(gaussian, previous, device)
-            z_t = alpha_prev.sqrt() * z0 + (1.0 - alpha_prev).sqrt() * eps
+
+            # Song et al. eq. 12. At eta=0 sigma vanishes and this is the
+            # deterministic update; at eta=1 it reproduces DDPM's ancestral
+            # noise. The eps coefficient carries `- sigma^2` so the variance of
+            # the step stays put however much of it is moved into the noise.
+            sigma = self._sigma(alpha, alpha_prev)
+            direction = (1.0 - alpha_prev - sigma.pow(2)).clamp(min=0.0).sqrt()
+            z_t = alpha_prev.sqrt() * z0 + direction * eps
+            if self.eta > 0 and previous >= 0:
+                z_t = z_t + sigma * torch.randn(
+                    shape, device=device, generator=generator
+                )
 
             z_t = apply_after(controls, z_t, t, cond)
         return z_t
