@@ -245,7 +245,12 @@ data/**/index.jsonl
 # by directory rather than folded into the current data model.
 data/truebones/mesh/
 data/truebones/translated/
-assets/
+# Media the README renders must be TRACKED, or the image is broken on the
+# forge. Everything else dropped in here stays ignored.
+assets/*
+!assets/media/
+assets/media/*
+!assets/media/logo_poseydon.png
 runs/
 data/*/reference/
 artifacts/

@@ -1,6 +1,20 @@
 # Documents
 
-Two kinds, and the difference matters.
+Three kinds.
+
+**Guides** (`guides/`) are how to use the thing. Start here if you want to run
+something.
+
+| | |
+|---|---|
+| [Quick start](guides/quickstart.md) | ingest a corpus, train, sample |
+| [Architecture](guides/architecture.md) | how the pieces fit, and why they are separate |
+| [Sampling](guides/sampling.md) | samplers, controls, rebuilding a skeleton |
+| [Retargeting](guides/retargeting.md) | cross-topology transfer and its validation |
+| [Testing](guides/testing.md) | what is covered, and how coverage is checked |
+
+The other two are why it looks the way it does, and the difference between them
+matters.
 
 **Specs** (`superpowers/specs/`) argue a design. They state the problem, the options
 considered, the measurements that decided between them, and the resulting
