@@ -63,6 +63,11 @@ services:
       context: .
       target: compat
     working_dir: /app
+    # No GPU device here on purpose. This image pins `torch==2.14.0+cpu` to keep
+    # the reference checkout's dependencies installable, so a CDI device would
+    # be attached to a runtime that cannot use it. Parity probes run on CPU;
+    # moving them to GPU means changing this image's torch build, which is the
+    # thing the parity guarantee rests on.
     # Same reason as the test service: artifacts it writes must belong to you.
     # Bash does not export UID, so ${UID:-1000} always defaulted to 1000 until .env
     # was added; Compose loads .env automatically.
