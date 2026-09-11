@@ -124,14 +124,37 @@ class MotionTask(nn.Module):
         out: dict[str, torch.Tensor] = {}
         for name, _, term in self.losses:
             values = term.per_sample(x0_hat, batch.x, batch, aux)
-            if values is None:
-                continue
-            values = values.detach()
-            for index in range(4):
-                selected = values[quartile == index]
-                if selected.numel():
-                    out[f"{name}/noise_q{index + 1}"] = selected.mean()
+            if values is not None:
+                self._spread(out, name, values.detach(), quartile)
+
+            # And per feature block, where the term can separate them. A single
+            # number over the whole vector cannot say whether the model is
+            # struggling with positions or with rotations, and those are the
+            # cases that call for different fixes.
+            blocks = term.per_sample_blocks(x0_hat, batch.x, batch, aux)
+            for block, block_values in (blocks or {}).items():
+                self._spread(out, f"{name}/{block}", block_values.detach(), quartile)
         return out
+
+    @staticmethod
+    def _spread(
+        out: dict[str, torch.Tensor],
+        key: str,
+        values: torch.Tensor,
+        quartile: torch.Tensor,
+    ) -> None:
+        """Record a per-sample quantity as a batch mean and per noise quartile.
+
+        The batch mean goes in beside the quartiles rather than being left to
+        the caller: a breakdown whose parts cannot be compared against their own
+        aggregate is hard to read, and for a per-block series no such aggregate
+        exists anywhere else.
+        """
+        out[key] = values.mean()
+        for index in range(4):
+            selected = values[quartile == index]
+            if selected.numel():
+                out[f"{key}/noise_q{index + 1}"] = selected.mean()
 
     def forward(self, batch: MotionBatch) -> torch.Tensor:
         return self.compute_losses(batch)["total"]

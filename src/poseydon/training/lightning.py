@@ -59,6 +59,42 @@ class MotionLitModule(L.LightningModule):
             self.log(f"train/{name}", value, prog_bar=(name == "total"), batch_size=len(batch))
         return losses["total"]
 
+    def on_before_optimizer_step(self, optimizer) -> None:
+        """Gradient norms, before clipping.
+
+        Logged BEFORE `configure_gradient_clipping` runs, which is the only
+        point they are informative: after clipping every norm at or below
+        `gradient_clip_val` reads as healthy by construction, and how often the
+        clip actually engages -- the thing worth knowing -- is invisible.
+
+        Reported per top-level module rather than per parameter. A 293-tensor
+        breakdown is unreadable, while the split that matters is which half of
+        the autoencoder is receiving gradient.
+        """
+        norms: dict[str, torch.Tensor] = {}
+        squares: dict[str, torch.Tensor] = {}
+        for name, parameter in self.named_parameters():
+            if parameter.grad is None:
+                continue
+            # `task.model.semantic_encoder.weight` -> `semantic_encoder`.
+            parts = name.split(".")
+            group = parts[2] if name.startswith("task.model.") and len(parts) > 3 else "other"
+            squares[group] = squares.get(group, 0.0) + parameter.grad.detach().pow(2).sum()
+
+        if not squares:
+            return
+        for group, total in squares.items():
+            norms[f"grad_norm/{group}"] = total.sqrt()
+        norms["grad_norm/total"] = torch.stack(list(squares.values())).sum().sqrt()
+
+        clip = getattr(self.trainer, "gradient_clip_val", None)
+        if clip:
+            # 1 when this step was clipped, 0 when it was not; its running mean
+            # is the fraction of steps hitting the ceiling.
+            norms["grad_norm/clipped"] = (norms["grad_norm/total"] > clip).float()
+        # Step-level scalars: no epoch aggregation, so no batch size to weight by.
+        self.log_dict(norms, on_step=True, on_epoch=False)
+
     def validation_step(self, batch, batch_index: int) -> torch.Tensor:
         losses = self.task.compute_losses(batch)
         for name, value in losses.items():

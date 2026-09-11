@@ -47,6 +47,24 @@ class LossTerm(ABC):
         """
         return None
 
+    def per_sample_blocks(
+        self,
+        x0_hat: torch.Tensor,
+        x0: torch.Tensor,
+        batch: MotionBatch,
+        aux: dict[str, Any],
+    ) -> dict[str, torch.Tensor] | None:
+        """``{block: (B,)}``, or None when the term is not separable by block.
+
+        A term measured over the WHOLE feature vector reports one number for
+        quantities that are not comparable: a position error in metres and a
+        rotation error in 6D units land in the same mean, so which of them the
+        model is actually struggling with is unrecoverable from it. Terms whose
+        error decomposes per block implement this; the task then reports each
+        block separately, and crossed with noise quartile.
+        """
+        return None
+
     def validate(self, spec: FeatureSpec) -> None:
         """Raise unless every needed block exists in this representation."""
         for block in self.needs:
