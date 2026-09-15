@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from poseydon.core.batch import Cond
@@ -88,6 +89,44 @@ def test_a_default_model_has_no_null_parameters(tiny_model):
     load of an existing checkpoint breaks the moment this feature merges."""
     state = tiny_model().state_dict()
     assert not any("null_token" in key or "null_latent" in key for key in state)
+
+
+def test_encode_masks_without_parents_when_only_frames_and_joints_are_on(
+    tiny_model, tiny_batch
+):
+    """Several callers build a topology payload carrying only `hops` and
+    `relations` -- no `parents`. Frame and joint masking need nothing but
+    shapes, so they must still take effect against such a payload rather than
+    `encode` raising `KeyError` or silently masking nothing."""
+    _, _, cond, masks = tiny_batch
+    topology = cond["topology"]
+    sparse_cond = Cond(
+        {**cond.payloads, "topology": {k: v for k, v in topology.items() if k != "parents"}}
+    )
+
+    model = tiny_model(masking={"frames": 1.0, "joints": 1.0}).train()
+    baseline = tiny_model()
+    baseline.load_state_dict(model.state_dict(), strict=False)
+
+    torch.manual_seed(0)
+    masked = _latent(model, sparse_cond, masks)
+    unmasked = _latent(baseline.eval(), sparse_cond, masks)
+    assert not torch.allclose(masked, unmasked)
+
+
+def test_chain_masking_without_parents_raises(tiny_model, tiny_batch):
+    """Unlike frame/joint masking, chain masking needs the skeleton. A
+    topology payload with no `parents` must fail loudly here, not silently
+    train with chain masking disabled."""
+    _, _, cond, masks = tiny_batch
+    topology = cond["topology"]
+    sparse_cond = Cond(
+        {**cond.payloads, "topology": {k: v for k, v in topology.items() if k != "parents"}}
+    )
+
+    model = tiny_model(masking={"chains": 1.0}).train()
+    with pytest.raises(ValueError, match="parents"):
+        _latent(model, sparse_cond, masks)
 
 
 def test_cond_drop_makes_the_output_independent_of_the_clean_motion(

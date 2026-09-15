@@ -240,11 +240,11 @@ class SemanticEncoder(nn.Module):
         self, x, tpose, names, crop_start, hops, edges, joint_valid, temporal_valid,
         masking=None, parents=None,
     ):
-        mask = (
-            masking.mask(joint_valid, parents, x.shape[3])
-            if masking is not None and parents is not None
-            else None
-        )
+        # `parents` alone does not gate this: frame and joint masking need
+        # nothing but shapes, and a topology without `parents` must not
+        # silently disable them too -- `MotionMasker.mask` is the one that
+        # decides whether a missing `parents` is fine or fatal.
+        mask = masking.mask(joint_valid, parents, x.shape[3]) if masking is not None else None
         tokens = self.input_process(x, tpose, names, crop_start, masking, mask)
         tokens, joint_valid, hops, edges = self.add_virtual_joints(
             tokens, joint_valid, hops, edges
@@ -390,6 +390,12 @@ class MoDiffAE(Denoiser):
             pair = apply_temporal_override(
                 override, self._frame_valid(masks, batch, frames, clean.device)
             )
+        # `parents` is not part of every topology payload (several callers
+        # carry only `hops`/`relations`), and only chain masking needs it --
+        # frame and joint masking work on shapes alone. `MotionMasker.mask`
+        # raises if chain masking is configured and `parents` is missing,
+        # rather than silently masking nothing.
+        parents = topology.get("parents")
         return self.semantic_encoder(
             clean,
             cond["tpose"].to(clean.device),
@@ -400,7 +406,7 @@ class MoDiffAE(Denoiser):
             joint_valid,
             pair,
             masking=self.motion_masking,
-            parents=topology["parents"].to(clean.device),
+            parents=parents.to(clean.device) if parents is not None else None,
         )
 
     def forward(self, z_t, t, cond: Cond, masks: Masks | None = None) -> Prediction:

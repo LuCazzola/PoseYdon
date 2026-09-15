@@ -123,16 +123,29 @@ class MotionMasker(nn.Module):
         return max(self.frames, self.joints, self.chains) > 0.0
 
     def mask(
-        self, joint_valid: torch.Tensor, parents: torch.Tensor, n_frames: int
+        self, joint_valid: torch.Tensor, parents: torch.Tensor | None, n_frames: int
     ) -> torch.Tensor | None:
         """``(T, B, J)`` bool: which motion tokens the null token replaces.
 
         ``None`` rather than an all-false mask when nothing is configured or
         the module is not training, so an unconfigured masker costs nothing and
         sampling is untouched.
+
+        ``parents`` is optional because frame and joint masking need nothing
+        but shapes; only chain masking needs the skeleton to find a chain to
+        hide. A caller that configures ``chains`` but hands in a topology
+        payload with no ``parents`` gets a loud error here, not a quietly
+        unmasked run -- the alternative is a training run nobody notices
+        never actually masked a chain.
         """
         if not self.enabled or not self.training:
             return None
+        if self.chains > 0.0 and parents is None:
+            raise ValueError(
+                "chain masking (masking.chains > 0) needs "
+                "cond['topology']['parents'], but this topology payload does "
+                "not carry it"
+            )
 
         batch, n_joints = joint_valid.shape
         device = joint_valid.device
