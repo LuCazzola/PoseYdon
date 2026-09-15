@@ -26,6 +26,16 @@ class Operation(ABC):
     def build_controls(self, cond: Cond) -> Sequence[Control]:
         """The controls that express this operation."""
 
+    def wrap_model(self, model: Denoiser) -> Denoiser:
+        """The denoiser this operation actually samples with.
+
+        Identity for everything that samples the model as-is. Guidance needs
+        two forward passes per step, which a `Control` cannot do -- it is given
+        the state and the conditioning, never the model -- so it wraps here
+        instead.
+        """
+        return model
+
     def run(
         self,
         model: Denoiser,
@@ -38,7 +48,7 @@ class Operation(ABC):
         masks: Masks | None = None,
     ) -> torch.Tensor:
         return sampler.sample(
-            model=model,
+            model=self.wrap_model(model),
             process=process,
             shape=shape,
             cond=cond,
