@@ -116,32 +116,90 @@ class TemporalAttention(nn.Module):
 
 
 class ConditionAttention(nn.Module):
-    """Gated semantic conditioning.
+    """Gated semantic conditioning, optionally multi-head.
 
     Rather than cross-attending over a single latent -- where attention weights
     necessarily collapse to 1.0 and carry no information -- the latent is mapped
     to a value and gated by a projection of ``[joint, latent]``. The gate is what
     varies per joint.
+
+    ``n_heads`` above 1 runs that transform several times over, each head with
+    its own projector and value map, and reduces the results by ``mean`` or
+    ``sum``. The heads are independent full-width transforms of one latent, not
+    channel subspaces: slice-width heads could only be concatenated, and the
+    gate here is already elementwise per channel, so subspaces would restrict
+    what each gate sees rather than add capacity.
+
+    ``mean`` is the default because ``sum`` scales the residual branch by
+    ``n_heads`` at initialization.
+
+    At ``n_heads=1`` this builds exactly the modules it always has, under the
+    same names, so the reference's published checkpoints still load.
     """
 
-    def __init__(self, d_model: int, dropout: float = 0.1) -> None:
+    AGGREGATIONS = ("mean", "sum")
+
+    def __init__(
+        self,
+        d_model: int,
+        dropout: float = 0.1,
+        n_heads: int = 1,
+        aggregate: str = "mean",
+    ) -> None:
         super().__init__()
-        self.query_projector = nn.Sequential(
+        if n_heads < 1:
+            raise ValueError(f"semantic modulation needs at least one head, got {n_heads}")
+        if aggregate not in self.AGGREGATIONS:
+            raise ValueError(
+                f"aggregate must be one of {self.AGGREGATIONS}, got {aggregate!r}"
+            )
+        self.n_heads = n_heads
+        self.aggregate = aggregate
+        self.gate_gen = nn.Sigmoid()
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+        if n_heads == 1:
+            self.query_projector = self._projector(d_model)
+            self.value_map = nn.Linear(d_model, d_model)
+        else:
+            self.heads = nn.ModuleList(
+                nn.ModuleDict(
+                    {
+                        "query_projector": self._projector(d_model),
+                        "value_map": nn.Linear(d_model, d_model),
+                    }
+                )
+                for _ in range(n_heads)
+            )
+
+    @staticmethod
+    def _projector(d_model: int) -> nn.Module:
+        return nn.Sequential(
             nn.Linear(d_model * 2, d_model),
             nn.LayerNorm(d_model),
             nn.GELU(),
             nn.Linear(d_model, d_model),
         )
-        self.gate_gen = nn.Sigmoid()
-        self.value_map = nn.Linear(d_model, d_model)
-        self.out_proj = nn.Linear(d_model, d_model)
-        self.dropout = nn.Dropout(dropout)
+
+    def _head(self, index: int) -> tuple[nn.Module, nn.Module]:
+        if self.n_heads == 1:
+            return self.query_projector, self.value_map
+        return self.heads[index]["query_projector"], self.heads[index]["value_map"]
 
     def forward(self, x: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
         joints = x.shape[2]
         expanded = memory.expand(-1, -1, joints, -1)
-        gate = self.gate_gen(self.query_projector(torch.cat([x, expanded], dim=-1)))
-        return self.dropout(self.out_proj(self.value_map(expanded) * gate))
+        combined = torch.cat([x, expanded], dim=-1)
+
+        total = None
+        for index in range(self.n_heads):
+            projector, value_map = self._head(index)
+            gated = value_map(expanded) * self.gate_gen(projector(combined))
+            total = gated if total is None else total + gated
+        if self.aggregate == "mean" and self.n_heads > 1:
+            total = total / self.n_heads
+        return self.dropout(self.out_proj(total))
 
 
 class GraphMotionDecoderLayer(nn.Module):
@@ -162,6 +220,8 @@ class GraphMotionDecoderLayer(nn.Module):
         timestep: bool = True,
         cross: bool = True,
         virtual: bool = False,
+        n_modulation_heads: int = 1,
+        modulation_aggregate: str = "mean",
     ) -> None:
         super().__init__()
         self.d_model = d_model
@@ -170,7 +230,11 @@ class GraphMotionDecoderLayer(nn.Module):
         self.temporal_attn = TemporalAttention(d_model, num_heads, dropout)
         self.temporal_norm = nn.LayerNorm(d_model)
 
-        self.cross_attn = ConditionAttention(d_model, dropout) if cross else None
+        self.cross_attn = (
+            ConditionAttention(d_model, dropout, n_modulation_heads, modulation_aggregate)
+            if cross
+            else None
+        )
         self.cross_norm = nn.LayerNorm(d_model) if cross else None
 
         self.ffn = nn.Sequential(

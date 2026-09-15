@@ -278,6 +278,8 @@ class StochasticDecoder(nn.Module):
         dropout: float = 0.1,
         max_path_len: int = DEFAULT_MAX_PATH,
         text_dim: int = 768,
+        n_modulation_heads: int = 1,
+        modulation_aggregate: str = "mean",
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
@@ -292,6 +294,8 @@ class StochasticDecoder(nn.Module):
                 timestep=True,
                 cross=True,
                 virtual=False,
+                n_modulation_heads=n_modulation_heads,
+                modulation_aggregate=modulation_aggregate,
             ),
             num_layers,
         )
@@ -328,6 +332,8 @@ class MoDiffAE(Denoiser):
         temporal_window: int = 31,
         masking: dict | None = None,
         cond_drop: float = 0.0,
+        n_modulation_heads: int = 1,
+        modulation_aggregate: str = "mean",
     ) -> None:
         super().__init__()
         self.feature_dim = feature_dim
@@ -345,7 +351,7 @@ class MoDiffAE(Denoiser):
         )
         self.stochastic_decoder = StochasticDecoder(
             feature_dim, d_model, n_layers_stochastic, n_heads, ff_size, dropout,
-            max_path, text_dim,
+            max_path, text_dim, n_modulation_heads, modulation_aggregate,
         )
         self.output_process = OutputProcess(feature_dim, d_model)
 
