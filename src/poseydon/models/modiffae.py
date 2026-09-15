@@ -44,6 +44,7 @@ from poseydon.models.modules.graph_backbone import (
     GraphMotionDecoderLayer,
     build_attention_masks,
 )
+from poseydon.models.modules.masking import MotionMasker
 
 #: Conditioning key holding a precomputed semantic latent. When present the
 #: encoder is skipped -- how blending, transfer and latent caching all work.
@@ -73,14 +74,24 @@ class InputProcess(nn.Module):
         self.text_embedding = nn.Linear(text_dim, d_model)
         self.joints_names_dropout = nn.Dropout(p=0.1)
 
-    def forward(self, x, tpose, name_embeddings, crop_start) -> torch.Tensor:
-        """``x`` is ``(B, J, D, T)``; returns ``(T + 1, B, J, C)``."""
+    def forward(self, x, tpose, name_embeddings, crop_start, masking=None, mask=None) -> torch.Tensor:
+        """``x`` is ``(B, J, D, T)``; returns ``(T + 1, B, J, C)``.
+
+        ``masking`` and ``mask`` travel together: the encoder draws the mask,
+        because it is the one holding ``joint_valid`` and the topology, and this
+        substitutes the null token for the masked MOTION embeddings. Names and
+        frame positions are added afterwards on purpose -- the encoder should
+        read "joint 7 at frame 12 is hidden", not find a hole where a token
+        should be. The decoder passes neither argument.
+        """
         x = x.permute(3, 0, 1, 2)  # (T, B, J, D)
         tpose = tpose.unsqueeze(0)  # (1, B, J, D)
 
         motion = torch.cat(
             [self.root_embedding(x[:, :, 0:1]), self.joint_embedding(x[:, :, 1:])], dim=2
         )
+        if masking is not None:
+            motion = masking.apply(motion, mask)
         rest = torch.cat(
             [
                 self.tpos_root_embedding(tpose[:, :, 0:1]),
@@ -225,8 +236,16 @@ class SemanticEncoder(nn.Module):
         new_edges[:, diagonal, diagonal] = 0
         return x, joint_valid, new_hops, new_edges
 
-    def forward(self, x, tpose, names, crop_start, hops, edges, joint_valid, temporal_valid):
-        tokens = self.input_process(x, tpose, names, crop_start)
+    def forward(
+        self, x, tpose, names, crop_start, hops, edges, joint_valid, temporal_valid,
+        masking=None, parents=None,
+    ):
+        mask = (
+            masking.mask(joint_valid, parents, x.shape[3])
+            if masking is not None and parents is not None
+            else None
+        )
+        tokens = self.input_process(x, tpose, names, crop_start, masking, mask)
         tokens, joint_valid, hops, edges = self.add_virtual_joints(
             tokens, joint_valid, hops, edges
         )
@@ -307,11 +326,17 @@ class MoDiffAE(Denoiser):
         text_dim: int = 768,
         kl_bottleneck: bool = False,
         temporal_window: int = 31,
+        masking: dict | None = None,
     ) -> None:
         super().__init__()
         self.feature_dim = feature_dim
         self.d_model = d_model
         self.temporal_window = temporal_window
+        # A plain dict of rates rather than a `_target_` block: Hydra's
+        # recursive instantiate would build this before `MoDiffAE` and without
+        # a `d_model` to size the null token, forcing the width to be
+        # duplicated in the config.
+        self.motion_masking = MotionMasker(d_model, **(masking or {}))
         self.semantic_encoder = SemanticEncoder(
             feature_dim, d_model, n_layers_semantic, n_heads, ff_size, dropout,
             max_path, n_virtual_joints, projection_head_depth, text_dim, kl_bottleneck,
@@ -366,6 +391,8 @@ class MoDiffAE(Denoiser):
             topology["relations"].to(clean.device),
             joint_valid,
             pair,
+            masking=self.motion_masking,
+            parents=topology["parents"].to(clean.device),
         )
 
     def forward(self, z_t, t, cond: Cond, masks: Masks | None = None) -> Prediction:
