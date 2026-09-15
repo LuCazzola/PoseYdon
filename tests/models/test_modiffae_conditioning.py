@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import torch
 
-from poseydon.models.base import CLEAN_MOTION
+from poseydon.core.batch import Cond
+from poseydon.models.base import CLEAN_MOTION, COND_DROP
+from poseydon.models.modiffae import Z_SEM
 
 
 def _latent(model, cond, masks):
@@ -86,3 +88,45 @@ def test_a_default_model_has_no_null_parameters(tiny_model):
     load of an existing checkpoint breaks the moment this feature merges."""
     state = tiny_model().state_dict()
     assert not any("null_token" in key or "null_latent" in key for key in state)
+
+
+def test_cond_drop_makes_the_output_independent_of_the_clean_motion(
+    tiny_model, tiny_batch
+):
+    z_t, t, cond, masks = tiny_batch
+    model = tiny_model(cond_drop=1.0).train()
+
+    other = Cond({**cond.payloads, CLEAN_MOTION: torch.randn_like(cond[CLEAN_MOTION])})
+    first = model(z_t, t, cond, masks).out
+    second = model(z_t, t, other, masks).out
+    assert torch.allclose(first, second, atol=1e-6)
+
+
+def test_cond_drop_off_keeps_the_output_dependent_on_it(tiny_model, tiny_batch):
+    z_t, t, cond, masks = tiny_batch
+    model = tiny_model().eval()
+
+    other = Cond({**cond.payloads, CLEAN_MOTION: torch.randn_like(cond[CLEAN_MOTION])})
+    assert not torch.allclose(
+        model(z_t, t, cond, masks).out, model(z_t, t, other, masks).out
+    )
+
+
+def test_the_drop_key_beats_a_supplied_latent(tiny_model, tiny_batch):
+    """`Retarget` pins a latent through `cond[Z_SEM]`. A guided retarget's
+    unconditional branch has to override that pin, or both branches are the
+    same and guidance is silently zero."""
+    z_t, t, cond, masks = tiny_batch
+    model = tiny_model(cond_drop=0.5).eval()
+
+    pinned = torch.randn(z_t.shape[3] + 1, 1, 1, model.d_model)
+    conditional = Cond({**cond.payloads, Z_SEM: pinned})
+    dropped = Cond({**cond.payloads, Z_SEM: pinned, COND_DROP: True})
+
+    assert torch.allclose(model(z_t, t, conditional, masks).aux[Z_SEM], pinned)
+    assert torch.equal(
+        model(z_t, t, dropped, masks).aux[Z_SEM][0, 0, 0], model.cond_masking.null_latent
+    )
+    assert not torch.allclose(
+        model(z_t, t, conditional, masks).out, model(z_t, t, dropped, masks).out
+    )

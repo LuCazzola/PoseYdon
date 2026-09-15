@@ -44,7 +44,7 @@ from poseydon.models.modules.graph_backbone import (
     GraphMotionDecoderLayer,
     build_attention_masks,
 )
-from poseydon.models.modules.masking import MotionMasker
+from poseydon.models.modules.masking import ConditionMasker, MotionMasker
 
 #: Conditioning key holding a precomputed semantic latent. When present the
 #: encoder is skipped -- how blending, transfer and latent caching all work.
@@ -327,6 +327,7 @@ class MoDiffAE(Denoiser):
         kl_bottleneck: bool = False,
         temporal_window: int = 31,
         masking: dict | None = None,
+        cond_drop: float = 0.0,
     ) -> None:
         super().__init__()
         self.feature_dim = feature_dim
@@ -337,6 +338,7 @@ class MoDiffAE(Denoiser):
         # a `d_model` to size the null token, forcing the width to be
         # duplicated in the config.
         self.motion_masking = MotionMasker(d_model, **(masking or {}))
+        self.cond_masking = ConditionMasker(d_model, cond_drop)
         self.semantic_encoder = SemanticEncoder(
             feature_dim, d_model, n_layers_semantic, n_heads, ff_size, dropout,
             max_path, n_virtual_joints, projection_head_depth, text_dim, kl_bottleneck,
@@ -409,6 +411,9 @@ class MoDiffAE(Denoiser):
             z_sem, aux = supplied.to(device), {}
         else:
             z_sem, aux = self.encode(cond[CLEAN_MOTION].to(device), cond, masks)
+        # AFTER the supplied latent is read, never before: `COND_DROP` is how
+        # an unconditional branch is asked for, and it has to beat a pin.
+        z_sem = self.cond_masking.drop(z_sem, cond)
 
         timestep = sinusoidal_embedding(t.to(device), self.d_model)
         hidden = self.stochastic_decoder(
