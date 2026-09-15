@@ -65,7 +65,7 @@ def test_eval_mode_never_masks(tiny_rig, tiny_valid):
 
 
 def test_the_null_token_lands_only_at_masked_slots():
-    masker = MotionMasker(d_model=4)
+    masker = MotionMasker(d_model=4, frames=1.0)
     motion = torch.randn(3, 1, 9, 4)
     mask = torch.zeros(3, 1, 9, dtype=torch.bool)
     mask[1, 0, 2] = True
@@ -118,9 +118,21 @@ def test_cond_drop_is_off_in_eval_unless_asked(tiny_valid):
 
 
 def test_cond_drop_honours_a_per_sample_selection():
-    masker = ConditionMasker(d_model=4).eval()
+    masker = ConditionMasker(d_model=4, cond_drop=0.5).eval()
     z_sem = torch.randn(3, 2, 1, 4)
     selection = torch.tensor([True, False])
     out = masker.drop(z_sem, Cond({COND_DROP: selection}))
     assert torch.equal(out[0, 0, 0], masker.null_latent)
     assert torch.equal(out[:, 1], z_sem[:, 1])
+
+
+def test_forcing_cond_drop_without_a_trained_null_latent_raises():
+    """`GuidedDenoiser` can force `COND_DROP` on any model at sampling time,
+    but a masker built with `cond_drop=0` never learned a null latent to
+    guide away from -- guidance against an untrained substitution would be
+    guidance against noise, so this must fail loudly rather than either
+    crash on a missing attribute or silently do nothing."""
+    masker = ConditionMasker(d_model=4)
+    z_sem = torch.randn(3, 2, 1, 4)
+    with pytest.raises(RuntimeError, match="cond_drop > 0"):
+        masker.drop(z_sem, Cond({COND_DROP: True}))

@@ -110,7 +110,13 @@ class MotionMasker(nn.Module):
         self.frames = float(frames)
         self.joints = float(joints)
         self.chains = float(chains)
-        self.null_token = nn.Parameter(torch.randn(d_model))
+        # Registered only when a rate is actually set, the same idiom
+        # `SemanticEncoder.v_joint_emb` and `kl_layer` already use: a
+        # default-config model must have no such key, or a strict load of an
+        # existing checkpoint (`cli._load_weights`, `strict=True`) fails on a
+        # parameter the checkpoint never had a reason to save.
+        if self.enabled:
+            self.null_token = nn.Parameter(torch.randn(d_model))
 
     @property
     def enabled(self) -> bool:
@@ -151,7 +157,13 @@ class MotionMasker(nn.Module):
         return mask & joint_valid[None]
 
     def apply(self, motion: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
-        """Substitute the null token into ``(T, B, J, C)`` motion embeddings."""
+        """Substitute the null token into ``(T, B, J, C)`` motion embeddings.
+
+        No guard on ``mask is None`` needing ``null_token`` to exist: `mask()`
+        can only return non-``None`` when `enabled` is true, and that is
+        exactly when `null_token` was registered. If that coupling is ever
+        broken this raises `AttributeError`, not a silent wrong answer.
+        """
         if mask is None:
             return motion
         return torch.where(mask[..., None], self.null_token.to(motion.dtype), motion)
@@ -170,7 +182,12 @@ class ConditionMasker(nn.Module):
         if not 0.0 <= cond_drop <= 1.0:
             raise ValueError(f"cond_drop must be in [0, 1], got {cond_drop}")
         self.cond_drop = float(cond_drop)
-        self.null_latent = nn.Parameter(torch.randn(d_model))
+        # Registered only when guidance is actually configured, matching
+        # `MotionMasker.null_token`: a default-config model must have no such
+        # key, or a strict load of an existing checkpoint fails on a
+        # parameter it never had a reason to save.
+        if self.cond_drop > 0.0:
+            self.null_latent = nn.Parameter(torch.randn(d_model))
 
     def drop(self, z_sem: torch.Tensor, cond: Cond) -> torch.Tensor:
         """``(T, B, 1, C)`` with dropped samples replaced by the null latent.
@@ -184,6 +201,18 @@ class ConditionMasker(nn.Module):
         batch = z_sem.shape[1]
         forced = cond.get(COND_DROP)
         if forced is not None:
+            if not hasattr(self, "null_latent"):
+                # `GuidedDenoiser` can force `COND_DROP` at sampling time on
+                # any model, whatever it was trained with. A model built with
+                # `cond_drop=0` never learned a null latent to guide away
+                # from, so there is nothing correct to substitute here --
+                # this has to fail loudly rather than crash on a missing
+                # attribute or silently return the conditioned latent.
+                raise RuntimeError(
+                    "classifier-free guidance requires a model trained with "
+                    "cond_drop > 0; this ConditionMasker has no null latent "
+                    "to guide away from"
+                )
             if torch.is_tensor(forced) and forced.ndim > 0:
                 drop = forced.to(z_sem.device).bool()
             else:

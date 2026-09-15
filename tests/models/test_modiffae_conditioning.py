@@ -67,7 +67,7 @@ def test_a_masked_slot_still_carries_its_position(tiny_model, tiny_batch):
     tell WHERE the hole is -- which is the whole reason to learn a token
     instead of dropping the slot."""
     _, _, cond, _ = tiny_batch
-    model = tiny_model()
+    model = tiny_model(masking={"frames": 1.0})
     masker = model.motion_masking
     clean = cond[CLEAN_MOTION]
 
@@ -78,3 +78,11 @@ def test_a_masked_slot_still_carries_its_position(tiny_model, tiny_batch):
     # Token 0 is the rest frame; 1 onwards are the fully-masked motion frames.
     assert not torch.allclose(tokens[1, 0, 0], tokens[2, 0, 0]), "positions differ"
     assert not torch.allclose(tokens[1, 0, 0], masker.null_token), "position was added"
+
+
+def test_a_default_model_has_no_null_parameters(tiny_model):
+    """A default-config model (`masking=None`, `cond_drop=0`) must match the
+    published checkpoints' key set exactly, or `cli._load_weights`'s strict
+    load of an existing checkpoint breaks the moment this feature merges."""
+    state = tiny_model().state_dict()
+    assert not any("null_token" in key or "null_latent" in key for key in state)
