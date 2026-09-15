@@ -37,6 +37,7 @@ RECORDED: tuple[str, ...] = (
     "model",
     "process",
     "data.window",
+    "data.blacklist",
     "dataset.reduce_tolerance",
     "dataset.normalize",
 )
@@ -48,9 +49,11 @@ RECORDED: tuple[str, ...] = (
 # the record only -- sampling legitimately configures no losses, a different
 # window length and a different reconstruction than training did.
 #
-# Adding a path here invalidates every recipe written before it: a key the
-# recorded side lacks compares `<absent>` against a real value and raises. A
-# new entry needs a missing-on-one-side escape, or a migration.
+# Adding a path here, or a key inside one of these blocks, does NOT invalidate
+# the recipes already written: `check_recipe` ignores a row the recorded side
+# lacks, because a recipe cannot disagree about a key that postdates it. The
+# cost is that an old checkpoint loaded under a new value of such a key fails
+# later, in `load_state_dict`, rather than here.
 CHECKED: tuple[str, ...] = (
     "features",
     "conditioners",
@@ -180,7 +183,13 @@ def check_recipe(active: DictConfig, recorded: DictConfig) -> None:
         was = _plain(OmegaConf.select(recorded, path, default=ABSENT))
         now = _plain(OmegaConf.select(active, path, default=ABSENT))
         if was != now:
-            rows.extend(_rows(path, was, now))
+            # A key the RECORDED side lacks is a key that postdates the recipe,
+            # and a recipe has nothing to say about a key that did not exist
+            # when it was written -- otherwise adding one config key rejects
+            # every checkpoint already on disk. Scoped to that side only: a key
+            # the ACTIVE config lacks is a config that has drifted from the one
+            # the checkpoint needs, and still raises.
+            rows.extend(row for row in _rows(path, was, now) if row[1] != ABSENT)
     if not rows:
         return
 
