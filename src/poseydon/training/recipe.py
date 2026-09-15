@@ -49,11 +49,18 @@ RECORDED: tuple[str, ...] = (
 # the record only -- sampling legitimately configures no losses, a different
 # window length and a different reconstruction than training did.
 #
-# Adding a path here, or a key inside one of these blocks, does NOT invalidate
-# the recipes already written: `check_recipe` ignores a row the recorded side
-# lacks, because a recipe cannot disagree about a key that postdates it. The
-# cost is that an old checkpoint loaded under a new value of such a key fails
-# later, in `load_state_dict`, rather than here.
+# Adding a path here does NOT invalidate the recipes already written:
+# `check_recipe` ignores a row the recorded side lacks, because a recipe
+# cannot disagree about a key that postdates it. That escape is only ONE
+# level deep, though -- `_rows` recurses a single level into a block, so a
+# leaf value (`model.n_heads`) is its own row but a key added INSIDE a
+# nested block (e.g. `model.masking.limbs`, one level under `model`) makes
+# the whole block compare as one dict-vs-dict row. An old recipe missing
+# that leaf still records the block as a real (smaller) dict, not ABSENT,
+# so the comparison is a genuine mismatch and `check_recipe` raises. The
+# cost of adding a path here is `load_state_dict` failing later instead of
+# here; the cost of adding a key inside an existing checked block is that
+# every recipe written before it now fails HERE, immediately.
 CHECKED: tuple[str, ...] = (
     "features",
     "conditioners",

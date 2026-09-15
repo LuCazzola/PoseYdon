@@ -38,6 +38,13 @@ class GuidedDenoiser(Denoiser):
         # asks for what the INNER model needs rather than for nothing.
         self.requires = inner.requires
         self.optional = inner.optional
+        # `nn.Module.__init__` defaults `training=True` regardless of the inner
+        # model's mode, and registering `inner` as a child does not change that
+        # -- so wrapping an `eval()` model would otherwise report
+        # `wrapper.training is True`. Matching it here keeps the wrapper honest
+        # for the `was_training = model.training` / restore-in-`finally` idiom
+        # (`training/validation.py`), which reads the wrapper's own flag.
+        self.train(inner.training)
 
     def __getattr__(self, name: str):
         """Anything this wrapper does not define comes from the inner model."""
@@ -67,6 +74,13 @@ class GuidedDenoiser(Denoiser):
             # makes `guidance_scale: 0.0`, the shipped default, free.
             return conditional
 
+        # ponytail: when no `z_sem` is pinned (i.e. `Generate`), this re-runs the
+        # inner model's full semantic encoder only to have `ConditionMasker.drop`
+        # discard the result for `null_latent`. Same waste as `masking.py`'s
+        # training-time twin (see its `ponytail:` comment there), except this
+        # one recurs every sampling step. Upgrade path: hoist the encode above
+        # the two branches and pass the latent through, encoding once. Not
+        # done now -- do not optimize this without a measured need.
         unconditional = self.inner(
             z_t, t, Cond({**cond.payloads, COND_DROP: True}), masks
         )

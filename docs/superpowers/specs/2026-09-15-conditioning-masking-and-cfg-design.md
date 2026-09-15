@@ -242,10 +242,18 @@ reimplement it. Extending `Control` with a model hook adds a method to an ABC
 that both samplers and every control must respect, for one user.
 
 `Operation` gains `wrap_model(model)`, identity by default, applied on one line
-in `Operation.run` where the model already arrives. `Generate.wrap_model`
-returns a `GuidedDenoiser` when `guidance_scale > 0`; `Retarget` inherits it.
+in `Operation.run` where the model already arrives. Every operation inherits
+this hook, but only `Generate.wrap_model` overrides it to return a
+`GuidedDenoiser` when `guidance_scale > 0`; `Retarget` inherits the identity
+default and exposes no `guidance_scale` of its own, so guided retargeting is
+not reachable today even though the hook it would need already exists.
+Wiring one up -- a scale on `Retarget`, threaded through `run_retarget` and
+its config -- is a known follow-up, not part of this change: it was never
+requested, and the `COND_DROP`-beats-`Z_SEM` precedence this design argues
+for above is exercised only by direct tests of `GuidedDenoiser` and
+`ConditionMasker.drop` until a caller reaches it through `Retarget`.
 `Control` and `Sampler` are untouched. `configs/sample.yaml`'s existing
-`guidance_scale: 0.0` becomes functional for the first time.
+`guidance_scale: 0.0` becomes functional for the first time, for `Generate`.
 
 ### Multi-head semantic modulation
 

@@ -156,7 +156,6 @@ class ConditionAttention(nn.Module):
         self.n_heads = n_heads
         self.aggregate = aggregate
         self.gate_gen = nn.Sigmoid()
-        self.out_proj = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
 
         if n_heads == 1:
@@ -172,6 +171,18 @@ class ConditionAttention(nn.Module):
                 )
                 for _ in range(n_heads)
             )
+        # ponytail: construction order is load-bearing, not cosmetic.
+        # `nn.Linear.reset_parameters` draws from the global RNG, so at a fixed
+        # seed the parameter VALUES depend on the order modules are built, not
+        # just on the module graph. This class must build `out_proj` LAST, after
+        # `query_projector`/`value_map`, to match the pre-branch draw order --
+        # otherwise a fresh default-config (`n_heads=1`) model is no longer
+        # bit-identical to the run this branch's gradient measurements were
+        # taken against, even though the state-dict keys and shapes are
+        # unchanged. `gate_gen` and `dropout` hold no parameters, so their
+        # position is free; `out_proj`'s is not. Do not reorder this again
+        # without re-running the pre-branch parameter-equality check.
+        self.out_proj = nn.Linear(d_model, d_model)
 
     @staticmethod
     def _projector(d_model: int) -> nn.Module:

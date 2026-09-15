@@ -88,3 +88,12 @@ def test_generate_wraps_only_when_guidance_is_asked_for():
 
 def test_generate_declares_no_controls():
     assert list(Generate(guidance_scale=2.5).build_controls(Cond({}))) == []
+
+
+def test_the_wrapper_starts_in_the_inner_model_s_training_mode():
+    """Wrapping an `eval()` model must not report `training=True`: the
+    `was_training = model.training` / restore-in-`finally` idiom in
+    `training/validation.py` reads the wrapper's own flag."""
+    inner = Branchy()
+    inner.eval()
+    assert GuidedDenoiser(inner, scale=1.0).training is False

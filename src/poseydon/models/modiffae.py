@@ -74,7 +74,9 @@ class InputProcess(nn.Module):
         self.text_embedding = nn.Linear(text_dim, d_model)
         self.joints_names_dropout = nn.Dropout(p=0.1)
 
-    def forward(self, x, tpose, name_embeddings, crop_start, masking=None, mask=None) -> torch.Tensor:
+    def forward(
+        self, x, tpose, name_embeddings, crop_start, masking=None, mask=None
+    ) -> torch.Tensor:
         """``x`` is ``(B, J, D, T)``; returns ``(T + 1, B, J, C)``.
 
         ``masking`` and ``mask`` travel together: the encoder draws the mask,

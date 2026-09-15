@@ -46,3 +46,17 @@ def test_a_whole_missing_path_is_not_checked_either():
     recorded.pop("process")
     active = _recipe({"_target_": "m"})
     check_recipe(active, recorded)
+
+
+def test_an_absent_key_and_a_real_conflict_in_one_block_names_only_the_conflict():
+    """`_rows` is row-scoped, not block-scoped: one checked block can carry both
+    a key that postdates the recipe (ignored) and a key that genuinely
+    disagrees (raised), and the escape must not swallow the real conflict.
+    """
+    recorded = _recipe({"_target_": "m", "d_model": 128, "cond_drop": 0.1})
+    active = _recipe(
+        {"_target_": "m", "d_model": 128, "cond_drop": 0.0, "dropout": 0.1}
+    )
+    with pytest.raises(ValueError, match="model.cond_drop") as excinfo:
+        check_recipe(active, recorded)
+    assert "model.dropout" not in str(excinfo.value)

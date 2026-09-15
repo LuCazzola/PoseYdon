@@ -27,6 +27,7 @@ temporal_window: 31
 # does. Adding `name_embedding_dim` here would raise `TypeError` at
 # instantiation, so the config hole this closes for AnyTop does not exist
 # for this model.
+
 # What the semantic encoder is NOT shown, so its latent has to describe the
 # motion rather than carry a copy of it. Each rate is the MAXIMUM of a
 # per-sample draw from U(0, rate) -- the idiom `DropEndEffector` uses -- so
