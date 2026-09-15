@@ -95,6 +95,16 @@ class LatentDenoiser(Denoiser, ABC):
 #: needs its own input. The task supplies it; no dataset conditioner produces it.
 CLEAN_MOTION = "clean_motion"
 
+#: Reserved conditioning key. Replaces a model's conditioning with its learned
+#: null embedding for the samples it selects -- a bool ``(B,)`` tensor, or a
+#: scalar for the whole batch. This is how the unconditional branch of
+#: classifier-free guidance is asked for, so it must take precedence over a
+#: conditioning payload the caller also supplied: `Retarget` pins a latent
+#: through ``z_sem``, and an unconditional branch that deferred to that pin
+#: would be identical to the conditional one and guide by nothing at all.
+#: A model that ignores this key makes guidance a silent no-op.
+COND_DROP = "cond_drop"
+
 #: Conditioning key holding an explicit ``(B, T+1, T+1)`` frame-attention mask.
 #: A model's ``temporal_window`` is the DEFAULT band; this key, when present,
 #: REPLACES THE BAND -- the caller declared their own temporal locality, and
