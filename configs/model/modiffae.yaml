@@ -27,3 +27,27 @@ temporal_window: 31
 # does. Adding `name_embedding_dim` here would raise `TypeError` at
 # instantiation, so the config hole this closes for AnyTop does not exist
 # for this model.
+# What the semantic encoder is NOT shown, so its latent has to describe the
+# motion rather than carry a copy of it. Each rate is the MAXIMUM of a
+# per-sample draw from U(0, rate) -- the idiom `DropEndEffector` uses -- so
+# some samples in every batch are still seen whole and an always-on mask opens
+# no gap against a sampling path that never masks. All three compose by OR.
+# Masked slots take a learned null token, not zeros, and keep their joint-name
+# and frame-position embeddings: the encoder is told WHERE the hole is.
+# Off by default; this is a training-time bottleneck with no measured value yet.
+masking:
+  frames: 0.0      # fraction of frames hidden across every joint
+  joints: 0.0      # fraction of individual (frame, joint) slots hidden
+  chains: 0.0      # probability ONE kinematic chain is hidden for the whole window
+# Probability the whole latent is replaced by its learned null, which is what
+# classifier-free guidance needs to have something to guide away from. Sampling
+# then asks for that branch with `operation.guidance_scale` -- which did
+# nothing at all before this existed, because the control that implemented it
+# set a conditioning key no model read.
+cond_drop: 0.0
+# Semantic modulation runs this many independent gated transforms of the
+# latent and reduces them by `mean` or `sum`. 1 is the module the reference
+# published and the only value its checkpoints load into; each extra head adds
+# 4 * d_model^2 (about 65k at d_model 128) to every decoder layer.
+n_modulation_heads: 1
+modulation_aggregate: mean
