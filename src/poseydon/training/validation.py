@@ -86,6 +86,7 @@ class RetargetValidation(L.Callback):
         every_n_steps: int = 25_000,
         run_at_start: bool = True,
         seed: int = 0,
+        guidance_scale: float = 0.0,
     ) -> None:
         if every_n_steps <= 0:
             raise ValueError(f"every_n_steps must be positive, got {every_n_steps}")
@@ -97,6 +98,12 @@ class RetargetValidation(L.Callback):
         self.every_n_steps = every_n_steps
         self.run_at_start = run_at_start
         self.seed = seed
+        # Sampled WITHOUT guidance by default, because a run that does not set
+        # `model.cond_drop` has no trained null latent to guide away from. A
+        # run that does set it wants this on: otherwise the observation of the
+        # task understates the checkpoint, measuring it under conditioning it
+        # was not trained to be sampled with.
+        self.guidance_scale = guidance_scale
 
     # -- Lightning hooks ---------------------------------------------------
 
@@ -171,6 +178,7 @@ class RetargetValidation(L.Callback):
             out_dir=out,
             device=device,
             generator=generator,
+            guidance_scale=self.guidance_scale,
         )
         metrics = retarget_metrics(
             result,

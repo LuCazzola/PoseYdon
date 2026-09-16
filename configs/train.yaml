@@ -74,6 +74,14 @@ optimizer:
 validation:
   every_n_steps: 25000
   run_at_start: true
+  # Classifier-free guidance strength for the OBSERVATION, not for training.
+  # Left unset it follows `model.cond_drop`: a run that trains a null latent is
+  # watched under guidance (2.5), and one that does not is watched unguided --
+  # because guiding against an untrained null embedding measures noise. Set it
+  # explicitly to pin either behaviour, or to 0 to compare against an unguided
+  # baseline. It costs a second forward pass per denoising step, three pairs
+  # every 25k steps, which is nothing next to the 100-step DDPM it wraps.
+  guidance_scale: null
   pairs:
     - {content: {rig: Flamingo, action: onelegbent}, target: Scorpion}
     - {content: {rig: Coyote,   action: attack3},    target: Crab}

@@ -26,14 +26,25 @@ class Operation(ABC):
     def build_controls(self, cond: Cond) -> Sequence[Control]:
         """The controls that express this operation."""
 
+    #: Classifier-free guidance strength. 0 samples the model as-is; above 0
+    #: wraps it so each step evaluates a conditional and an unconditional
+    #: branch and extrapolates between them. Declared here rather than on each
+    #: subclass so `wrap_model` has ONE implementation: `Generate` and
+    #: `Retarget` differ in what they condition on, not in how guidance works.
+    guidance_scale: float = 0.0
+
     def wrap_model(self, model: Denoiser) -> Denoiser:
         """The denoiser this operation actually samples with.
 
-        Identity for everything that samples the model as-is. Guidance needs
+        Identity at scale 0, which is every operation's default. Guidance needs
         two forward passes per step, which a `Control` cannot do -- it is given
         the state and the conditioning, never the model -- so it wraps here
         instead.
         """
+        if self.guidance_scale > 0.0:
+            from poseydon.sampling.guidance import GuidedDenoiser
+
+            return GuidedDenoiser(model, scale=self.guidance_scale)
         return model
 
     def run(

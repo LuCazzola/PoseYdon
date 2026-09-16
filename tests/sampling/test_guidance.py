@@ -97,3 +97,40 @@ def test_the_wrapper_starts_in_the_inner_model_s_training_mode():
     inner = Branchy()
     inner.eval()
     assert GuidedDenoiser(inner, scale=1.0).training is False
+
+
+def test_every_operation_inherits_the_guidance_hook():
+    """`wrap_model` lives on `Operation`, so an op that declares a scale is
+    guided without reimplementing the combination -- which is the whole reason
+    guidance is not inside any model's `forward`."""
+    from poseydon.ops.base import Operation
+
+    class Bare(Operation):
+        def build_controls(self, cond):
+            return []
+
+    inner = Branchy()
+    assert Operation.guidance_scale == 0.0
+    assert Bare().wrap_model(inner) is inner, "identity unless a scale is set"
+
+    scaled = Bare()
+    scaled.guidance_scale = 3.0
+    wrapped = scaled.wrap_model(inner)
+    assert isinstance(wrapped, GuidedDenoiser)
+    assert wrapped.scale == 3.0
+
+
+def test_retarget_is_guided_when_asked():
+    """The invariant the design argues hardest for -- `COND_DROP` beating a
+    pinned `Z_SEM` -- is only reachable through a guided retarget, so this is
+    what stops it living in tests alone."""
+    from poseydon.core.batch import Cond as _Cond
+    from poseydon.ops.retarget import Retarget
+
+    content, cond = torch.zeros(1, 2, 3, 4), _Cond({})
+    assert Retarget(content, cond).wrap_model(Branchy()) is not None
+    assert not isinstance(Retarget(content, cond).wrap_model(Branchy()), GuidedDenoiser)
+
+    guided = Retarget(content, cond, guidance_scale=2.0).wrap_model(Branchy())
+    assert isinstance(guided, GuidedDenoiser)
+    assert guided.scale == 2.0

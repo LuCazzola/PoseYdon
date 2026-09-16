@@ -24,9 +24,21 @@ class Retarget(Operation):
     only the frame count has to match.
     """
 
-    def __init__(self, content: torch.Tensor, content_cond: Cond) -> None:
+    def __init__(
+        self,
+        content: torch.Tensor,
+        content_cond: Cond,
+        guidance_scale: float = 0.0,
+    ) -> None:
         self.content = content
         self.content_cond = content_cond
+        # Guidance here pushes the sample away from "any motion on this rig"
+        # and towards "THIS content on this rig" -- the unconditional branch
+        # replaces the pinned latent with the model's learned null, which is
+        # what `cond_drop` trained it to expect. Needs a checkpoint trained
+        # with `model.cond_drop > 0`; on one that was not, the model raises
+        # rather than guiding against an untrained embedding.
+        self.guidance_scale = guidance_scale
         self._latent: torch.Tensor | None = None
 
     def build_controls(self, cond: Cond) -> Sequence[Control]:

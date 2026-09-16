@@ -288,6 +288,7 @@ def _retarget(args: argparse.Namespace) -> int:
             device=device,
             generator=torch.Generator(device=device).manual_seed(config.seed),
             reconstruct=method,
+            guidance_scale=args.guidance_scale,
         )
     except (LookupError, ValueError) as failure:
         print(failure, file=sys.stderr)
@@ -391,6 +392,13 @@ def main(argv: list[str] | None = None) -> int:
         "--content", required=True, help="the clip to take motion FROM, as `<rig>/<action>`"
     )
     retarget.add_argument("--target", required=True, help="the rig to decode onto")
+    retarget.add_argument(
+        "--guidance-scale",
+        type=float,
+        default=0.0,
+        help="classifier-free guidance strength; needs a checkpoint trained "
+        "with model.cond_drop > 0, and costs a second forward pass per step",
+    )
     retarget.add_argument("--out", default="retargets", help="directory for the three files")
     retarget.add_argument(
         "--device", default=None, help="cpu or cuda; defaults to cuda when one is visible"

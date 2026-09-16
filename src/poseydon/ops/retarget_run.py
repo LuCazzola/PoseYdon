@@ -156,6 +156,7 @@ def run_retarget(
     device: torch.device | str = "cpu",
     generator: torch.Generator | None = None,
     reconstruct: str | None = None,
+    guidance_scale: float = 0.0,
 ) -> RetargetResult:
     """Decode one clip's semantics onto another rig, and write the evidence.
 
@@ -193,7 +194,7 @@ def run_retarget(
         joints=target_batch.masks.joints[:1],
     ).to(device)
 
-    operation = Retarget(content_batch.x, content_batch.cond)
+    operation = Retarget(content_batch.x, content_batch.cond, guidance_scale)
     with torch.no_grad():
         out = operation.run(
             model=model,

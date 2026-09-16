@@ -226,7 +226,12 @@ def test_the_trainer_config_is_the_measured_run(config):
     # loss scaling.
     assert trainer.precision == "bf16-mixed"
     assert trainer.devices == 1
-    assert trainer.gradient_clip_val == 1.0
+    # OFF, as the reference has it: its clipping call is commented out and its
+    # mixed-precision trainer only LOGS the norm. `1.0` was never measured, and
+    # measuring it found a median norm of 5.29 over steps 125k-150k -- so the
+    # clip engaged on 100% of steps, renormalizing every gradient to unit length
+    # rather than catching spikes.
+    assert trainer.gradient_clip_val is None
 
 
 def test_the_data_config_is_the_measured_run(config):
@@ -467,3 +472,51 @@ def _quartile_batch():
         ),
         cond=Cond({}),
     )
+
+
+def _validation_config(cond_drop: float, scale=None):
+    """A minimal composed config for `build_validation`'s guidance default."""
+    from omegaconf import OmegaConf
+
+    block = {"pairs": [{"content": {"rig": "R", "action": "a"}, "target": "T"}]}
+    if scale is not None:
+        block["guidance_scale"] = scale
+    return OmegaConf.create(
+        {
+            "validation": block,
+            "model": {"cond_drop": cond_drop},
+            "process": {"_target_": "poseydon.process.gaussian.GaussianDiffusion"},
+            "seed": 0,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("cond_drop", "configured", "expected"),
+    [
+        # A run that trains a null latent is watched under guidance without
+        # having to say so twice; one that does not is watched unguided,
+        # because guiding against an untrained null embedding measures noise.
+        (0.1, None, 2.5),
+        (0.0, None, 0.0),
+        # An explicit value wins either way, including an explicit 0 -- which
+        # is how an unguided baseline is compared against a guided run.
+        (0.1, 0.0, 0.0),
+        (0.0, 4.0, 4.0),
+    ],
+)
+def test_validation_guidance_follows_cond_drop_unless_configured(
+    tmp_path, cond_drop, configured, expected, monkeypatch
+):
+    captured = {}
+
+    class Spy:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("poseydon.training.validation.RetargetValidation", Spy)
+    monkeypatch.setattr(build, "build_process", lambda config: object())
+    build.build_validation(
+        _validation_config(cond_drop, configured), tmp_path, dataset=object()
+    )
+    assert captured["guidance_scale"] == expected

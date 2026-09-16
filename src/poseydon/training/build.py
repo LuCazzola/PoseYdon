@@ -131,6 +131,14 @@ def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | Non
         every_n_steps=int(block.get("every_n_steps", 25_000)),
         run_at_start=bool(block.get("run_at_start", True)),
         seed=int(config.get("seed", 0)),
+        # Defaults to the model's own cond drop, so a run that trains for
+        # guidance is OBSERVED under guidance without having to say so twice.
+        # `validation.guidance_scale` overrides it; 0 measures unguided.
+        guidance_scale=float(
+            _scale
+            if (_scale := block.get("guidance_scale")) is not None
+            else (2.5 if float(OmegaConf.select(config, "model.cond_drop") or 0.0) > 0 else 0.0)
+        ),
     )
 
 
