@@ -79,7 +79,11 @@ validation:
   # own 25k checkpoint (trained at `model.cond_drop: 0.1`), a scale of 2.5 made
   # 9 of 10 retarget metrics worse -- bone-length drift 0.080 -> 0.093 and IK
   # residual 0.080 -> 0.096 on Scorpion, foot skate 0.066 -> 0.116 on Raptor.
-  # Only one number improved. The reading is that a retarget's conditional
+  # Only one number improved, and the harm is MONOTONE in the scale: at 1.25
+  # it is 3 better / 7 worse, at 2.5 it is 1 better / 9 worse. So this is not a
+  # mistuned scale, it is guidance not helping this task yet.
+  #
+  # The reading is that a retarget's conditional
   # branch is already maximally specified -- `LatentPin` pins an exact z_sem --
   # so extrapolating away from a weakly-modelled unconditional branch buys no
   # sharpening and costs manifold drift, which is precisely what those two
