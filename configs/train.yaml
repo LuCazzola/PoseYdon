@@ -75,13 +75,21 @@ validation:
   every_n_steps: 25000
   run_at_start: true
   # Classifier-free guidance strength for the OBSERVATION, not for training.
-  # Left unset it follows `model.cond_drop`: a run that trains a null latent is
-  # watched under guidance (2.5), and one that does not is watched unguided --
-  # because guiding against an untrained null embedding measures noise. Set it
-  # explicitly to pin either behaviour, or to 0 to compare against an unguided
-  # baseline. It costs a second forward pass per denoising step, three pairs
-  # every 25k steps, which is nothing next to the 100-step DDPM it wraps.
-  guidance_scale: null
+  # OFF, and off is a measurement rather than caution: against this project's
+  # own 25k checkpoint (trained at `model.cond_drop: 0.1`), a scale of 2.5 made
+  # 9 of 10 retarget metrics worse -- bone-length drift 0.080 -> 0.093 and IK
+  # residual 0.080 -> 0.096 on Scorpion, foot skate 0.066 -> 0.116 on Raptor.
+  # Only one number improved. The reading is that a retarget's conditional
+  # branch is already maximally specified -- `LatentPin` pins an exact z_sem --
+  # so extrapolating away from a weakly-modelled unconditional branch buys no
+  # sharpening and costs manifold drift, which is precisely what those two
+  # metrics measure.
+  #
+  # Turn it on to watch guidance rather than to improve the metric, and expect
+  # to re-measure late in training: the null latent at 25k has seen gradient
+  # from only ~10% of samples. A second forward pass per denoising step, three
+  # pairs every 25k steps, is nothing next to the 100-step DDPM it wraps.
+  guidance_scale: 0.0
   pairs:
     - {content: {rig: Flamingo, action: onelegbent}, target: Scorpion}
     - {content: {rig: Coyote,   action: attack3},    target: Crab}

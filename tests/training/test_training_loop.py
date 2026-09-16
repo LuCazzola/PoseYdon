@@ -494,18 +494,23 @@ def _validation_config(cond_drop: float, scale=None):
 @pytest.mark.parametrize(
     ("cond_drop", "configured", "expected"),
     [
-        # A run that trains a null latent is watched under guidance without
-        # having to say so twice; one that does not is watched unguided,
-        # because guiding against an untrained null embedding measures noise.
-        (0.1, None, 2.5),
+        # OFF unless asked for, and NOT inferred from `model.cond_drop`. An
+        # earlier version of this defaulted to 2.5 whenever a run trained a
+        # null latent, on the assumption that guidance sharpens what the
+        # observation measures. Measured against this project's own 25k
+        # checkpoint it did the opposite -- 9 of 10 retarget metrics worse --
+        # so the default that looked helpful would have degraded the metric it
+        # exists to sharpen. Guidance is now opt-in at a scale the user picks.
+        (0.1, None, 0.0),
         (0.0, None, 0.0),
-        # An explicit value wins either way, including an explicit 0 -- which
-        # is how an unguided baseline is compared against a guided run.
-        (0.1, 0.0, 0.0),
+        # An explicit value wins, including an explicit 0.0 -- which is falsy,
+        # and is how an unguided baseline is pinned against a guided run.
+        (0.1, 2.5, 2.5),
         (0.0, 4.0, 4.0),
+        (0.1, 0.0, 0.0),
     ],
 )
-def test_validation_guidance_follows_cond_drop_unless_configured(
+def test_validation_guidance_is_off_unless_configured(
     tmp_path, cond_drop, configured, expected, monkeypatch
 ):
     captured = {}

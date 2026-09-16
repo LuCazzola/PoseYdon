@@ -131,13 +131,15 @@ def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | Non
         every_n_steps=int(block.get("every_n_steps", 25_000)),
         run_at_start=bool(block.get("run_at_start", True)),
         seed=int(config.get("seed", 0)),
-        # Defaults to the model's own cond drop, so a run that trains for
-        # guidance is OBSERVED under guidance without having to say so twice.
-        # `validation.guidance_scale` overrides it; 0 measures unguided.
+        # OFF unless asked for, even on a run that trains a null latent.
+        # MEASURED on this project's own 25k checkpoint (cond_drop 0.1): a
+        # scale of 2.5 made 9 of 10 retarget metrics WORSE, not better. An
+        # earlier version of this line defaulted to 2.5 whenever
+        # `model.cond_drop > 0`, which would have degraded the observation it
+        # exists to sharpen. `is None`, not `or`: a configured 0.0 is falsy and
+        # must stay the explicit unguided baseline it was written to be.
         guidance_scale=float(
-            _scale
-            if (_scale := block.get("guidance_scale")) is not None
-            else (2.5 if float(OmegaConf.select(config, "model.cond_drop") or 0.0) > 0 else 0.0)
+            _scale if (_scale := block.get("guidance_scale")) is not None else 0.0
         ),
     )
 
