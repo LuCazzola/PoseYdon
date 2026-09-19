@@ -11,8 +11,11 @@ def _sha(path):
     return h.hexdigest()
 
 def _sample(rig, corpus, raw):
-    bvh=sorted(p for p in (raw/"bvh"/rig).glob("*.bvh") if not is_all_takes_bundle(p.stem,rig))
-    fbx=sorted(p for p in (raw/"fbx"/rig).glob("*.fbx") if not is_all_takes_bundle(p.stem,rig))
+    # The canonical raw tree is the only source of vendor representations.
+    # Legacy ``raw/bvh`` and ``raw/fbx`` mirrors are intentionally ignored.
+    source = raw / "source" / rig
+    bvh=sorted(p for p in source.glob("*.bvh") if not is_all_takes_bundle(p.stem,rig))
+    fbx=sorted(p for p in source.glob("*.fbx") if not is_all_takes_bundle(p.stem,rig))
     if not bvh: return None
     by_bvh={strip_skeleton_prefix(action_slug(p.stem),rig):p for p in bvh}
     by_fbx={strip_skeleton_prefix(action_slug(p.stem),rig):p for p in fbx}
