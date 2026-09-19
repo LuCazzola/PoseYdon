@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from poseydon.io.bvh import BVH
@@ -9,7 +11,7 @@ from tests.conftest import CORPUS, SAMPLE_RIGS
 
 
 def test_read_names_matches_full_read():
-    clips = sorted((CORPUS / "source" / SAMPLE_RIGS[0]).glob("*.bvh"))
+    clips = sorted((Path("data/_raw/truebones/source") / SAMPLE_RIGS[0]).glob("*.bvh"))
     if not clips:
         pytest.skip(f"no raw clips for {SAMPLE_RIGS[0]}")
     path = clips[0]

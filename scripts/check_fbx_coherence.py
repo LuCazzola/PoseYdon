@@ -104,7 +104,8 @@ def paired_clips(rig: str, root: Path = DEFAULT_ROOT) -> tuple[str, list[tuple[s
     stem, which is how the two corpora come to share basenames at all -- the
     raw stems themselves do not match (`__Attack.bvh` against `Goat-Attack.fbx`).
     """
-    for stage, directory in (("prepared", root / "clips" / rig), ("raw", root / "source" / rig)):
+    raw_root = Path("data/_raw/truebones") if Path("data/_raw/truebones").is_dir() else root
+    for stage, directory in (("prepared", root / "clips" / rig), ("raw", raw_root / "source" / rig)):
         if not directory.is_dir():
             continue
         bvhs = {_action_of(p, rig): p for p in sorted(directory.glob("*.bvh"))}
