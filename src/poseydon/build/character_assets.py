@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import logging
 from dataclasses import dataclass
@@ -151,6 +152,43 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
         "joint_decisions": joint_decisions,
         "skinning_decisions": list(existing.get("skinning_decisions", ())),
     })
+    def file_record(path):
+        if path is None or not Path(path).is_file():
+            return None
+        path = Path(path)
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return {"path": str(path), "bytes": path.stat().st_size, "sha256": digest.hexdigest()}
+
+    payload["pipeline_version"] = "character-aware-export/1"
+    payload["sources"] = {
+        "fbx": file_record(context.raw_fbx),
+    }
+    payload["outputs"] = {
+        "model_fbx": file_record(assets.model),
+        "presentation_fbx": file_record(assets.presentation),
+    }
+    if context.model_rest is not None:
+        skeleton = {
+            "names": list(context.model_rest.names),
+            "parents": context.model_rest.parents.tolist(),
+            "offsets": context.model_rest.offsets.tolist(),
+        }
+        payload["model_skeleton"] = skeleton
+        payload["presentation_skeleton"] = skeleton
+        payload["source_skeleton"] = skeleton
+    if context.model_rest is not None:
+        topology_payload = json.dumps({"names": list(context.model_rest.names), "parents": context.model_rest.parents.tolist(), "offsets": context.model_rest.offsets.tolist()}, sort_keys=True, separators=(",", ":")).encode()
+        model_topology_hash = hashlib.sha256(topology_payload).hexdigest()
+    else:
+        model_topology_hash = None
+    payload["topology_hashes"] = {
+        "model": model_topology_hash
+        if model_topology_hash is not None
+        else None,
+    }
     report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return report
 
@@ -179,6 +217,7 @@ def build_character_assets(context: CharacterAssetContext, output: Path) -> Char
         context.model_names,
         context.model_parents,
         skinning_plan=context.skinning_plan,
+        offsets=None if context.model_rest is None else context.model_rest.offsets,
     )
     offsets = context.model_rest.offsets if context.model_rest is not None else None
     model.validate_topology(context.model_names, context.model_parents, offsets)

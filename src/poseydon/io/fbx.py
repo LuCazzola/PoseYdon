@@ -604,7 +604,7 @@ class FBX:
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
         bpy.context.view_layer.update()
 
-    def prepare_model_topology(self, names, parents, skinning_plan=None) -> None:
+    def prepare_model_topology(self, names, parents, skinning_plan=None, offsets=None) -> None:
         """Reduce the imported rig to an exact model topology.
 
         Bones are removed only after their surviving children are explicitly
@@ -636,6 +636,27 @@ class FBX:
                 bones.remove(bone)
         for name, parent_index in zip(names, parents):
             bones[name].parent = None if parent_index < 0 else bones[names[parent_index]]
+        if offsets is not None:
+            # The reduced model is authoritative for the model asset's bind
+            # geometry. Position retained bone heads from its parent-relative
+            # offsets after pruning auxiliary FBX helpers; presentation keeps
+            # the source bind geometry untouched. Convert canonical PoseYdon
+            # Y-up positions back into the armature's local Blender frame.
+            from mathutils import Vector
+            from poseydon.io.fbx import TO_Y_UP
+            offsets = np.asarray(offsets, dtype=float)
+            if offsets.shape != (len(names), 3):
+                bpy.ops.object.mode_set(mode="OBJECT")
+                raise ValueError("model offsets do not match model topology")
+            world_positions = np.zeros_like(offsets)
+            for index, parent_index in enumerate(parents):
+                world_positions[index] = offsets[index]
+                if parent_index >= 0:
+                    world_positions[index] += world_positions[parent_index]
+            inverse_world = self.armature.matrix_world.inverted()
+            for index, name in enumerate(names):
+                world_blender = TO_Y_UP.transposed() @ Vector(tuple(world_positions[index]))
+                bones[name].head = inverse_world @ world_blender
         bpy.ops.object.mode_set(mode="OBJECT")
 
         # Transfer removed influences before deleting their groups.  The
