@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,8 @@ import numpy as np
 from poseydon.core.animation import Animation
 from poseydon.io.fbx import FBX, TO_Y_UP, _from_y_up, _quat_matrix, _similarity, _to_y_up, _rest_positions
 from mathutils import Matrix, Vector
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -90,11 +93,19 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
         },
     ]
     payload = {
+        "dataset": "truebones",
         "rig": context.rig,
+        "authority": {"skeleton": "bvh", "motion": "bvh", "surface": "fbx", "auxiliary_joints": "bake"},
         "source_fbx": None if context.raw_fbx is None else str(context.raw_fbx),
+        "source_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},
+        "model_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},
+        "presentation_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},
         "model": None if assets.model is None else str(assets.model),
         "presentation": None if assets.presentation is None else str(assets.presentation),
+        "outputs": {"model_fbx": None if assets.model is None else str(assets.model), "presentation_fbx": None if assets.presentation is None else str(assets.presentation)},
+        "availability": {"prepared_fbx": assets.model is not None, "presentation_fbx": assets.presentation is not None},
         "reason": assets.reason,
+        "warnings": [] if assets.reason is None else [assets.reason],
         "operations": operations,
     }
     report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -105,6 +116,7 @@ def build_character_assets(context: CharacterAssetContext, output: Path) -> Char
     """Build independent full-presentation and reduced model FBX assets."""
     if context.raw_fbx is None:
         absent = CharacterAssets(None, None, "source_surface_missing")
+        LOGGER.warning("%s: skipped FBX assets (%s)", context.rig, absent.reason)
         return CharacterAssets(None, None, absent.reason, _write_report(context, output, absent))
     raw = Path(context.raw_fbx)
     if not raw.is_file():
@@ -131,5 +143,6 @@ def build_character_assets(context: CharacterAssetContext, output: Path) -> Char
     _write_atomic(model, model_path)
 
     assets = CharacterAssets(model_path, presentation_path)
+    LOGGER.info("%s: wrote model=%s presentation=%s", context.rig, model_path, presentation_path)
     return CharacterAssets(assets.model, assets.presentation, None,
                            _write_report(context, output, assets))

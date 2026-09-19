@@ -314,11 +314,14 @@ def _export(args: argparse.Namespace) -> int:
     import numpy as np
     from poseydon.export import CharacterExporter
     from poseydon.io.bvh import BVH
-    from poseydon.io.fbx import FBX
     path = Path(args.input)
     anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else __import__("poseydon.core.animation", fromlist=["Animation"]).Animation.load(path)
     if args.bare_skeleton:
-        artifact = BVH.from_animation(anim) if args.format == "bvh" else FBX.from_animation(anim)
+        if args.format == "bvh":
+            artifact = BVH.from_animation(anim)
+        else:
+            from poseydon.io.fbx import FBX
+            artifact = FBX.from_animation(anim)
         if args.format == "bvh":
             artifact.write(args.out)
         else:
@@ -328,7 +331,7 @@ def _export(args: argparse.Namespace) -> int:
     exporter = CharacterExporter.load(args.corpus, args.raw, args.rig)
     method = getattr(exporter, f"{args.representation}_{args.format}")
     try:
-        artifact = method(anim)
+        artifact = method(anim, facing_from=args.facing_from) if args.format == "fbx" or args.representation == "original" else method(anim)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 2
