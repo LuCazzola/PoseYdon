@@ -47,6 +47,8 @@ snaps back to its keys on every frame change.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from pathlib import Path
 
@@ -231,7 +233,7 @@ class FBX:
         )
 
     @classmethod
-    def from_animation(cls, anim: Animation, name: str = "Armature") -> FBX:
+    def from_bare_animation(cls, anim: Animation, name: str = "Armature") -> FBX:
         """Build a keyed armature from an :class:`~poseydon.core.animation.Animation`.
 
         The counterpart to :meth:`poseydon.io.bvh.BVH.from_animation`, and what
@@ -371,6 +373,10 @@ class FBX:
         bpy.context.view_layer.update()
         return cls(obj, [])
 
+    @classmethod
+    def from_animation(cls, anim: Animation, name: str = "Armature") -> FBX:
+        return cls.from_bare_animation(anim, name=name)
+
     def apply_animation(self, anim: Animation, max_residual: float = 0.05) -> float:
         """Replace this scene's animation with ``anim``, keeping its mesh and skin.
 
@@ -492,6 +498,59 @@ class FBX:
 
         bpy.context.view_layer.update()
         return residual
+
+    def clear_animation(self) -> None:
+        if self.armature.animation_data:
+            self.armature.animation_data_clear()
+
+    def apply_scene_transform(self, transform: Matrix) -> None:
+        for obj in (self.armature, *self.meshes):
+            obj.matrix_world = transform @ obj.matrix_world
+        bpy.context.view_layer.update()
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in (self.armature, *self.meshes):
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = self.armature
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bpy.context.view_layer.update()
+
+    def prepare_model_topology(self, names, parents, skinning_plan=None) -> None:
+        keep = set(names)
+        if self.armature.mode != "EDIT":
+            bpy.context.view_layer.objects.active = self.armature
+            self.armature.select_set(True)
+            bpy.ops.object.mode_set(mode="EDIT")
+        for bone in list(self.armature.data.edit_bones):
+            if bone.name not in keep:
+                self.armature.data.edit_bones.remove(bone)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        for mesh in self.meshes:
+            for group in list(mesh.vertex_groups):
+                if group.name not in keep:
+                    mesh.vertex_groups.remove(group)
+
+    def validate_topology(self, names, parents, offsets=None) -> None:
+        actual_names = tuple(self.joint_names)
+        if actual_names != tuple(names):
+            raise ValueError(f"model topology names differ: expected {tuple(names)!r}, got {actual_names!r}")
+        actual_parents = tuple(self.joint_parents)
+        if actual_parents != tuple(parents):
+            raise ValueError(f"model topology parents differ: expected {tuple(parents)!r}, got {actual_parents!r}")
+        if offsets is not None and not np.allclose(self.joint_offsets, np.asarray(offsets), atol=1e-4):
+            raise ValueError("model topology offsets differ from the prepared skeleton")
+
+    def vertex_group_weight(self, name: str) -> float:
+        values = []
+        for mesh in self.meshes:
+            group = mesh.vertex_groups.get(name)
+            if group is None:
+                continue
+            for vertex in mesh.data.vertices:
+                try:
+                    values.append(group.weight(vertex.index))
+                except RuntimeError:
+                    pass
+        return max(values, default=0.0)
 
     # -------------------------------------------------------------- geometry
 
