@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.ingest.pipeline import available_rigs
