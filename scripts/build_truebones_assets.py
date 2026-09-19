@@ -40,7 +40,7 @@ for rigdir in sorted(out.iterdir()):
     try:
         assets=build_character_assets(context,rigdir); count += assets.model is not None
     except Exception as error:
-        for stale in (rigdir / "model_character.fbx", rigdir / "presentation.fbx"):
+        for stale in (rigdir / "char-model.fbx", rigdir / "char-full.fbx"):
             if stale.exists(): stale.unlink()
         context = locals().get("context")
         if context is not None: _write_report(context, rigdir, CharacterAssets(None, None, f"{type(error).__name__}: {error}"))

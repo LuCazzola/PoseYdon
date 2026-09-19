@@ -74,7 +74,7 @@ def _write_atomic(scene: FBX, path: Path) -> None:
 
 
 def _write_report(context: CharacterAssetContext, output: Path, assets: CharacterAssets) -> Path:
-    report = context.report_path or output / "preparation-report.json"
+    report = context.report_path or output / "report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
     existing = json.loads(report.read_text()) if report.is_file() else {}
     asset_operations = [
@@ -207,7 +207,7 @@ def build_character_assets(context: CharacterAssetContext, output: Path) -> Char
     canonical = _canonical_matrix(presentation, context)
     presentation.clear_animation()
     presentation.apply_scene_transform(canonical)
-    presentation_path = output / "presentation.fbx"
+    presentation_path = output / "char-full.fbx"
     _write_atomic(presentation, presentation_path)
 
     model = FBX.read(raw)
@@ -221,7 +221,7 @@ def build_character_assets(context: CharacterAssetContext, output: Path) -> Char
     )
     offsets = context.model_rest.offsets if context.model_rest is not None else None
     model.validate_topology(context.model_names, context.model_parents, offsets)
-    model_path = output / "model_character.fbx"
+    model_path = output / "char-model.fbx"
     _write_atomic(model, model_path)
 
     assets = CharacterAssets(model_path, presentation_path)

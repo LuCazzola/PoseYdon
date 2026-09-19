@@ -4,7 +4,7 @@
 
 **Goal:** Make the raw-corpus-to-prepared-motion transform invertible, so a clip can travel `source → prepare → reduce → expand → unprepare → source` and come back on the rig it started on.
 
-**Architecture:** A `PrepareStage` contract with `fit`/`apply`/`invert`, six concrete stages composed into a `PrepareChain`, and a separate `JointReduction` that removes degenerate joints at feature time and puts them back. Stage parameters are fitted once per rig (from the rest pose) or once per clip (the facing rotation) and persisted to `rigs/<Rig>/prepare.npz`, because the transform is otherwise unrecoverable. The Truebones scripts become callers of the chain rather than owners of the geometry.
+**Architecture:** A `PrepareStage` contract with `fit`/`apply`/`invert`, six concrete stages composed into a `PrepareChain`, and a separate `JointReduction` that removes degenerate joints at feature time and puts them back. Stage parameters are fitted once per rig (from the rest pose) or once per clip (the facing rotation) and persisted to `rigs/<Rig>/preproc.npz`, because the transform is otherwise unrecoverable. The Truebones scripts become callers of the chain rather than owners of the geometry.
 
 **Tech Stack:** Python 3.12, numpy, pytest, Hydra/OmegaConf (later phases), Docker (`docker compose run --rm test`).
 
@@ -35,7 +35,7 @@
 | `src/poseydon/core/skeleton.py` | modified: manifests move to `rigs/<Rig>/manifest.yaml`; `strip_joint_prefix` removed |
 | `src/poseydon/core/animation.py` | modified: `rest_geometry(anim)` extracted so `RestRelative.fit` need not read a file |
 | `src/poseydon/io/bvh.py` | modified: `from_animation(anim, channels=None)` so a source channel layout can be restored |
-| `scripts/process_dataset_truebones.py` | rewritten around `PrepareChain`; writes the new layout and `prepare.npz` |
+| `scripts/process_dataset_truebones.py` | rewritten around `PrepareChain`; writes the new layout and `preproc.npz` |
 | `scripts/process_dataset_truebones_fbx.py` | new layout; writes `mesh.npz` |
 | `tests/conftest.py` | corpus fixtures and skip markers |
 | `tests/build/test_prepare.py` | stage-level fit/apply/invert |
@@ -1617,7 +1617,7 @@ corpus, so a generated clip returns on the rig the user supplied."
 
 ### Task 7: Persisting the fitted transform
 
-`prepare.npz` is what makes the whole thing invertible tomorrow rather than only inside one process.
+`preproc.npz` is what makes the whole thing invertible tomorrow rather than only inside one process.
 
 **Files:**
 - Modify: `src/poseydon/build/prepare.py` — add `RigTransform`
@@ -1641,7 +1641,7 @@ def test_rig_transform_round_trips_through_a_file(tmp_path):
     _prepared, params = chain.apply(source, resolved=None, rig_params=rig)
 
     transform = RigTransform(rig_params=rig, clip_params={"walk": params})
-    path = tmp_path / "prepare.npz"
+    path = tmp_path / "preproc.npz"
     transform.save(path)
     loaded = RigTransform.load(path)
 
@@ -1655,9 +1655,9 @@ def test_rig_transform_round_trips_through_a_file(tmp_path):
 
 def test_rig_transform_reports_an_unknown_clip_clearly(tmp_path):
     transform = RigTransform(rig_params={}, clip_params={})
-    transform.save(tmp_path / "prepare.npz")
+    transform.save(tmp_path / "preproc.npz")
     with pytest.raises(KeyError, match="jump"):
-        RigTransform.load(tmp_path / "prepare.npz").params_for("jump")
+        RigTransform.load(tmp_path / "preproc.npz").params_for("jump")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1742,7 +1742,7 @@ Expected: PASS, 20 tests.
 
 ```bash
 git add src/poseydon/build/prepare.py tests/build
-git commit -m "feat(build): persist fitted transform parameters to prepare.npz"
+git commit -m "feat(build): persist fitted transform parameters to preproc.npz"
 ```
 
 ---
@@ -2011,7 +2011,7 @@ documented and read by nothing."
 
 **Interfaces:**
 - Consumes: `PrepareChain`, all six stages, `RigTransform`, `available_rigs`.
-- Produces: `data/truebones/clips/<Rig>/<action>.bvh` and `data/truebones/rigs/<Rig>/prepare.npz`.
+- Produces: `data/truebones/clips/<Rig>/<action>.bvh` and `data/truebones/rigs/<Rig>/preproc.npz`.
 
 - [ ] **Step 1: Rewrite `process_species`**
 
@@ -2090,7 +2090,7 @@ def process_species(
         n_written += 1
 
     RigTransform(rig_params=rig_params, clip_params=clip_params).save(
-        out_root / "rigs" / manifest.name / "prepare.npz"
+        out_root / "rigs" / manifest.name / "preproc.npz"
     )
     warnings.extend(_sanity_check(manifest, clips_dir, rest_path))
     return n_written, warnings
@@ -2150,7 +2150,7 @@ docker compose run --rm test python scripts/process_dataset_truebones.py \
     --rigs Goat Crab Flamingo
 ```
 
-Expected: `wrote N clips -> data/truebones/clips/<Rig>` for each, no warnings other than any pre-existing rest-pose fallbacks, and `data/truebones/rigs/Goat/prepare.npz` on disk.
+Expected: `wrote N clips -> data/truebones/clips/<Rig>` for each, no warnings other than any pre-existing rest-pose fallbacks, and `data/truebones/rigs/Goat/preproc.npz` on disk.
 
 - [ ] **Step 4: Verify the prepared output against the chain**
 
@@ -2161,7 +2161,7 @@ docker compose run --rm test python -c "
 import numpy as np
 from poseydon.build.prepare import RigTransform
 from poseydon.io.bvh import BVH
-t = RigTransform.load('data/truebones/rigs/Goat/prepare.npz')
+t = RigTransform.load('data/truebones/rigs/Goat/preproc.npz')
 print('clips recorded:', len(t.clip_params))
 a = BVH.read(sorted(__import__('glob').glob('data/truebones/clips/Goat/*.bvh'))[0]).to_animation()
 print('mean bone length', np.linalg.norm(a.offsets[1:], axis=-1).mean())
@@ -2178,7 +2178,7 @@ git add -A scripts data/truebones
 git commit -m "feat(preproc): stage 1 over PrepareChain, writing the new layout
 
 Adds centring, scaling and grounding -- previously in ingest/align.py and
-never run -- and records the fitted transform to rigs/<Rig>/prepare.npz so
+never run -- and records the fitted transform to rigs/<Rig>/preproc.npz so
 the corpus can be turned back into what it came from."
 ```
 
@@ -2331,9 +2331,9 @@ claim in a commit message."
 
 - `docker compose run --rm test pytest tests/ -v` passes with no failures.
 - `tests/build/test_roundtrip.py` passes on all four sample rigs.
-- `data/truebones/rigs/<Rig>/prepare.npz` exists for every processed rig and `RigTransform.load` returns parameters for every clip written beside it.
+- `data/truebones/rigs/<Rig>/preproc.npz` exists for every processed rig and `RigTransform.load` returns parameters for every clip written beside it.
 - `data/truebones/clips/<Rig>/` holds prepared BVH whose mean bone length is `0.20921428571428569`.
-- Phase 2 (`build_features.py`, the artefacts, names, the normalization policy) can begin: it consumes `clips/<Rig>/*.bvh`, `rigs/<Rig>/prepare.npz` and `rigs/<Rig>/mesh.npz`, all of which this phase produces.
+- Phase 2 (`build_features.py`, the artefacts, names, the normalization policy) can begin: it consumes `clips/<Rig>/*.bvh`, `rigs/<Rig>/preproc.npz` and `rigs/<Rig>/mesh.npz`, all of which this phase produces.
 
 ---
 
@@ -2353,7 +2353,7 @@ scoped rig or clip) plus `PrepareChain` is about a hundred lines and carries the
 whole phase. Nothing in it needed rework once written.
 
 **Invertibility holds on real data, end to end.** Loading a committed
-`prepare.npz` from disk, inverting a prepared clip and re-preparing it
+`preproc.npz` from disk, inverting a prepared clip and re-preparing it
 reproduces the prepared clip to 1.4–2.0e-6 — BVH's six-decimal write precision.
 
 **Joint reduction matches the reference exactly** (38/40/31/54/63) once the rule

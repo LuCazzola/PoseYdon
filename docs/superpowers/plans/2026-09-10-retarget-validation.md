@@ -380,7 +380,7 @@ git commit -m "feat(ops): run_retarget, shared by the CLI and the training callb
 | foot skate | horizontal displacement of a foot joint while its contact flag is set, on the SOLVED output |
 | bone-length drift | \|‖p_j − p_parent‖ − ‖offset_j‖\| on the RAW predicted positions, in bone-length units |
 | IK residual | ‖p_predicted − p_solved‖, mean and max, in bone-length units |
-| root trajectory error | generated root XZ velocity vs the content clip's, each rescaled by its own rig's `scale_factor` from `prepare.npz` |
+| root trajectory error | generated root XZ velocity vs the content clip's, each rescaled by its own rig's `scale_factor` from `preproc.npz` |
 | latent round-trip | distance between `encode(generated)` and the injected `z_sem` |
 
 The target rig's foot joints come from its manifest, remapped through the rig's reduction `JointEdit` by the same `augment/topology.py::_reindex_resolved` path augmentation already uses.

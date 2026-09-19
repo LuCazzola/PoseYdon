@@ -30,7 +30,7 @@ def build_bundle(contexts, output):
         metadata={"rig":rig,"action":context.get("action"),"unavailable":{}}
         for field in ("original_bvh","original_fbx","prepared_bvh","prepared_fbx","presentation_fbx","roundtrip_bvh","roundtrip_fbx","training_anim","training_features"):
             source=context.get(field)
-            names={"training_anim":"training.anim.npz","training_features":"training.features.npz","roundtrip_bvh":"roundtrip.bvh","roundtrip_fbx":"roundtrip.fbx","original_bvh":"original.bvh","original_fbx":"original.fbx","prepared_bvh":"prepared.bvh","prepared_fbx":"prepared.fbx","presentation_fbx":"presentation.fbx"}
+            names={"training_anim":"training.anim.npz","training_features":"training.features.npz","roundtrip_bvh":"roundtrip.bvh","roundtrip_fbx":"roundtrip.fbx","original_bvh":"original.bvh","original_fbx":"original.fbx","prepared_bvh":"prepared.bvh","prepared_fbx":"prepared.fbx","presentation_fbx":"char-full.fbx"}
             target=dest/names[field]
             if source and Path(source).is_file():
                 if Path(source).resolve() != target.resolve(): shutil.copy2(source,target)
@@ -53,7 +53,7 @@ def discover(corpus, raw, output):
         for field,filename in (("roundtrip_bvh","roundtrip.bvh"),("roundtrip_fbx","roundtrip.fbx"),("training_anim","training.anim.npz"),("training_features","training.features.npz")):
             candidate=old/filename
             if candidate.is_file(): context[field]=candidate
-        for field,filename in (("prepared_fbx","model_character.fbx"),("presentation_fbx","presentation.fbx")):
+        for field,filename in (("prepared_fbx","char-model.fbx"),("presentation_fbx","char-full.fbx")):
             candidate=Path(corpus)/"rigs"/rigdir.name/filename
             if candidate.is_file(): context[field]=candidate
         contexts.append(context)

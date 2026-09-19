@@ -21,7 +21,7 @@
 - FBX-only preparation extracts motion and skeleton through Blender and must not require a vendor BVH.
 - Strict prepared BVH and strict prepared FBX use exactly the model joint names, order, parents, rest offsets, and canonical frame.
 - Presentation FBX retains the declared full deformation rig; independently animated weighted joints are never silently folded.
-- Every topology, correspondence, transform, auxiliary-joint, and skinning decision has a stable operation ID in `preparation-report.json`.
+- Every topology, correspondence, transform, auxiliary-joint, and skinning decision has a stable operation ID in `report.json`.
 - Accepted lossy operations log at least `WARNING`; ambiguous or undeclared weighted-joint loss aborts that rig.
 - Do not add compatibility searches for `data/truebones/{source,bvh,fbx,mesh,reference}`.
 - Preserve unrelated pre-existing worktree changes and commit only task-scoped files.
@@ -436,7 +436,7 @@ Implement narrowly scoped methods for canonical whole-scene transforms, bone rem
 
 - [x] **Step 4: Implement the asset builder**
 
-Build `presentation.fbx` first from raw FBX with full declared deformers. Derive `model_character.fbx` from a fresh raw import using the validated skinning plan. Never derive the presentation rig from the reduced rig. Write temporary outputs and atomically rename only after all invariants and the report pass.
+Build `char-full.fbx` first from raw FBX with full declared deformers. Derive `char-model.fbx` from a fresh raw import using the validated skinning plan. Never derive the presentation rig from the reduced rig. Write temporary outputs and atomically rename only after all invariants and the report pass.
 
 - [x] **Step 5: Run Blender tests and inspect one real rig**
 
@@ -514,7 +514,7 @@ Expected initially: FAIL.
 
 - [x] **Step 5: Implement the three FBX modes**
 
-Prepared FBX drives `model_character.fbx`; presentation FBX drives canonical `presentation.fbx` including auxiliary rules; original FBX expands/inverts through the stage before `RestRelative` and drives the raw FBX. No mode calls the bare-armature constructor.
+Prepared FBX drives `char-model.fbx`; presentation FBX drives canonical `char-full.fbx` including auxiliary rules; original FBX expands/inverts through the stage before `RestRelative` and drives the raw FBX. No mode calls the bare-armature constructor.
 
 - [x] **Step 6: Replace script-local inverse logic**
 
@@ -550,7 +550,7 @@ git commit -m "feat: export character-aware motion representations"
 
 **Interfaces:**
 - Consumes: manifest policy, source loader, character asset builder, report types
-- Produces: per-rig prepared clips, `skeleton.npz`, optional FBXs, `preparation-report.json`, and index availability metadata
+- Produces: per-rig prepared clips, `skeleton.npz`, optional FBXs, `report.json`, and index availability metadata
 
 - [x] **Step 1: Write the three modality matrix tests**
 
@@ -559,10 +559,10 @@ git commit -m "feat: export character-aware motion representations"
     "case,expected",
     [
         ("bvh_only", {"clips": 1, "model_fbx": None, "presentation_fbx": None}),
-        ("fbx_only", {"clips": 1, "model_fbx": "model_character.fbx",
-                      "presentation_fbx": "presentation.fbx"}),
-        ("paired", {"clips": 1, "model_fbx": "model_character.fbx",
-                    "presentation_fbx": "presentation.fbx"}),
+        ("fbx_only", {"clips": 1, "model_fbx": "char-model.fbx",
+                      "presentation_fbx": "char-full.fbx"}),
+        ("paired", {"clips": 1, "model_fbx": "char-model.fbx",
+                    "presentation_fbx": "char-full.fbx"}),
     ],
 )
 def test_build_matrix(case, expected, corpus_fixture):
@@ -585,7 +585,7 @@ Replace `PerRigDirectory(pattern="*.bvh")` as the source-of-truth with index rec
 
 - [x] **Step 4: Persist availability and reports**
 
-Write optional asset fields as JSON/YAML `null`. Merge pure-Python and Blender audit fragments by stable operation ID, reject duplicates/conflicts, and atomically publish `preparation-report.json`.
+Write optional asset fields as JSON/YAML `null`. Merge pure-Python and Blender audit fragments by stable operation ID, reject duplicates/conflicts, and atomically publish `report.json`.
 
 - [x] **Step 5: Run build tests**
 
@@ -647,7 +647,7 @@ Default generated outputs to prepared representation. Require `--facing-from` on
 
 - [x] **Step 4: Update guides with modality matrix**
 
-Document which outputs exist for BVH-only, FBX-only, and paired corpora and show how to inspect `preparation-report.json`.
+Document which outputs exist for BVH-only, FBX-only, and paired corpora and show how to inspect `report.json`.
 
 - [x] **Step 5: Run CLI tests**
 

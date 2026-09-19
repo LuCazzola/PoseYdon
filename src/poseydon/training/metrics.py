@@ -184,7 +184,7 @@ def root_trajectory_error(
     spec section 9). An absolute comparison would report that and nothing else.
 
     Each trajectory is divided by its own rig's ``scale_factor``. That is the
-    number `ScaleToMeanBoneLength` recorded in ``prepare.npz`` for the step
+    number `ScaleToMeanBoneLength` recorded in ``preproc.npz`` for the step
     ``prepared = source * factor``, so dividing by it is the inverse -- the two
     trajectories are compared in the units the two rigs were authored in rather
     than in each rig's prepared units.
@@ -256,7 +256,7 @@ def target_skeleton(dataset: MotionDataset, rig: str) -> ResolvedSkeleton:
 
 def prepare_scale(dataset: MotionDataset, rig: str) -> float:
     """The rig's ``scale_factor``, as `ScaleToMeanBoneLength` recorded it."""
-    transform = RigTransform.load(dataset.manifest_dir / rig / "prepare.npz")
+    transform = RigTransform.load(dataset.manifest_dir / rig / "preproc.npz")
     return float(transform.rig_params["scale"]["factor"])
 
 

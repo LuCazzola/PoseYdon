@@ -2,7 +2,7 @@
 
 The last arrow of the pipeline, and the one the invertible preparation exists
 for. `scripts/process_dataset_truebones.py` records every fitted parameter to
-`rigs/<Rig>/prepare.npz` precisely so this direction is possible; stage 2
+`rigs/<Rig>/preproc.npz` precisely so this direction is possible; stage 2
 folds the rig-scoped half into `rigs/<Rig>/skeleton.npz`. This reads them
 back:
 
@@ -68,11 +68,11 @@ def rig_transform(corpus: Path, rig: str):
 def recorded_facing(corpus: Path, rig: str, action: str) -> np.ndarray:
     """The yaw `FaceAxis` fitted for one real clip of `rig`.
 
-    Read from `rigs/<Rig>/prepare.npz`, which is the only file that keeps the
+    Read from `rigs/<Rig>/preproc.npz`, which is the only file that keeps the
     clip-scoped half of the transform; `skeleton.npz` folds in the rig-scoped
     stages alone.
     """
-    path = corpus / "rigs" / rig / "prepare.npz"
+    path = corpus / "rigs" / rig / "preproc.npz"
     key = f"clip/{action}/face_axis/rotation"
     with np.load(path, allow_pickle=True) as data:
         if key not in data.files:

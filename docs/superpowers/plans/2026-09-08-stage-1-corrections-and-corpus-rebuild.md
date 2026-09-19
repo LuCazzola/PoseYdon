@@ -1476,7 +1476,7 @@ the fbx compose service."
 Spec §1. Expected yield ~1145 clips over 73 rigs, against 1153 raw and the 81-row index on disk. Exactly one file per rig is lost for Ant, Centipede, Crab, Deer, Elephant, HermitCrab, Jaguar and Trex — each rig's own outlier.
 
 **Files:**
-- Modify: `data/truebones/clips/**`, `data/truebones/rigs/*/prepare.npz` (all gitignored)
+- Modify: `data/truebones/clips/**`, `data/truebones/rigs/*/preproc.npz` (all gitignored)
 - Test: `tests/build/test_corpus_yield.py` (create)
 
 **Interfaces:**
@@ -1494,12 +1494,12 @@ Expected before: 5 rig directories. Note the numbers — Step 4 compares against
 
 - [ ] **Step 2: Clear the stale prepared corpus**
 
-The prepared BVH and `prepare.npz` on disk predate `b2b0151` and every change above. Leaving them risks a partial rebuild reading a mix.
+The prepared BVH and `preproc.npz` on disk predate `b2b0151` and every change above. Leaving them risks a partial rebuild reading a mix.
 
 ```bash
 docker compose run --rm test sh -c '
   rm -rf data/truebones/clips
-  find data/truebones/rigs -name prepare.npz -delete'
+  find data/truebones/rigs -name preproc.npz -delete'
 ```
 
 `mesh.npz` files are **kept** — they come from the Blender pass, are not affected by this plan, and regenerating them needs the FBX container.
@@ -1793,15 +1793,15 @@ says so.
 
 ## What a follow-on plan needs to know
 
-- The corpus at `data/truebones/clips/` and `data/truebones/rigs/*/prepare.npz`
-  is now complete and current: 1145 clips, 73 rigs. **The `prepare.npz`
+- The corpus at `data/truebones/clips/` and `data/truebones/rigs/*/preproc.npz`
+  is now complete and current: 1145 clips, 73 rigs. **The `preproc.npz`
   files on disk are stale against the fix-round code** — the fix round
   changed what `PromoteRoot.fit` stores (`dead_names`/`dead_offsets`/
   `dead_parents` alongside `dead_indices`), and the corpus was *not*
   rebuilt after that change (rebuilding was explicitly out of scope for the
-  fix round). Both `clips/` and `prepare.npz` are gitignored — re-derive
+  fix round). Both `clips/` and `preproc.npz` are gitignored — re-derive
   them with `python scripts/process_dataset_truebones.py` before trusting
-  `prepare.npz` for anything that reads `promote_root`'s params (Tukan's
+  `preproc.npz` for anything that reads `promote_root`'s params (Tukan's
   entry specifically; the other 72 rigs' params are unaffected in content,
   only Tukan gained new keys).
 - `PromoteRoot` has a new, narrower escape hatch (dead-subtree dropping,
@@ -1940,14 +1940,14 @@ All checks passed!
 ```
 
 **The corpus rebuild was NOT re-run**, per instruction. This means
-**`data/truebones/rigs/Tukan/prepare.npz` is now stale against the fix-round
+**`data/truebones/rigs/Tukan/preproc.npz` is now stale against the fix-round
 code**: `PromoteRoot.fit`'s `promote_root` params gained three new keys
 (`dead_names`, `dead_offsets`, `dead_parents`) that the on-disk file for
 Tukan does not have, since it was written by the pre-fix-round code. The
-other 72 rigs' `prepare.npz` are unaffected in content (their `dead_*`
+other 72 rigs' `preproc.npz` are unaffected in content (their `dead_*`
 arrays were always empty and the shape/keys for non-promoted-with-dead-
 subtree rigs didn't change). **A rebuild is required before Tukan's
-`prepare.npz` can be used to invert a prepared clip** — flagged explicitly
+`preproc.npz` can be used to invert a prepared clip** — flagged explicitly
 per instruction, and already carried into "What a follow-on plan needs to
 know" above.
 
@@ -1958,7 +1958,7 @@ outcome-doc update.
 ## Addendum — three rigs do not face +Z (found by the controller, after the fix round)
 
 Regenerating the corpus after Task 9's fix (needed because `PromoteRoot.fit` gained
-`dead_names`/`dead_offsets`/`dead_parents`, making every pre-fix `prepare.npz` stale)
+`dead_names`/`dead_offsets`/`dead_parents`, making every pre-fix `preproc.npz` stale)
 surfaced a warning class the Outcome above does not mention. Stage 1's own sanity
 check reports the prepared clip's forward axis against +Z, and three rigs miss the
 0.99 threshold badly:

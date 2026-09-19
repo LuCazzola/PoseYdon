@@ -1,6 +1,6 @@
 """The four build passes: clip, skeleton, stats, index.
 
-Every file here has exactly one writer. Stage 1 owns prepare.npz, mesh.npz and
+Every file here has exactly one writer. Stage 1 owns preproc.npz, mesh.npz and
 the prepared BVH; this stage owns skeleton.npz, stats.npz, the clip .npz and the
 index. Only stats.npz depends on the feature schema, so changing `features:`
 re-runs one pass over already-prepared motion rather than rebuilding a corpus.
@@ -49,7 +49,7 @@ class BuildConfig:
         return SkeletonManifest.load(self.root / "rigs" / rig / "manifest.yaml")
 
     def transform(self, rig: str) -> RigTransform:
-        return RigTransform.load(self.root / "rigs" / rig / "prepare.npz")
+        return RigTransform.load(self.root / "rigs" / rig / "preproc.npz")
 
 
 @dataclass
@@ -164,7 +164,7 @@ def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     is genuinely ragged (a tuple of channel names per joint, of differing length)
     and must stay an object array; there is no fixed-width encoding for it. See
     `RigTransform`'s docstring in `build/prepare.py` for the same trap on
-    `prepare.npz`, which this file inherits by folding `rig_params` in.
+    `preproc.npz`, which this file inherits by folding `rig_params` in.
     """
     manifest = config.manifest(rig)
     rest = BVH.read(
@@ -305,8 +305,8 @@ def build_index(config: BuildConfig, warnings: list[str] | None = None) -> Corpu
                 fps = float(data["fps"])
             split = _split_of(path.with_suffix(".yaml"), warnings)
             rig_dir = config.out / "rigs" / rig
-            prepared_fbx = rig_dir / "model_character.fbx"
-            presentation_fbx = rig_dir / "presentation.fbx"
+            prepared_fbx = rig_dir / "char-model.fbx"
+            presentation_fbx = rig_dir / "char-full.fbx"
             original_fbx = manifest.artifacts.fbx
             reasons = {}
             if not prepared_fbx.is_file():

@@ -58,7 +58,7 @@ def test_fit_and_invert_are_audited_at_the_actual_execution_site():
     ]
 
 def test_report_write_uses_null_free_canonical_json(tmp_path):
-    path = tmp_path / "preparation-report.json"
+    path = tmp_path / "report.json"
     report = _run_report()
 
     report.write(path)

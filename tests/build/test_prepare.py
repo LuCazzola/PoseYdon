@@ -393,7 +393,7 @@ def test_rig_transform_round_trips_through_a_file(tmp_path):
     _prepared, params = chain.apply(source, resolved=None, rig_params=rig)
 
     transform = RigTransform(rig_params=rig, clip_params={"walk": params})
-    path = tmp_path / "prepare.npz"
+    path = tmp_path / "preproc.npz"
     transform.save(path)
     loaded = RigTransform.load(path)
 
@@ -407,9 +407,9 @@ def test_rig_transform_round_trips_through_a_file(tmp_path):
 
 def test_rig_transform_reports_an_unknown_clip_clearly(tmp_path):
     transform = RigTransform(rig_params={}, clip_params={})
-    transform.save(tmp_path / "prepare.npz")
+    transform.save(tmp_path / "preproc.npz")
     with pytest.raises(KeyError, match="jump"):
-        RigTransform.load(tmp_path / "prepare.npz").params_for("jump")
+        RigTransform.load(tmp_path / "preproc.npz").params_for("jump")
 
 
 def test_rig_transform_rejects_a_clip_name_that_would_corrupt_the_keys(tmp_path):
@@ -418,7 +418,7 @@ def test_rig_transform_rejects_a_clip_name_that_would_corrupt_the_keys(tmp_path)
         rig_params={}, clip_params={"walk/take1": {"double": {"factor": np.float64(2.0)}}}
     )
     with pytest.raises(ValueError, match="walk/take1"):
-        transform.save(tmp_path / "prepare.npz")
+        transform.save(tmp_path / "preproc.npz")
 
 
 def _locator_rig(n_frames: int = 4) -> Animation:
@@ -568,14 +568,14 @@ def test_promote_root_names_survive_a_real_rig_transform_round_trip(tmp_path):
     """`PromoteRoot`'s fitted `names` must round-trip through an actual
     `RigTransform.save`/`load` npz file without truncation, and the params
     read back from disk must still drive a correct `invert` -- the property
-    Task 9's real `prepare.npz` files depend on.
+    Task 9's real `preproc.npz` files depend on.
     """
     target = "Sabrecat__pelv_"
     anim = _long_name_locator_rig()
     stage = PromoteRoot(target=target)
     params = stage.fit(anim, None)
 
-    path = tmp_path / "prepare.npz"
+    path = tmp_path / "preproc.npz"
     RigTransform(rig_params={"promote_root": params}, clip_params={"someclip": {}}).save(
         path
     )

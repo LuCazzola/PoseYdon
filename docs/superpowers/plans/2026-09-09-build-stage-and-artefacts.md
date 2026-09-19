@@ -16,8 +16,8 @@ This is plan **A2** of three. A1 (stage-1 corrections and the corpus rebuild) is
 
 - **Everything runs in Docker.** `docker compose run --rm test <cmd>`. Never invoke `pytest` or the build script on the host.
 - **`ruff` must be clean** before every commit: `docker compose run --rm test ruff check .`
-- `data/truebones/source/` is a **paid, irreplaceable dataset**. Read-only, always. `data/truebones/clips/*.bvh` and `rigs/*/prepare.npz` are A1's output — also read-only in this plan; nothing here re-runs stage 1.
-- **One writer per file** (parity spec §2). Stage 1 owns `prepare.npz`, `mesh.npz` and the prepared BVH/FBX. Stage 2 owns `skeleton.npz`, `stats.npz`, `clips/<Rig>/<action>.npz` and `index.jsonl`. A task that writes outside stage 2's set is wrong.
+- `data/truebones/source/` is a **paid, irreplaceable dataset**. Read-only, always. `data/truebones/clips/*.bvh` and `rigs/*/preproc.npz` are A1's output — also read-only in this plan; nothing here re-runs stage 1.
+- **One writer per file** (parity spec §2). Stage 1 owns `preproc.npz`, `mesh.npz` and the prepared BVH/FBX. Stage 2 owns `skeleton.npz`, `stats.npz`, `clips/<Rig>/<action>.npz` and `index.jsonl`. A task that writes outside stage 2's set is wrong.
 - **Nothing in `build/` may be imported by training code.** `build/` is consumed by `scripts/`; `features/` and `core/` are what training imports. A `from poseydon.build...` inside `data/`, `models/` or `training/` is a defect.
 - The canonical mean bone length is `HML_MEAN_BONE_LENGTH = 0.20921428571428569` (`poseydon.core.skeleton`).
 - Joint arrays are hierarchy-ordered (a parent always precedes its children); quaternions are scalar-last.
@@ -946,7 +946,7 @@ def test_each_clip_npz_carries_its_own_facing_quaternion(config):
     from poseydon.build.prepare import RigTransform
 
     build_clips(config, "Goat")
-    recorded = RigTransform.load(CORPUS / "rigs" / "Goat" / "prepare.npz")
+    recorded = RigTransform.load(CORPUS / "rigs" / "Goat" / "preproc.npz")
     for path in sorted((config.out / "clips" / "Goat").glob("*.npz")):
         with np.load(path) as data:
             np.testing.assert_allclose(
@@ -1040,7 +1040,7 @@ Create `src/poseydon/build/pipeline.py`:
 ```python
 """The four build passes: clip, skeleton, stats, index.
 
-Every file here has exactly one writer. Stage 1 owns prepare.npz, mesh.npz and
+Every file here has exactly one writer. Stage 1 owns preproc.npz, mesh.npz and
 the prepared BVH; this stage owns skeleton.npz, stats.npz, the clip .npz and the
 index. Only stats.npz depends on the feature schema, so changing `features:`
 re-runs one pass over already-prepared motion rather than rebuilding a corpus.
@@ -1087,7 +1087,7 @@ class BuildConfig:
         return SkeletonManifest.load(self.root / "rigs" / rig / "manifest.yaml")
 
     def transform(self, rig: str) -> RigTransform:
-        return RigTransform.load(self.root / "rigs" / rig / "prepare.npz")
+        return RigTransform.load(self.root / "rigs" / rig / "preproc.npz")
 
 
 @dataclass
@@ -1256,7 +1256,7 @@ Two notes on the code above:
   disagreement, revisit it and report.
 - `names` is stored as a plain `np.array` of strings, which numpy types as
   `<U`, not `object`. That keeps `skeleton.npz` loadable without
-  `allow_pickle`, unlike `prepare.npz`. Do not "simplify" it to
+  `allow_pickle`, unlike `preproc.npz`. Do not "simplify" it to
   `dtype=object`.
 
 - [ ] **Step 4: Run the tests**

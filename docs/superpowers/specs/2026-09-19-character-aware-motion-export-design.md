@@ -77,7 +77,7 @@ The pipeline distinguishes three skeletons:
 
 A strict prepared BVH and strict prepared FBX share the exact model topology.
 The strict FBX is a topology diagnostic and may have audited deformation loss.
-A separate canonical `presentation.fbx` retains the richer deformation rig and
+A separate canonical `char-full.fbx` retains the richer deformation rig and
 is the preferred visual/deformation asset. Original FBX drives the untouched
 raw presentation rig in its original frame.
 
@@ -94,19 +94,19 @@ Each rig therefore owns:
 
 ```text
 rigs/<Rig>/
-├── model_character.fbx
-├── presentation.fbx
-└── preparation-report.json
+├── char-model.fbx
+├── char-full.fbx
+└── report.json
 ```
 
-`model_character.fbx` has exactly the model names, order, parents, and
-canonical bind transforms. `presentation.fbx` retains declared auxiliary
+`char-model.fbx` has exactly the model names, order, parents, and
+canonical bind transforms. `char-full.fbx` retains declared auxiliary
 deformers and original skin-weight ownership in the canonical frame. Both
 preserve mesh, materials, UVs, textures, and valid armature bindings.
 
 ### Exact preparation reporting
 
-`preparation-report.json` is the authoritative, deterministic audit trail.
+`report.json` is the authoritative, deterministic audit trail.
 Console logging is a readable projection of it and always names its path.
 Timestamps and timings, if wanted, live in a separate run envelope.
 
@@ -280,7 +280,7 @@ data/
     ├── rigs/
     │   └── <Rig>/
     │       ├── manifest.yaml
-    │       ├── prepare.npz
+    │       ├── preproc.npz
     │       ├── skeleton.npz
     │       ├── stats.npz
     │       └── character.fbx      reduced canonical bind asset
@@ -345,7 +345,7 @@ offsets describe the rig's reduced model skeleton before doing any work.
 
 - the reduction recorded by `skeleton.npz`;
 - rig-scoped inverse-preparation parameters;
-- clip-scoped facing rotations from `prepare.npz`;
+- clip-scoped facing rotations from `preproc.npz`;
 - the raw BVH channel declaration;
 - the reduced canonical `character.fbx`; and
 - the manifest-declared raw FBX asset used for original export.
@@ -441,7 +441,7 @@ Stage 1 reads only `data/_raw/truebones` and writes full prepared motion plus
 invertibility metadata:
 
 - `clips/<Rig>/<action>.bvh`
-- `rigs/<Rig>/prepare.npz`
+- `rigs/<Rig>/preproc.npz`
 
 Stage 2 derives the exact model representation and writes:
 

@@ -731,7 +731,7 @@ class RigTransform:
             if "/" in clip:
                 raise ValueError(
                     f"clip name `{clip}` contains `/`, which is the separator "
-                    "used inside prepare.npz keys; clip names must not contain it"
+                    "used inside preproc.npz keys; clip names must not contain it"
                 )
             for stage, params in stages.items():
                 for key, value in params.items():

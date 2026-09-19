@@ -62,7 +62,7 @@ def test_each_clip_npz_carries_its_own_facing_quaternion(config):
     from poseydon.build.prepare import RigTransform
 
     build_clips(config, "Goat")
-    recorded = RigTransform.load(CORPUS / "rigs" / "Goat" / "prepare.npz")
+    recorded = RigTransform.load(CORPUS / "rigs" / "Goat" / "preproc.npz")
     for path in sorted((config.out / "clips" / "Goat").glob("*.npz")):
         with np.load(path) as data:
             np.testing.assert_allclose(

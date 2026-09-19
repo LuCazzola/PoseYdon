@@ -5,7 +5,7 @@ reads every raw ``.bvh`` clip under ``--raw-root/<Rig>/``, runs it through
 :class:`poseydon.build.prepare.PrepareChain` (bind-rotation removal, facing
 alignment, rigid-bone enforcement, XZ centring, uniform scaling, grounding),
 and writes the result to ``--out-root/clips/<Rig>/<action>.bvh``. The fitted
-transform is recorded to ``--out-root/rigs/<Rig>/prepare.npz`` so the corpus
+transform is recorded to ``--out-root/rigs/<Rig>/preproc.npz`` so the corpus
 can be turned back into what it came from.
 
 Run inside the test container:
@@ -173,9 +173,9 @@ def process_species(
             continue
         n_written += 1
 
-    report.write(out_root / "rigs" / manifest.name / "preparation-report.json")
+    report.write(out_root / "rigs" / manifest.name / "report.json")
     RigTransform(rig_params=rig_params, clip_params=clip_params).save(
-        out_root / "rigs" / manifest.name / "prepare.npz"
+        out_root / "rigs" / manifest.name / "preproc.npz"
     )
     warnings.extend(_sanity_check(manifest, clips_dir, rest_path))
     return n_written, warnings

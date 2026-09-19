@@ -39,7 +39,7 @@ class CharacterExporter:
                 root_pos=np.zeros((1, 3)), offsets=data["offsets"],
                 parents=data["parents"].astype(np.int32), names=names, fps=1.0)
             reduction = build_reduction(rest)
-        prep = corpus / "rigs" / rig / "prepare.npz"
+        prep = corpus / "rigs" / rig / "preproc.npz"
         params = {}
         clip_params = {}
         if prep.is_file():
@@ -82,8 +82,8 @@ class CharacterExporter:
                 source_fbx = source_fbx[1] if source_fbx is not None else candidates[0]
             except ImportError:
                 source_fbx = candidates[0]
-        model = corpus / "rigs" / rig / "model_character.fbx"
-        presentation = corpus / "rigs" / rig / "presentation.fbx"
+        model = corpus / "rigs" / rig / "char-model.fbx"
+        presentation = corpus / "rigs" / rig / "char-full.fbx"
         return cls(corpus, raw, rig, chain, params, reduction, clip_params,
                    source_fbx if source_fbx and source_fbx.is_file() else None,
                    model if model.is_file() else None,

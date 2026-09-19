@@ -335,7 +335,7 @@ def test_only_the_horizontal_plane_counts():
 def test_the_same_physical_walk_on_two_differently_scaled_rigs_agrees():
     """Why the scale factors are there at all, and which way round they go.
 
-    `prepare.npz` records `factor` for the stage that did `prepared = source *
+    `preproc.npz` records `factor` for the stage that did `prepared = source *
     factor`. One walk, authored once in source units, prepared onto two rigs
     whose factors differ by 4x, is ONE trajectory: the metric must read zero.
     """

@@ -11,7 +11,7 @@ joints the user supplied.
 the SHIPPING path assembles the same parameters from the corpus artefacts --
 a different claim, and the one an export actually rests on: that round trip
 fits its chain in-process from the raw source, while `anim_2_fbx` has only
-`rigs/<Rig>/skeleton.npz` and `rigs/<Rig>/prepare.npz` to work from.
+`rigs/<Rig>/skeleton.npz` and `rigs/<Rig>/preproc.npz` to work from.
 """
 
 from __future__ import annotations

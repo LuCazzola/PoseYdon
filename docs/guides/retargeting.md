@@ -49,4 +49,4 @@ Exports default to the strict prepared representation. Select `--representation 
 
     poseydon export samples/Rig__clip.bvh --rig Rig --representation prepared --format bvh --out prepared.bvh
 
-BVH-only rigs expose BVH representations and report `source_surface_missing` for FBX requests. Paired or FBX-only rigs expose mesh-bearing prepared/presentation FBX assets when preparation produced them. Inspect each rig's `preparation-report.json` and index availability fields before requesting a representation.
+BVH-only rigs expose BVH representations and report `source_surface_missing` for FBX requests. Paired or FBX-only rigs expose mesh-bearing prepared/presentation FBX assets when preparation produced them. Inspect each rig's `report.json` and index availability fields before requesting a representation.
