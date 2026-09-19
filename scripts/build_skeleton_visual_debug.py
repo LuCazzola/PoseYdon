@@ -27,7 +27,8 @@ def build_bundle(contexts, output):
         metadata={"rig":rig,"action":context.get("action"),"unavailable":{}}
         for field in ("original_bvh","original_fbx","prepared_bvh","prepared_fbx","presentation_fbx","roundtrip_bvh","roundtrip_fbx","training_anim","training_features"):
             source=context.get(field)
-            target=dest/({"training_anim":"training.anim.npz","training_features":"training.features.npz","roundtrip_bvh":"roundtrip.bvh","roundtrip_fbx":"roundtrip.fbx"}.get(field,field.replace("_","-")+"."+("fbx" if field.endswith("fbx") else "bvh")))
+            names={"training_anim":"training.anim.npz","training_features":"training.features.npz","roundtrip_bvh":"roundtrip.bvh","roundtrip_fbx":"roundtrip.fbx","original_bvh":"original.bvh","original_fbx":"original.fbx","prepared_bvh":"prepared.bvh","prepared_fbx":"prepared.fbx","presentation_fbx":"presentation.fbx"}
+            target=dest/names[field]
             if source and Path(source).is_file():
                 shutil.copy2(source,target); metadata[field]={"path":str(target),"sha256":_sha(target)}
             else:
