@@ -70,12 +70,32 @@ def _write_atomic(scene: FBX, path: Path) -> None:
 def _write_report(context: CharacterAssetContext, output: Path, assets: CharacterAssets) -> Path:
     report = context.report_path or output / "preparation-report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
+    operations = [
+        {
+            "operation_id": f"{context.rig}/topology/000",
+            "kind": "topology_contract",
+            "joint_names": list(context.model_names),
+            "parents": list(context.model_parents),
+        },
+        {
+            "operation_id": f"{context.rig}/correspondence/000",
+            "kind": "joint_correspondence",
+            "source": None if context.raw_fbx is None else str(context.raw_fbx),
+            "target_joint_count": len(context.model_names),
+        },
+        {
+            "operation_id": f"{context.rig}/skinning/000",
+            "kind": "skinning_policy",
+            "decision": "preserve" if context.skinning_plan is None else str(context.skinning_plan),
+        },
+    ]
     payload = {
         "rig": context.rig,
         "source_fbx": None if context.raw_fbx is None else str(context.raw_fbx),
         "model": None if assets.model is None else str(assets.model),
         "presentation": None if assets.presentation is None else str(assets.presentation),
         "reason": assets.reason,
+        "operations": operations,
     }
     report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return report

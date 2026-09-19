@@ -146,6 +146,7 @@ def _sample(args: argparse.Namespace) -> int:
     from poseydon.data.collate import collate
     from poseydon.features import reconstruct
     from poseydon.io.bvh import BVH
+    from poseydon.io.fbx import FBX
     from poseydon.training.build import build_dataset, build_model, build_process
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
@@ -316,6 +317,14 @@ def _export(args: argparse.Namespace) -> int:
     from poseydon.io.bvh import BVH
     path = Path(args.input)
     anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else __import__("poseydon.core.animation", fromlist=["Animation"]).Animation.load(path)
+    if args.bare_skeleton:
+        artifact = BVH.from_animation(anim) if args.format == "bvh" else FBX.from_animation(anim)
+        if args.format == "bvh":
+            artifact.write(args.out)
+        else:
+            artifact.write(args.out, embed_textures=True)
+        print(f"wrote {args.out}")
+        return 0
     exporter = CharacterExporter.load(args.corpus, args.raw, args.rig)
     method = getattr(exporter, f"{args.representation}_{args.format}")
     try:
@@ -436,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("--representation", choices=("prepared", "presentation", "original"), default="prepared")
     export.add_argument("--format", choices=("bvh", "fbx"), default="bvh")
     export.add_argument("--facing-from", default=None)
+    export.add_argument(
+        "--bare-skeleton",
+        action="store_true",
+        help="write a mesh-free skeleton directly from the input animation",
+    )
     export.set_defaults(func=_export)
 
     listing = sub.add_parser("list", help="show the components available by name")
