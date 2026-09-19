@@ -310,6 +310,26 @@ def _tile(value, times: int):
     return value[:1].repeat(times, *([1] * (value.ndim - 1)))
 
 
+def _export(args: argparse.Namespace) -> int:
+    import numpy as np
+    from poseydon.export import CharacterExporter
+    from poseydon.io.bvh import BVH
+    path = Path(args.input)
+    anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else __import__("poseydon.core.animation", fromlist=["Animation"]).Animation.load(path)
+    exporter = CharacterExporter.load(args.corpus, args.raw, args.rig)
+    method = getattr(exporter, f"{args.representation}_{args.format}")
+    try:
+        artifact = method(anim)
+    except Exception as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    if args.format == "bvh":
+        artifact.write(args.out)
+    else:
+        artifact.write(args.out, embed_textures=True)
+    print(f"wrote {args.out}")
+    return 0
+
 def _list(args: argparse.Namespace) -> int:
     from poseydon.augment import AUGMENTATIONS
     from poseydon.conditioners import CONDITIONERS
@@ -395,15 +415,28 @@ def main(argv: list[str] | None = None) -> int:
     retarget.add_argument(
         "--guidance-scale",
         type=float,
-        default=0.0,
-        help="classifier-free guidance strength; needs a checkpoint trained "
-        "with model.cond_drop > 0, and costs a second forward pass per step",
+        default=1.0,
+        help="classifier-free guidance strength: 1.0 (the default) is the model "
+        "as trained, 0.0 is the unconditional branch, above 1.0 extrapolates. "
+        "Anything but 1.0 needs a checkpoint trained with model.cond_drop > 0, "
+        "and costs a second forward pass per step",
     )
     retarget.add_argument("--out", default="retargets", help="directory for the three files")
     retarget.add_argument(
         "--device", default=None, help="cpu or cuda; defaults to cuda when one is visible"
     )
     retarget.set_defaults(func=_retarget)
+
+    export = sub.add_parser("export", help="export prepared, presentation, or original motion")
+    export.add_argument("input")
+    export.add_argument("--corpus", default="data/truebones")
+    export.add_argument("--raw", default="data/_raw/truebones")
+    export.add_argument("--rig", required=True)
+    export.add_argument("--out", required=True)
+    export.add_argument("--representation", choices=("prepared", "presentation", "original"), default="prepared")
+    export.add_argument("--format", choices=("bvh", "fbx"), default="bvh")
+    export.add_argument("--facing-from", default=None)
+    export.set_defaults(func=_export)
 
     listing = sub.add_parser("list", help="show the components available by name")
     listing.add_argument("kind", nargs="?", default=None)
