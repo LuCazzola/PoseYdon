@@ -52,8 +52,8 @@ def _canonical_matrix(scene: FBX, context: CharacterAssetContext) -> Matrix:
         [context.model_rest.names.index(name) for name in model_names]
     ]
     scale, rotation, offset = _similarity(source, target)
-    linear_y = Matrix.Scale(scale, 4) @ Matrix([list(row) for row in rotation]).to_4x4()
-    linear_b = TO_Y_UP.transposed() @ linear_y @ TO_Y_UP
+    linear_y = Matrix.Scale(scale, 3) @ Matrix([list(row) for row in rotation])
+    linear_b = (TO_Y_UP.transposed() @ linear_y @ TO_Y_UP).to_4x4()
     translation_b = TO_Y_UP.transposed() @ Vector(tuple(float(x) for x in offset))
     return Matrix.Translation(translation_b) @ linear_b
 
