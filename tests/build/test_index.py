@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from poseydon.build.index import ClipRecord, CorpusIndex, action_slug, clip_id
 
 
@@ -48,3 +50,30 @@ def test_round_trip_through_a_file(tmp_path):
 def test_helpers_moved_with_it():
     assert action_slug("__Attack3") == "attack3"
     assert clip_id("Goat", "walk") == "Goat__walk"
+
+
+def _three() -> CorpusIndex:
+    index = CorpusIndex()
+    index.add(_record())
+    index.add(_record(clip_id="Goat__run", action="run"))
+    index.add(_record(clip_id="Crow__fly", skeleton="Crow", action="fly"))
+    return index
+
+
+def test_without_drops_a_whole_skeleton():
+    kept = _three().without(skeletons=["Goat"])
+    assert [r.clip_id for r in kept.records] == ["Crow__fly"]
+
+
+def test_without_drops_one_clip_and_keeps_its_siblings():
+    kept = _three().without(clips=["Goat__run"])
+    assert [r.clip_id for r in kept.records] == ["Goat__walk", "Crow__fly"]
+
+
+def test_without_rejects_an_entry_that_matches_nothing():
+    """A typo'd rig name must not pass silently: the run would train for days
+    on clips the config said to drop, and nothing would say so."""
+    with pytest.raises(ValueError, match="Chicken"):
+        _three().without(skeletons=["Goat", "Chicken"])
+    with pytest.raises(ValueError, match="Goat__fly"):
+        _three().without(clips=["Goat__fly"])

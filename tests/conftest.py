@@ -29,7 +29,7 @@ SAMPLE_RIGS = ("Flamingo", "BrownBear", "Crab", "Scorpion", "Camel", "Tukan")
 
 @pytest.fixture(scope="session")
 def corpus_root() -> Path:
-    if not (CORPUS / "source").is_dir() and not (CORPUS / "Truebone_Z-OO").is_dir():
+    if not (Path("data/_raw/truebones/source")).is_dir():
         pytest.skip("Truebones corpus not present")
     return CORPUS
 

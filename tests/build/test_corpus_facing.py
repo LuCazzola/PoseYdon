@@ -64,7 +64,7 @@ def _manifests() -> list[SkeletonManifest | None]:
     inside the test body, keeps a real (skipped, not silently absent) result
     on a clean checkout.
     """
-    if not (CORPUS / "source").is_dir():
+    if not (Path("data/_raw/truebones/source")).is_dir():
         return [None]
     manifests = sorted((CORPUS / "rigs").glob("*/manifest.yaml"))
     if not manifests:

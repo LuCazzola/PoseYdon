@@ -22,7 +22,7 @@ LOCATOR_BAND = 0.05
 
 
 def _rest_anim(rig: str):
-    rig_dir = CORPUS / "source" / rig
+    rig_dir = Path("data/_raw/truebones/source") / rig
     if not rig_dir.is_dir():
         pytest.skip(f"{rig}: no source directory")
     bvhs = sorted(rig_dir.glob("*.bvh"))

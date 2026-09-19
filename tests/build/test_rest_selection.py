@@ -151,7 +151,7 @@ def test_every_rig_declares_a_rest_pose_that_exists_and_is_modal():
     from poseydon.build.corpus import rest_source
     from poseydon.core.skeleton import SkeletonManifest
 
-    source = CORPUS / "source"
+    source = Path("data/_raw/truebones/source")
     if not source.is_dir():
         pytest.skip("Truebones corpus not present")
 

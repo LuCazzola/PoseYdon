@@ -99,7 +99,7 @@ def test_the_predicate_matches_the_raw_corpus():
     would show as a stem ending in "ALL" that survived the filter with no
     hyphen or underscore separating a take name from the prefix.
     """
-    source = CORPUS / "source"
+    source = Path("data/_raw/truebones/source")
     if not source.is_dir():
         pytest.skip("Truebones corpus not present")
     for rig_dir in sorted(p for p in source.iterdir() if p.is_dir()):
@@ -119,7 +119,7 @@ def test_every_sample_rig_has_a_per_clip_source_fbx(rig):
     `TUKAN`, so `"ALL" in stem.upper()` is true of all of them), which made the
     round trip's Tukan case skip -- green, and asserting nothing.
     """
-    source_dir = CORPUS / "source" / rig
+    source_dir = Path("data/_raw/truebones/source") / rig
     if not source_dir.is_dir():
         pytest.skip(f"{rig}: no source directory")
     per_clip = [
@@ -138,7 +138,7 @@ PAIRING_RIGS = ("Goat", "Crab", "Flamingo", "Camel", "Scorpion")
 
 @pytest.mark.parametrize("rig", PAIRING_RIGS)
 def test_the_sidecheck_pairs_a_bvh_and_an_fbx_per_action(rig):
-    if not (CORPUS / "source" / rig).is_dir():
+    if not (Path("data/_raw/truebones/source") / rig).is_dir():
         pytest.skip(f"{rig}: no source directory")
     stage, pairs = paired_clips(rig, CORPUS)
     assert pairs, f"{rig}: the sidecheck found nothing to compare ({stage})"
@@ -162,7 +162,7 @@ def test_the_sidecheck_pairs_a_bvh_and_an_fbx_per_action(rig):
     "mistaken for agreement. Strict: this must start failing when an alias lands.",
 )
 def test_the_sidecheck_pairs_alias_prefixed_rigs(rig):
-    if not (CORPUS / "source" / rig).is_dir():
+    if not (Path("data/_raw/truebones/source") / rig).is_dir():
         pytest.skip(f"{rig}: no source directory")
     _stage, pairs = paired_clips(rig, CORPUS)
     assert pairs
