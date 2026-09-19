@@ -15,6 +15,8 @@ from pathlib import Path
 
 import yaml
 
+from poseydon.core.authority import AuthorityPolicy, SourceArtifacts
+
 # Mean of the 21 SMPL bone lengths used by the reference as its scale target.
 # The reference calls this HML_AVG_BONELEN; its docstring claims "longest
 # armature" but the code takes the mean, and the code is what ran.
@@ -31,6 +33,8 @@ _KNOWN_KEYS = frozenset(
         "scale",
         "contact",
         "tags",
+        "authority",
+        "artifacts",
     }
 )
 
@@ -77,6 +81,8 @@ class SkeletonManifest:
     fps: float | None = None
     mean_bone_length: float | None = None
     tags: tuple[str, ...] = ()
+    authority: AuthorityPolicy = AuthorityPolicy()
+    artifacts: SourceArtifacts = SourceArtifacts()
 
     @classmethod
     def load(cls, path: str | Path) -> SkeletonManifest:
@@ -167,6 +173,44 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
 
     rest_pose = data.get("rest_pose")
 
+    authority_raw = data.get("authority")
+    artifacts_raw = data.get("artifacts")
+    if authority_raw is None and artifacts_raw is None:
+        authority = AuthorityPolicy()
+        artifacts = SourceArtifacts(
+            bvh=None if rest_pose is None else Path(str(rest_pose))
+        )
+    else:
+        if not isinstance(authority_raw, dict):
+            raise ManifestError(f"{path}: `authority` must be a mapping")
+        if not isinstance(artifacts_raw, dict):
+            raise ManifestError(f"{path}: `artifacts` must be a mapping")
+        try:
+            authority = AuthorityPolicy(**authority_raw)
+        except (TypeError, ValueError) as error:
+            raise ManifestError(f"{path}: invalid authority: {error}") from error
+        unknown = set(artifacts_raw) - {"bvh", "fbx", "textures"}
+        if unknown:
+            raise ManifestError(f"{path}: unknown artifacts key `{min(unknown)}`")
+        artifacts = SourceArtifacts(**{
+            key: None if value is None else Path(str(value))
+            for key, value in artifacts_raw.items()
+        })
+        if getattr(artifacts, authority.motion) is None:
+            raise ManifestError(
+                f"{path}: motion authority `{authority.motion}` requires an "
+                f"artifacts.{authority.motion} source"
+            )
+        if getattr(artifacts, authority.skeleton) is None:
+            raise ManifestError(
+                f"{path}: skeleton authority `{authority.skeleton}` requires an "
+                f"artifacts.{authority.skeleton} source"
+            )
+        if authority.surface == "fbx" and artifacts.fbx is None:
+            raise ManifestError(
+                f"{path}: surface authority `fbx` requires an artifacts.fbx source"
+            )
+
     return SkeletonManifest(
         name=name,
         facing=tuple(pairs),
@@ -178,6 +222,8 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
         fps=None if data.get("fps") is None else float(data["fps"]),
         mean_bone_length=None if mean_bone_length is None else float(mean_bone_length),
         tags=tuple(str(t) for t in (data.get("tags") or ())),
+        authority=authority,
+        artifacts=artifacts,
     )
 
 
