@@ -30,7 +30,8 @@ def build_bundle(contexts, output):
             names={"training_anim":"training.anim.npz","training_features":"training.features.npz","roundtrip_bvh":"roundtrip.bvh","roundtrip_fbx":"roundtrip.fbx","original_bvh":"original.bvh","original_fbx":"original.fbx","prepared_bvh":"prepared.bvh","prepared_fbx":"prepared.fbx","presentation_fbx":"presentation.fbx"}
             target=dest/names[field]
             if source and Path(source).is_file():
-                shutil.copy2(source,target); metadata[field]={"path":str(target),"sha256":_sha(target)}
+                if Path(source).resolve() != target.resolve(): shutil.copy2(source,target)
+                metadata[field]={"path":str(target),"sha256":_sha(target)}
             else:
                 metadata[field]=None
                 if field.endswith("fbx"): metadata["unavailable"][field]="source_surface_missing"
