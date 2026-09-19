@@ -8,7 +8,10 @@ from poseydon.core.animation import Animation, RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.features.reduce import build_reduction, invert_reduction
 from poseydon.io.bvh import BVH
-from scripts.anim_2_fbx import _chain_for
+
+def _chain_for(rig: str) -> PrepareChain:
+    return PrepareChain((RestRelative(), PromoteRoot(), FaceAxis(axis="+Z"), EnforceRigid(joint_translation="drop"), CentreXZ(), ScaleToMeanBoneLength(), PutOnGround()))
+from poseydon.build.prepare import CLIP, CentreXZ, EnforceRigid, FaceAxis, PrepareChain, PromoteRoot, PutOnGround, RestRelative, ScaleToMeanBoneLength
 
 @dataclass
 class CharacterExporter:
@@ -46,7 +49,7 @@ class CharacterExporter:
         source_fbx = next(iter(sorted((raw / rig).glob("*.fbx"))), None) if (raw / rig).is_dir() else None
         model = corpus / "rigs" / rig / "model_character.fbx"
         presentation = corpus / "rigs" / rig / "presentation.fbx"
-        return cls(corpus, raw, rig, _chain_for(None, rig), params, reduction,
+        return cls(corpus, raw, rig, _chain_for(rig), params, reduction,
                    source_fbx if source_fbx and source_fbx.is_file() else None,
                    model if model.is_file() else None,
                    presentation if presentation.is_file() else None)
