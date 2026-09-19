@@ -36,3 +36,9 @@ def test_strip_joint_prefix_is_gone():
     """It was declared, documented and read by nothing; joint-name humanizing
     computes the prefix instead of requiring it to be declared."""
     assert not hasattr(SkeletonManifest, "strip_joint_prefix")
+
+
+def test_truebones_layout_has_one_raw_root_and_no_legacy_roots():
+    assert Path("data/_raw/truebones").is_dir()
+    for name in ("source", "bvh", "fbx", "mesh", "reference"):
+        assert not (Path("data/truebones") / name).exists()
