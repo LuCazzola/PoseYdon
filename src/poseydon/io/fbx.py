@@ -781,7 +781,7 @@ class FBX:
         default `path_mode="AUTO"` writes a texture path RELATIVE to the output
         file, and that path is wrong whenever the export does not sit beside the
         source: exporting Scorpion to ``out/`` rewrote
-        ``/app/data/truebones/source/Scorpion/tex/radscorpion.JPG`` as
+        ``/app/data/_raw/truebones/source/Scorpion/tex/radscorpion.JPG`` as
         ``out/app/data/.../radscorpion.JPG``, which resolves to nothing, so the
         character loads with no texture and renders MAGENTA -- in a preview
         render and equally in whatever tool the file was handed to.

@@ -39,18 +39,25 @@ from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.bvh import BVH
 
-DEFAULT_RAW_ROOT = Path("data/truebones/source")
+DEFAULT_RAW_ROOT = Path("data/_raw/truebones/source")
 DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 
-def _chain_for(source_channels: tuple[tuple[str, ...], ...], rig: str = "") -> PrepareChain:
+def _chain_for(
+    source_channels: tuple[tuple[str, ...], ...] | None, rig: str = ""
+) -> PrepareChain:
     """Build the chain with `EnforceRigid` recording THIS rig's real channels.
 
     The layout differs per rig, so it cannot live on a module-level constant;
     `EnforceRigid.fit` records `source_channels` verbatim when given one rather
     than inferring a layout from the (often single-frame, under-declaring)
     rest pose -- see `EnforceRigid`'s docstring.
+
+    `None` is that stage's documented fallback, for a caller with no source
+    file to declare channels for. Preparation always has one; `scripts/anim_2_fbx.py`,
+    which reuses this chain to INVERT a preparation, never does -- and never
+    fits the stage either, so the layout is not consulted on that path.
     """
     return PrepareChain(
         (

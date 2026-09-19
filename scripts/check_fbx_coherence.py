@@ -40,7 +40,7 @@ differs" from "the whole skeleton is the wrong size in this file".
 
 Reads the prepared corpus (``data/truebones/clips/<Rig>/<action>.{bvh,fbx}``)
 when a rig has both arms there, and otherwise falls back to pairing the RAW
-files (``data/truebones/source/<Rig>/``), which every rig has -- most rigs have
+files (``data/_raw/truebones/source/<Rig>/``), which every rig has -- most rigs have
 no prepared FBX, since writing those needs this same Blender container. Both
 sides of a comparison always come from the same stage; the two are never mixed.
 

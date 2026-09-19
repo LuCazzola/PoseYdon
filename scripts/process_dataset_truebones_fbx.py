@@ -53,7 +53,7 @@ from poseydon.core.skeleton import SkeletonManifest
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
 
-DEFAULT_RAW_ROOT = Path("data/truebones/source")
+DEFAULT_RAW_ROOT = Path("data/_raw/truebones/source")
 DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 
