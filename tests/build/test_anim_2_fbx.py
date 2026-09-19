@@ -1,3 +1,4 @@
+from pathlib import Path
 """`scripts/anim_2_fbx.py`'s inversion half, with no Blender involved.
 
 The export itself is covered in `tests/build/test_roundtrip_fbx.py`, which

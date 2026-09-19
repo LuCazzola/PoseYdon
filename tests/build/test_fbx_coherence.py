@@ -1,3 +1,4 @@
+from pathlib import Path
 """The all-takes filter, and the pairing the FBX coherence sidecheck runs on.
 
 Truebones ships, per rig, one compilation FBX holding every take of that rig

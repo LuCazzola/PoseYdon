@@ -1,3 +1,4 @@
+from pathlib import Path
 """FBX IO-level round trips: what survives `FBX.read`/`.write`/`.from_animation`.
 
 This covers the FBX IO layer ONLY (`poseydon.io.fbx`). Two round trips live
