@@ -1,4 +1,3 @@
-from pathlib import Path
 """The all-takes filter, and the pairing the FBX coherence sidecheck runs on.
 
 Truebones ships, per rig, one compilation FBX holding every take of that rig
@@ -25,6 +24,8 @@ predicate, :func:`poseydon.build.index.is_all_takes_bundle`, tested here.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from scripts.check_fbx_coherence import paired_clips

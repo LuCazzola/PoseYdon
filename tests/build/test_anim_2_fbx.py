@@ -1,4 +1,3 @@
-from pathlib import Path
 """`scripts/anim_2_fbx.py`'s inversion half, with no Blender involved.
 
 The export itself is covered in `tests/build/test_roundtrip_fbx.py`, which
@@ -16,6 +15,8 @@ fits its chain in-process from the raw source, while `anim_2_fbx` has only
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pytest
