@@ -9,8 +9,6 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.animation import Animation
-from poseydon.io.fbx import FBX, TO_Y_UP, _from_y_up, _quat_matrix, _similarity, _to_y_up, _rest_positions
-from mathutils import Matrix, Vector
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,11 +36,14 @@ class CharacterAssetContext:
     report_path: Path | None = None
 
 
-def _bind_positions(scene: FBX, names: tuple[str, ...]) -> np.ndarray:
+def _bind_positions(scene, names: tuple[str, ...]) -> np.ndarray:
+    from poseydon.io.fbx import _to_y_up
     return np.stack([_to_y_up(scene.joint_position(name, rest=True)) for name in names])
 
 
-def _canonical_matrix(scene: FBX, context: CharacterAssetContext) -> Matrix:
+def _canonical_matrix(scene, context: CharacterAssetContext):
+    from mathutils import Matrix, Vector
+    from poseydon.io.fbx import TO_Y_UP, _similarity
     if context.model_rest is None:
         return Matrix.Identity(4)
     model_names = tuple(context.model_names)
@@ -118,6 +119,7 @@ def build_character_assets(context: CharacterAssetContext, output: Path) -> Char
         absent = CharacterAssets(None, None, "source_surface_missing")
         LOGGER.warning("%s: skipped FBX assets (%s)", context.rig, absent.reason)
         return CharacterAssets(None, None, absent.reason, _write_report(context, output, absent))
+    from poseydon.io.fbx import FBX
     raw = Path(context.raw_fbx)
     if not raw.is_file():
         raise FileNotFoundError(raw)
