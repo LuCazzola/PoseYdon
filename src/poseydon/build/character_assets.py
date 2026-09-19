@@ -34,6 +34,7 @@ class CharacterAssetContext:
     preparation_transform: object | None = None
     audit: object | None = None
     report_path: Path | None = None
+    authority: object | None = None
 
 
 def _bind_positions(scene, names: tuple[str, ...]) -> np.ndarray:
@@ -115,7 +116,7 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
     payload = {
         "dataset": "truebones",
         "rig": context.rig,
-        "authority": {"skeleton": "bvh", "motion": "bvh", "surface": "fbx", "auxiliary_joints": "bake"},
+        "authority": (context.authority if isinstance(context.authority, dict) else {"skeleton": "bvh", "motion": "bvh", "surface": "fbx", "auxiliary_joints": "bake"}),
         "source_fbx": None if context.raw_fbx is None else str(context.raw_fbx),
         "source_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},
         "model_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},

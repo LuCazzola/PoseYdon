@@ -193,7 +193,7 @@ def build_assets_for_species(manifest: SkeletonManifest, raw_root: Path, out_roo
     if selected is not None and selected[0] <= 0.05:
         source = selected[1]
         context = CharacterAssetContext(
-            rig=manifest.name, raw_fbx=source,
+            rig=manifest.name, raw_fbx=source, authority={"skeleton": manifest.authority.skeleton, "motion": manifest.authority.motion, "surface": manifest.authority.surface, "auxiliary_joints": manifest.authority.auxiliary_joints},
             model_names=tuple(model.names),
             model_parents=tuple(int(value) for value in model.parents),
             removals=build_reduction(full).ops, model_rest=model,
@@ -203,7 +203,7 @@ def build_assets_for_species(manifest: SkeletonManifest, raw_root: Path, out_roo
         source = selected[1] if selected is not None else sources[0]
         scene = FBX.read(source)
         context = CharacterAssetContext(
-            rig=manifest.name, raw_fbx=source,
+            rig=manifest.name, raw_fbx=source, authority={"skeleton": manifest.authority.skeleton, "motion": manifest.authority.motion, "surface": manifest.authority.surface, "auxiliary_joints": manifest.authority.auxiliary_joints},
             model_names=tuple(scene.joint_names),
             model_parents=tuple(scene.joint_parents),
         )
