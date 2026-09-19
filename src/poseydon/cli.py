@@ -146,7 +146,6 @@ def _sample(args: argparse.Namespace) -> int:
     from poseydon.data.collate import collate
     from poseydon.features import reconstruct
     from poseydon.io.bvh import BVH
-    from poseydon.io.fbx import FBX
     from poseydon.training.build import build_dataset, build_model, build_process
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
@@ -315,6 +314,7 @@ def _export(args: argparse.Namespace) -> int:
     import numpy as np
     from poseydon.export import CharacterExporter
     from poseydon.io.bvh import BVH
+    from poseydon.io.fbx import FBX
     path = Path(args.input)
     anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else __import__("poseydon.core.animation", fromlist=["Animation"]).Animation.load(path)
     if args.bare_skeleton:
