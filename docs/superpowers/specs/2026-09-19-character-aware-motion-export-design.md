@@ -46,6 +46,104 @@ share names and counts but differ in their offset blocks; all 73 selected FBX
 pairs differ byte-for-byte. The export was internally consistent with the live
 pipeline and externally compared against the wrong source representation.
 
+## Authority policy and preparation audit amendment
+
+This section supersedes any narrower authority, prepared-FBX, character-asset,
+or build-ownership statement later in this document.
+
+Authority is selected independently for the model skeleton, primary motion, and
+surface deformation. A dataset manifest declares:
+
+```yaml
+authority:
+  skeleton: bvh       # bvh | fbx
+  motion: bvh         # bvh | fbx
+  surface: fbx
+  auxiliary_joints: bake  # exclude | retain | bake
+```
+
+A registration command may ask the user for these choices once. Normal
+preparation is non-interactive and deterministic. Per-character overrides must
+be explicit in the manifest. Truebones defaults to BVH skeleton and motion
+authority, FBX surface authority, and `bake` auxiliary handling.
+
+The pipeline distinguishes three skeletons:
+
+- **source skeleton:** the exact authoritative raw structure;
+- **model skeleton:** the canonical topology supplied to feature extraction and
+  model training; and
+- **presentation skeleton:** the full mesh-bearing FBX deformation rig driven
+  from model motion.
+
+A strict prepared BVH and strict prepared FBX share the exact model topology.
+The strict FBX is a topology diagnostic and may have audited deformation loss.
+A separate canonical `presentation.fbx` retains the richer deformation rig and
+is the preferred visual/deformation asset. Original FBX drives the untouched
+raw presentation rig in its original frame.
+
+Auxiliary joints follow an explicit policy. `retain` includes them in the
+model. `exclude` holds or removes them and records the loss. `bake` excludes
+them from the model but reconstructs them with a named deterministic driver,
+constraint, or secondary-motion rule. Unweighted helpers may be removed.
+Rigidly redundant weighted joints may be collapsed only after deformation
+validation. Independently animated weighted joints may never be silently
+weight-folded; without an explicit retain, exclude, or bake decision,
+preparation fails.
+
+Each rig therefore owns:
+
+```text
+rigs/<Rig>/
+├── model_character.fbx
+├── presentation.fbx
+└── preparation-report.json
+```
+
+`model_character.fbx` has exactly the model names, order, parents, and
+canonical bind transforms. `presentation.fbx` retains declared auxiliary
+deformers and original skin-weight ownership in the canonical frame. Both
+preserve mesh, materials, UVs, textures, and valid armature bindings.
+
+### Exact preparation reporting
+
+`preparation-report.json` is the authoritative, deterministic audit trail.
+Console logging is a readable projection of it and always names its path.
+Timestamps and timings, if wanted, live in a separate run envelope.
+
+The report records:
+
+- dataset, rig, pipeline version, resolved authority policy, configuration,
+  source paths, sizes, and checksums;
+- complete source, model, and presentation skeleton descriptions: ordered
+  names, parents, rest/bind transforms, units, axes, and channels;
+- every BVH/FBX joint correspondence, its method and residual, including
+  renamed, unmatched, ambiguous, and modality-only joints;
+- every ordered transform with exact parameters: rest-relative conversion,
+  root promotion, facing rotation, rigidity enforcement, centering, scale, and
+  grounding;
+- for every joint, whether it was retained, renamed, reparented, promoted,
+  collapsed, excluded, retained as auxiliary, or assigned a reconstruction
+  driver, including its reason and destination;
+- every skinning edit: mesh and vertex group, source and destination joints,
+  affected vertex count, total transferred weight, maximum per-vertex change,
+  normalization correction, and validation outcome;
+- every auxiliary reconstruction rule and dependency;
+- bind-fit, rest-pose, motion, and deformation residuals with thresholds;
+- every warning and explicitly accepted approximation; and
+- output paths, topology hashes, mesh/material counts, and final invariants.
+
+Routine progress is `INFO`. Structural and skinning decisions are `DEBUG`
+with stable operation IDs shared by the JSON report. Accepted lossy operations
+are at least `WARNING`. Ambiguous mappings and undeclared weighted-joint
+losses are `ERROR` and abort the rig. A log may not merely say “reduced” or
+“converted”: its summary names the affected joints, while the report contains
+the full per-joint record.
+
+Corpus acceptance requires all 73 Truebones rigs to have both FBX assets and a
+complete audit report. Tests assert that every topology, correspondence,
+transform, auxiliary, and skinning change has one stable report entry and that
+repeated preparation yields the same semantic report.
+
 ## Representation contract
 
 The terms in this design have one meaning:
