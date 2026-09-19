@@ -82,6 +82,10 @@ def test_model_and_presentation_assets_preserve_mesh_and_auxiliary(tmp_path):
     assert tuple(model.joint_names) == ("Root", "Spine")
     assert tuple(model.joint_parents) == (-1, 0)
     assert model.meshes
+    # The removed weighted auxiliary is transferred to its surviving parent;
+    # reducing topology must not leave a vertex with lost influence.
+    assert model.vertex_group_weight("ClothSecondary") == 0
+    assert model.vertex_group_weight("Spine") > 0
     presentation = FBX.read(assets.presentation)
     assert "ClothSecondary" in presentation.joint_names
     assert presentation.vertex_group_weight("ClothSecondary") > 0

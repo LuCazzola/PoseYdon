@@ -515,19 +515,65 @@ class FBX:
         bpy.context.view_layer.update()
 
     def prepare_model_topology(self, names, parents, skinning_plan=None) -> None:
+        """Reduce the imported rig to an exact model topology.
+
+        Bones are removed only after their surviving children are explicitly
+        reparented to the supplied model hierarchy.  Vertex-group influence is
+        transferred according to the skinning plan (or to the removed bone's
+        source parent for the legacy zero-offset reduction) before obsolete
+        groups are deleted, so reducing a rig never silently drops mesh
+        deformation.
+        """
+        names = tuple(names)
+        parents = tuple(int(parent) for parent in parents)
         keep = set(names)
+        source_parents = {name: parent for name, parent in zip(self.joint_names, self.joint_parents)}
+        decisions = {
+            decision.joint: decision.destination
+            for decision in (getattr(skinning_plan, "decisions", ()) or ())
+        }
         if self.armature.mode != "EDIT":
             bpy.context.view_layer.objects.active = self.armature
             self.armature.select_set(True)
             bpy.ops.object.mode_set(mode="EDIT")
-        for bone in list(self.armature.data.edit_bones):
+        bones = self.armature.data.edit_bones
+        missing = [name for name in names if name not in bones]
+        if missing:
+            bpy.ops.object.mode_set(mode="OBJECT")
+            raise ValueError(f"model topology joints missing from FBX: {', '.join(missing)}")
+        for bone in list(bones):
             if bone.name not in keep:
-                self.armature.data.edit_bones.remove(bone)
+                bones.remove(bone)
+        for name, parent_index in zip(names, parents):
+            bones[name].parent = None if parent_index < 0 else bones[names[parent_index]]
         bpy.ops.object.mode_set(mode="OBJECT")
+
+        # Transfer removed influences before deleting their groups.  The
+        # zero-offset reduction makes parent transfer the exact deformation
+        # preserving operation; an explicit SkinningPlan can override it.
         for mesh in self.meshes:
-            for group in list(mesh.vertex_groups):
-                if group.name not in keep:
-                    mesh.vertex_groups.remove(group)
+            groups = {group.name: group for group in mesh.vertex_groups}
+            for removed, source_parent in source_parents.items():
+                if removed in keep or removed not in groups:
+                    continue
+                destination = decisions.get(removed, source_parent)
+                while destination is not None and destination not in keep:
+                    destination = source_parents.get(destination)
+                if destination is not None:
+                    target = groups.get(destination) or mesh.vertex_groups.new(name=destination)
+                    source = groups[removed]
+                    for vertex in mesh.data.vertices:
+                        try:
+                            weight = source.weight(vertex.index)
+                        except RuntimeError:
+                            continue
+                        if weight:
+                            try:
+                                old = target.weight(vertex.index)
+                            except RuntimeError:
+                                old = 0.0
+                            target.add([vertex.index], old + weight, "REPLACE")
+                mesh.vertex_groups.remove(groups[removed])
 
     def validate_topology(self, names, parents, offsets=None) -> None:
         actual_names = tuple(self.joint_names)
@@ -536,8 +582,17 @@ class FBX:
         actual_parents = tuple(self.joint_parents)
         if actual_parents != tuple(parents):
             raise ValueError(f"model topology parents differ: expected {tuple(parents)!r}, got {actual_parents!r}")
-        if offsets is not None and not np.allclose(self.joint_offsets, np.asarray(offsets), atol=1e-4):
-            raise ValueError("model topology offsets differ from the prepared skeleton")
+        if offsets is not None:
+            expected = np.asarray(offsets)
+            # BVH's root OFFSET is a channel/rest-pose declaration, while an
+            # FBX root has no parent-relative offset and its bind head is the
+            # armature origin.  Compare the actual parent-relative geometry
+            # for all non-root joints; root placement is validated by the
+            # canonical scene transform itself.
+            if expected.shape != self.joint_offsets.shape or not np.allclose(
+                self.joint_offsets[1:], expected[1:], atol=1e-4
+            ):
+                raise ValueError("model topology offsets differ from the prepared skeleton")
 
     def vertex_group_weight(self, name: str) -> float:
         values = []
