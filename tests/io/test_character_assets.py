@@ -79,10 +79,10 @@ def test_model_and_presentation_assets_preserve_mesh_and_auxiliary(tmp_path):
     )
     assets = build_character_assets(context, tmp_path / "out")
     model = FBX.read(assets.model)
-    presentation = FBX.read(assets.presentation)
     assert tuple(model.joint_names) == ("Root", "Spine")
     assert tuple(model.joint_parents) == (-1, 0)
     assert model.meshes
+    presentation = FBX.read(assets.presentation)
     assert "ClothSecondary" in presentation.joint_names
     assert presentation.vertex_group_weight("ClothSecondary") > 0
 
