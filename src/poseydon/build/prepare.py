@@ -19,7 +19,7 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TYPE_CHECKING
 
 import numpy as np
 
@@ -27,6 +27,9 @@ from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
 from poseydon.core.rotations import QUAT_IDENTITY, quat_apply, quat_inverse, quat_mul
 from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig
+
+if TYPE_CHECKING:
+    from poseydon.build.report import AuditSink
 
 RIG = "rig"
 CLIP = "clip"
@@ -57,7 +60,9 @@ class PrepareChain:
 
     stages: tuple[PrepareStage, ...]
 
-    def fit_rig(self, rest: Animation, resolved: Any) -> dict[str, dict]:
+    def fit_rig(
+        self, rest: Animation, resolved: Any, audit: AuditSink | None = None
+    ) -> dict[str, dict]:
         """Fit every stage against the rest pose; keep the rig-scoped results.
 
         Each stage fits against the animation as the PRECEDING stages left it,
@@ -69,11 +74,18 @@ class PrepareChain:
         current = rest
         for stage in self.stages:
             params[stage.name] = stage.fit(current, resolved)
+            before = current
             current = stage.apply(current, params[stage.name])
+            if audit is not None:
+                audit.record_transform(
+                    stage=stage.name, direction="fit_rig", scope=stage.scope,
+                    parameters=params[stage.name], before=before, after=current,
+                )
         return {stage.name: params[stage.name] for stage in self.stages if stage.scope == RIG}
 
     def apply(
-        self, anim: Animation, resolved: Any, rig_params: dict[str, dict]
+        self, anim: Animation, resolved: Any, rig_params: dict[str, dict],
+        audit: AuditSink | None = None,
     ) -> tuple[Animation, dict[str, dict]]:
         """Prepare one animation, returning it with the full parameter set."""
         params: dict[str, dict] = dict(rig_params)
@@ -86,14 +98,29 @@ class PrepareChain:
                     f"no fitted parameters for rig-scoped stage `{stage.name}`; "
                     "call fit_rig against this rig's rest pose first"
                 )
+            before = current
             current = stage.apply(current, params[stage.name])
+            if audit is not None:
+                audit.record_transform(
+                    stage=stage.name, direction="apply", scope=stage.scope,
+                    parameters=params[stage.name], before=before, after=current,
+                )
         return current, params
 
-    def invert(self, anim: Animation, params: dict[str, dict]) -> Animation:
+    def invert(
+        self, anim: Animation, params: dict[str, dict],
+        audit: AuditSink | None = None,
+    ) -> Animation:
         """Undo the whole chain, stages in reverse order."""
         current = anim
         for stage in reversed(self.stages):
+            before = current
             current = stage.invert(current, params[stage.name])
+            if audit is not None:
+                audit.record_transform(
+                    stage=stage.name, direction="invert", scope=stage.scope,
+                    parameters=params[stage.name], before=before, after=current,
+                )
         return current
 
 
