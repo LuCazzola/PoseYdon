@@ -47,8 +47,11 @@ def discover(corpus, raw, output):
         prepared=Path(corpus)/"clips"/rigdir.name/(action+".bvh")
         context={"rig":rigdir.name,"action":action,"original_bvh":bvh,"original_fbx":fbx,"prepared_bvh":prepared if prepared.is_file() else None}
         old=Path(output)/rigdir.name
-        for field,filename in (("roundtrip_bvh","roundtrip.bvh"),("roundtrip_fbx","roundtrip.fbx"),("training_anim","training.anim.npz"),("training_features","training.features.npz"),("prepared_fbx","prepared.fbx"),("presentation_fbx","presentation.fbx")):
+        for field,filename in (("roundtrip_bvh","roundtrip.bvh"),("roundtrip_fbx","roundtrip.fbx"),("training_anim","training.anim.npz"),("training_features","training.features.npz")):
             candidate=old/filename
+            if candidate.is_file(): context[field]=candidate
+        for field,filename in (("prepared_fbx","model_character.fbx"),("presentation_fbx","presentation.fbx")):
+            candidate=Path(corpus)/"rigs"/rigdir.name/filename
             if candidate.is_file(): context[field]=candidate
         contexts.append(context)
     return contexts
