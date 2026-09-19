@@ -20,7 +20,10 @@ from poseydon.io.framing import (
 )
 
 try:
-    import imageio.v2 as imageio
+    try:
+        import imageio.v2 as imageio
+    except ImportError:
+        import imageio
     import matplotlib
 
     matplotlib.use("Agg")
