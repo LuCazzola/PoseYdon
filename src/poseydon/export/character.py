@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 from poseydon.build.authority import ArtifactUnavailableError
@@ -20,8 +20,8 @@ class CharacterExporter:
     rig: str
     chain: PrepareChain
     params: dict
-    clip_params: dict
     reduction: object
+    clip_params: dict = field(default_factory=dict)
     source_fbx: Path | None = None
     model_fbx: Path | None = None
     presentation_fbx: Path | None = None
@@ -84,7 +84,7 @@ class CharacterExporter:
                 source_fbx = candidates[0]
         model = corpus / "rigs" / rig / "model_character.fbx"
         presentation = corpus / "rigs" / rig / "presentation.fbx"
-        return cls(corpus, raw, rig, chain, params, clip_params, reduction,
+        return cls(corpus, raw, rig, chain, params, reduction, clip_params,
                    source_fbx if source_fbx and source_fbx.is_file() else None,
                    model if model.is_file() else None,
                    presentation if presentation.is_file() else None)

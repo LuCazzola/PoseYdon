@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import json
 
 from poseydon.build.corpus import PerRigDirectory, read_labels, rest_action, write_labels
 from poseydon.build.index import ClipRecord, CorpusIndex, clip_id
@@ -206,7 +207,7 @@ def build_skeleton(config: BuildConfig, rig: str) -> str | None:
     # self-contained and stage 2 can be re-run without Blender.
     for stage, params in rig_params.items():
         for key, value in params.items():
-            array = np.asarray(value)
+            array = np.array(json.dumps(value)) if key == "source_channels" else np.asarray(value)
             # `RestRelative.fit` stores `names` as a plain list of strings
             # boxed into an object array only so it round-trips through
             # `RigTransform.load(allow_pickle=True)` -- it is not ragged like

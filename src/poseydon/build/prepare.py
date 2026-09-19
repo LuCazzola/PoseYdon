@@ -720,7 +720,7 @@ class RigTransform:
         for stage, params in self.rig_params.items():
             for key, value in params.items():
                 if key == "source_channels":
-                    arrays[f"rig/{stage}/{key}"] = np.array(json.dumps(value))
+                    arrays[f"rig/{stage}/{key}"] = np.array(json.dumps([[str(channel) for channel in channels] for channels in value]))
                 else:
                     arrays[f"rig/{stage}/{key}"] = np.asarray(value, dtype="<U" if key == "names" else None)
         for clip, stages in self.clip_params.items():
