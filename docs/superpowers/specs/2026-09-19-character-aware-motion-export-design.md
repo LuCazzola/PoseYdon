@@ -144,6 +144,55 @@ complete audit report. Tests assert that every topology, correspondence,
 transform, auxiliary, and skinning change has one stable report entry and that
 repeated preparation yields the same semantic report.
 
+### Optional source modalities
+
+A dataset or rig may provide BVH motion only, FBX motion only, or paired BVH
+and FBX. Availability is declared explicitly in the manifest and represented
+with optional typed artifact references; a missing modality is not represented
+by an empty path, fabricated file, or guessed counterpart.
+
+For BVH-only input, BVH may own skeleton and motion. Preparation, model
+training, prepared BVH, and original BVH remain fully supported. Surface
+authority is `none`; mesh-bearing templates and all FBX exports return a
+structured unavailable result whose reason is `source_surface_missing`.
+On-disk optional artifact fields are JSON/YAML `null`, and the report records
+that mesh and FBX stages were skipped rather than failed.
+
+For FBX-only input, FBX owns every available source role. Blender extraction
+produces the source animation, hierarchy, channels needed by the internal
+pipeline, mesh, bind data, and motion curves. Preparation, model training, and
+both FBX representations remain supported. BVH export is allowed because BVH
+is a serializer for the prepared or restored internal animation; the report
+must state that no original BVH artifact or source channel declaration existed,
+so an original-space BVH uses a deterministic documented channel convention
+and is not claimed to reproduce a vendor BVH file.
+
+For paired input, the declared authority policy selects the model skeleton and
+motion while FBX normally owns the surface. Correspondence and residual checks
+are mandatory. Missing data may reduce capabilities, but it must not make
+unrelated preparation or training fail.
+
+The public API exposes availability before export:
+
+```python
+@dataclass(frozen=True)
+class ArtifactAvailability:
+    prepared_bvh: bool
+    prepared_fbx: bool
+    presentation_fbx: bool
+    original_bvh: bool
+    original_fbx: bool
+    reasons: Mapping[str, str]
+
+exporter.availability -> ArtifactAvailability
+```
+
+Export methods for unavailable representations raise a typed
+`ArtifactUnavailableError` carrying dataset, rig, representation, format,
+and reason. Batch preparation records `null` output paths plus the same reason
+and continues when absence is expected by the manifest. It fails only when a
+declared required modality or artifact is missing or invalid.
+
 ## Representation contract
 
 The terms in this design have one meaning:
