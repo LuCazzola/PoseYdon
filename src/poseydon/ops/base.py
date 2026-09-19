@@ -26,22 +26,31 @@ class Operation(ABC):
     def build_controls(self, cond: Cond) -> Sequence[Control]:
         """The controls that express this operation."""
 
-    #: Classifier-free guidance strength. 0 samples the model as-is; above 0
-    #: wraps it so each step evaluates a conditional and an unconditional
-    #: branch and extrapolates between them. Declared here rather than on each
-    #: subclass so `wrap_model` has ONE implementation: `Generate` and
-    #: `Retarget` differ in what they condition on, not in how guidance works.
-    guidance_scale: float = 0.0
+    #: Classifier-free guidance strength, in the standard convention:
+    #: `uncond + w * (cond - uncond)`. So 0 is the UNCONDITIONAL branch, 1 is
+    #: the conditional one, (0, 1) weakens the conditioning and above 1
+    #: extrapolates past it. 1.0 is the default because it is the identity --
+    #: the setting that samples the model as it was trained.
+    #:
+    #: Declared here rather than on each subclass so `wrap_model` has ONE
+    #: implementation: `Generate` and `Retarget` differ in what they condition
+    #: on, not in how guidance works.
+    guidance_scale: float = 1.0
 
     def wrap_model(self, model: Denoiser) -> Denoiser:
         """The denoiser this operation actually samples with.
 
-        Identity at scale 0, which is every operation's default. Guidance needs
-        two forward passes per step, which a `Control` cannot do -- it is given
-        the state and the conditioning, never the model -- so it wraps here
-        instead.
+        Identity at scale 1, which is every operation's default and the only
+        scale that changes nothing: `uncond + 1 * (cond - uncond) == cond`.
+        Guidance needs two forward passes per step, which a `Control` cannot do
+        -- it is given the state and the conditioning, never the model -- so it
+        wraps here instead.
+
+        `!= 1.0`, not `> 1.0`: scales below 1 are meaningful too, and 0 asks
+        for the unconditional branch on purpose. Gating on `> 1.0` would
+        silently hand back the conditional for every one of them.
         """
-        if self.guidance_scale > 0.0:
+        if self.guidance_scale != 1.0:
             from poseydon.sampling.guidance import GuidedDenoiser
 
             return GuidedDenoiser(model, scale=self.guidance_scale)

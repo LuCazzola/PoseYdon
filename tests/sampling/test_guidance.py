@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -39,12 +41,35 @@ def test_the_wrapper_extrapolates_away_from_the_unconditional_branch():
     assert torch.allclose(out, torch.full_like(out, -1.0))
 
 
-def test_scale_zero_costs_one_forward_and_returns_the_conditional():
+def test_scale_one_costs_one_forward_and_returns_the_conditional():
+    """w = 1 is the identity: `uncond + 1 * (cond - uncond) == cond`."""
     inner = Branchy()
-    guided = GuidedDenoiser(inner, scale=0.0)
+    guided = GuidedDenoiser(inner, scale=1.0)
     out = guided(torch.zeros(1, 2, 3, 4), torch.zeros(1), Cond({})).out
     assert torch.allclose(out, torch.ones_like(out))
     assert inner.calls == 1, "the shipped default must not pay for a second pass"
+
+
+def test_scale_zero_is_the_unconditional_branch():
+    """0.0 is a real point on the scale, not a spelling of "off".
+
+    It used to short-circuit to the CONDITIONAL, which contradicted the
+    formula's own limit and left a hole at the origin: 0.5 leaned towards the
+    unconditional branch, 0.0 jumped back to the conditional one. Nothing could
+    ask for the branch guidance extrapolates away from, which is the branch a
+    `cond_drop` run most needs to watch.
+    """
+    guided = GuidedDenoiser(Branchy(), scale=0.0)
+    out = guided(torch.zeros(1, 2, 3, 4), torch.zeros(1), Cond({})).out
+    assert torch.allclose(out, torch.full_like(out, 3.0))
+
+
+def test_a_scale_below_one_leans_towards_the_unconditional_branch():
+    """The range (0, 1) weakens the conditioning, continuously."""
+    guided = GuidedDenoiser(Branchy(), scale=0.5)
+    out = guided(torch.zeros(1, 2, 3, 4), torch.zeros(1), Cond({})).out
+    # u + s * (c - u) = 3 + 0.5 * (1 - 3) = 2
+    assert torch.allclose(out, torch.full_like(out, 2.0))
 
 
 def test_the_aux_comes_from_the_conditional_branch():
@@ -80,7 +105,7 @@ def test_a_model_without_encode_still_looks_like_one_through_the_wrapper():
 
 def test_generate_wraps_only_when_guidance_is_asked_for():
     inner = Branchy()
-    assert Generate(guidance_scale=0.0).wrap_model(inner) is inner
+    assert Generate(guidance_scale=1.0).wrap_model(inner) is inner
     wrapped = Generate(guidance_scale=2.5).wrap_model(inner)
     assert isinstance(wrapped, GuidedDenoiser)
     assert wrapped.scale == 2.5
@@ -110,7 +135,7 @@ def test_every_operation_inherits_the_guidance_hook():
             return []
 
     inner = Branchy()
-    assert Operation.guidance_scale == 0.0
+    assert Operation.guidance_scale == 1.0
     assert Bare().wrap_model(inner) is inner, "identity unless a scale is set"
 
     scaled = Bare()
@@ -134,3 +159,34 @@ def test_retarget_is_guided_when_asked():
     guided = Retarget(content, cond, guidance_scale=2.0).wrap_model(Branchy())
     assert isinstance(guided, GuidedDenoiser)
     assert guided.scale == 2.0
+
+
+def test_every_shipped_default_is_the_identity():
+    """1.0 everywhere, because 0.0 now means something.
+
+    The scale is `uncond + w * (cond - uncond)`, so 0.0 is the UNCONDITIONAL
+    branch. A default of 0.0 left anywhere would hand every caller that never
+    asked for guidance a sample with its conditioning discarded -- output that
+    looks like motion, reports metrics and raises nothing. This asserts the
+    whole set at once, because the hazard is missing ONE of them.
+    """
+    import inspect
+
+    import yaml
+
+    from poseydon.ops.base import Operation
+    from poseydon.ops.generate import Generate
+    from poseydon.ops.retarget import Retarget
+    from poseydon.ops.retarget_run import run_retarget
+    from poseydon.training.validation import RetargetValidation
+
+    assert Operation.guidance_scale == 1.0
+    for owner in (Generate.__init__, Retarget.__init__, run_retarget):
+        default = inspect.signature(owner).parameters["guidance_scale"].default
+        assert default == 1.0, f"{owner.__qualname__} defaults to {default}"
+
+    scales = inspect.signature(RetargetValidation.__init__).parameters["guidance_scales"].default
+    assert list(scales) == [1.0]
+
+    config = yaml.safe_load(Path("configs/sample.yaml").read_text())
+    assert config["operation"]["guidance_scale"] == 1.0

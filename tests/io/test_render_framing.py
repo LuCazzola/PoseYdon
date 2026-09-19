@@ -5,6 +5,11 @@ else in the clip: winding the old whole-trajectory framing in to a comparable
 apparent size clipped 37-51% of joint-frames while looking fine on the frame
 that happened to be inspected. These assert the property over every joint of
 every frame instead.
+
+Imported from `poseydon.io.framing`, which is where this maths lives: `render`
+re-exports it for its own use but pulls in matplotlib and imageio to do so, and
+the framing is the same whether the renderer drawing it is matplotlib or the
+Blender one in `scripts/render_fbx.py`.
 """
 
 from __future__ import annotations
@@ -12,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from poseydon.io.render import _smooth_path, camera, to_view
+from poseydon.io.framing import _smooth_path, camera, to_view
 
 
 def _framing(positions: np.ndarray, zoom: float = 1.0):

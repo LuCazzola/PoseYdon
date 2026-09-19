@@ -30,6 +30,16 @@ def build_losses(config: DictConfig) -> list[tuple[str, float, LossTerm]]:
 
 def build_dataset(config: DictConfig, split: str | None = None) -> MotionDataset:
     index = CorpusIndex.load(Path(config.data.index))
+    # Clips this run must never see. Applied here rather than inside
+    # `MotionDataset` because this is the one place a config becomes a dataset,
+    # and both `train` and `sample` come through it.
+    # Gated on the CONTENTS, not on the block: the default block is present and
+    # empty, and `without` on two empty sets is a full copy of the index for
+    # nothing.
+    block = config.data.get("blacklist") or {}
+    skeletons, clips = block.get("skeletons") or (), block.get("clips") or ()
+    if skeletons or clips:
+        index = index.without(skeletons=skeletons, clips=clips)
     return MotionDataset(
         index=index,
         root=config.data.root,
@@ -131,15 +141,23 @@ def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | Non
         every_n_steps=int(block.get("every_n_steps", 25_000)),
         run_at_start=bool(block.get("run_at_start", True)),
         seed=int(config.get("seed", 0)),
-        # OFF unless asked for, even on a run that trains a null latent.
+        # `[1.0]` unless asked for. Scale 1 is the IDENTITY -- the model
+        # sampled as trained -- so this is one unwrapped conditional retarget
+        # per pair, which is all a run with no trained null latent can measure
+        # and the baseline every other scale is read against. `is None`, not
+        # `or`: a configured `[1.0]` is a deliberate request for that baseline.
+        #
         # MEASURED on this project's own 25k checkpoint (cond_drop 0.1): a
-        # scale of 2.5 made 9 of 10 retarget metrics WORSE, not better. An
-        # earlier version of this line defaulted to 2.5 whenever
-        # `model.cond_drop > 0`, which would have degraded the observation it
-        # exists to sharpen. `is None`, not `or`: a configured 0.0 is falsy and
-        # must stay the explicit unguided baseline it was written to be.
-        guidance_scale=float(
-            _scale if (_scale := block.get("guidance_scale")) is not None else 0.0
+        # scale of 2.5 made 9 of 10 retarget metrics WORSE and 1.25 made 7 of
+        # 10 worse, so guidance is not a free win to be switched on. It is a
+        # sweep to be WATCHED -- those numbers come from a checkpoint whose null
+        # latent had seen gradient from ~10% of samples, and the question is
+        # whether the ordering survives training, which one scalar per firing
+        # cannot answer and several can.
+        guidance_scales=(
+            [float(g) for g in _scales]
+            if (_scales := block.get("guidance_scales")) is not None
+            else [1.0]
         ),
     )
 

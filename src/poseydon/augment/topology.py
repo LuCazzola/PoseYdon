@@ -155,9 +155,17 @@ def duplicate_joint(
         names=tuple(new_names),
         fps=anim.fps,
     )
+    # The inserted joint lies between `joint` and `joint`'s parent, so those two
+    # are what describe it. `source_of` alone would centre it on `joint`'s mean,
+    # half a bone offset from where it actually sits.
+    blend_of = list(source_of)
+    blend_of[joint] = old_parent if old_parent >= 0 else joint
+
     old_to_new = {old: shift(old) for old in range(n)}
     new_resolved = _reindex_resolved(resolved, old_to_new)
-    return new_anim, new_resolved, JointEdit(source_of=tuple(source_of))
+    return new_anim, new_resolved, JointEdit(
+        source_of=tuple(source_of), blend_of=tuple(blend_of)
+    )
 
 
 @AUGMENTATIONS.register("duplicate_joint")

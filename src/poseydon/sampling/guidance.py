@@ -69,9 +69,18 @@ class GuidedDenoiser(Denoiser):
         masks: Masks | None = None,
     ) -> Prediction:
         conditional = self.inner(z_t, t, cond, masks)
-        if self.scale == 0.0:
-            # Not merely equivalent -- skipping the branch entirely is what
-            # makes `guidance_scale: 0.0`, the shipped default, free.
+        if self.scale == 1.0:
+            # w = 1 IS the conditional: `uncond + 1*(cond - uncond) == cond`,
+            # so the second branch would cancel exactly. Skipping it is what
+            # makes `guidance_scale: 1.0`, the shipped default, free.
+            #
+            # 1.0 and not 0.0. This used to short-circuit at 0.0, which read as
+            # "off" but contradicted the formula below: its limit as w -> 0 is
+            # the UNCONDITIONAL branch, not the conditional one. The scale now
+            # means the same thing across its whole range -- 0 unconditional,
+            # (0,1) weakened conditioning, 1 conditional, >1 extrapolation --
+            # and the only value that does nothing is the one that is
+            # algebraically nothing.
             return conditional
 
         # ponytail: when no `z_sem` is pinned (i.e. `Generate`), this re-runs the

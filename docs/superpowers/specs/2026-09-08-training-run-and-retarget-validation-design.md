@@ -253,7 +253,7 @@ fitted against the original joint set and would reject a promoted clip — and
 and therefore the canonical scale, so promotion changes the fitted scale factor
 for these 14 rigs. That is a correction rather than a side effect — a
 locator-to-body connector is not an anatomical bone — but it means these rigs'
-`prepare.npz` scale differs from what today's code produces, and a test that
+`preproc.npz` scale differs from what today's code produces, and a test that
 restates `ScaleToMeanBoneLength`'s own definition will not notice. This is the
 same class of bug as the zero-length End Site scale error that survived all
 eleven Phase 1 tasks.
@@ -297,7 +297,7 @@ four passes.
 
 | pass | writes |
 |---|---|
-| per clip | `clips/<Rig>/<action>.npz` — motion arrays plus that clip's facing quaternion from `prepare.npz`; `<action>.yaml` if absent |
+| per clip | `clips/<Rig>/<action>.npz` — motion arrays plus that clip's facing quaternion from `preproc.npz`; `<action>.yaml` if absent |
 | per rig | `rigs/<Rig>/skeleton.npz` — offsets, parents, raw and humanized names, reduction map, folded prepare constants |
 | per rig, schema-dependent | `rigs/<Rig>/stats.npz` — mean, std, block layout |
 | once | `index.jsonl` — one flat row per clip, joining rig-level `tags` |
@@ -314,7 +314,7 @@ OFFSET block — each carries its own facing correction — so rig-level `offset
 looks for `tpose.bvh` gets a differently-rotated skeleton, silently, and forward
 kinematics in `features/reconstruct.py` is then wrong by `R_rest · R_clip⁻¹`.
 
-A1 settled where that choice lives, and it is **not** `prepare.npz`: each rig's
+A1 settled where that choice lives, and it is **not** `preproc.npz`: each rig's
 manifest declares `rest_pose:` (§1.1), and
 `scripts/process_dataset_truebones.py::rest_action(manifest)` derives the
 prepared-clip action slug from it — `strip_skeleton_prefix(action_slug(stem), rig)`,
@@ -738,7 +738,7 @@ Five scalars per pair, plus a mean across pairs, logged as
 | foot skate | horizontal displacement of a foot joint while its contact flag is set, on the solved output | the classic retargeting failure, and the term switched off as a loss |
 | bone-length drift | \|‖p_j − p_parent‖ − ‖offset_j‖\| on the **raw predicted positions**, in bone-length units | whether the model predicts a holdable skeleton |
 | IK residual | ‖p_predicted − p_solved‖, mean and max, in bone-length units | how far the solver had to travel — whether it is cleaning up or inventing |
-| root trajectory error | generated root XZ velocity against the content clip's, each rescaled by its own rig's `scale_factor` from `prepare.npz` | whether content transferred, or only style |
+| root trajectory error | generated root XZ velocity against the content clip's, each rescaled by its own rig's `scale_factor` from `preproc.npz` | whether content transferred, or only style |
 | latent round-trip | distance between `encode(generated)` and the injected `z_sem` | whether the decoder honoured the instruction at all |
 
 Bone-length drift is measured **before** IK deliberately. On the solved output it
@@ -916,7 +916,7 @@ orientation. For retargeting, `unprepare` uses **the reference clip's** facing �
 the clip that named the target skeleton — so the output returns in the same
 orientation as the rig identity the user pointed at. Rig-scoped parameters
 (`RestRelative`, `CentreXZ`, `ScaleToMeanBoneLength`, `PutOnGround`) need no such
-choice: they come from the target rig's own `prepare.npz`.
+choice: they come from the target rig's own `preproc.npz`.
 
 ## Limitations
 
@@ -949,7 +949,7 @@ are long — 6.47 on Pirrana, 4.95 on Bear, 2.40 + 3.39 on Horse — and they
 currently enter `ScaleToMeanBoneLength`'s mean. Removing a locator-to-body
 connector from that average is a correction, not a regression, but it means those
 rigs' fitted scale differs from what today's code produces, and any checkpoint or
-`prepare.npz` from before the change is incomparable with one after it.
+`preproc.npz` from before the change is incomparable with one after it.
 
 **Promotion returns structure, not the original rotation split.** Every joint of
 the removed chain has exactly one child, so their rotations turn the same subtree

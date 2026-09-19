@@ -480,7 +480,7 @@ def _validation_config(cond_drop: float, scale=None):
 
     block = {"pairs": [{"content": {"rig": "R", "action": "a"}, "target": "T"}]}
     if scale is not None:
-        block["guidance_scale"] = scale
+        block["guidance_scales"] = scale
     return OmegaConf.create(
         {
             "validation": block,
@@ -494,23 +494,23 @@ def _validation_config(cond_drop: float, scale=None):
 @pytest.mark.parametrize(
     ("cond_drop", "configured", "expected"),
     [
-        # OFF unless asked for, and NOT inferred from `model.cond_drop`. An
-        # earlier version of this defaulted to 2.5 whenever a run trained a
-        # null latent, on the assumption that guidance sharpens what the
-        # observation measures. Measured against this project's own 25k
-        # checkpoint it did the opposite -- 9 of 10 retarget metrics worse --
-        # so the default that looked helpful would have degraded the metric it
-        # exists to sharpen. Guidance is now opt-in at a scale the user picks.
-        (0.1, None, 0.0),
-        (0.0, None, 0.0),
-        # An explicit value wins, including an explicit 0.0 -- which is falsy,
-        # and is how an unguided baseline is pinned against a guided run.
-        (0.1, 2.5, 2.5),
-        (0.0, 4.0, 4.0),
-        (0.1, 0.0, 0.0),
+        # One unguided retarget unless asked for, and NOT inferred from
+        # `model.cond_drop`. An earlier version of this defaulted to 2.5
+        # whenever a run trained a null latent, on the assumption that guidance
+        # sharpens what the observation measures. Measured against this
+        # project's own 25k checkpoint it did the opposite -- 9 of 10 retarget
+        # metrics worse -- so the default that looked helpful would have
+        # degraded the metric it exists to sharpen.
+        (0.1, None, [1.0]),
+        (0.0, None, [1.0]),
+        # An explicit list wins, including an explicit `[1.0]` -- which is how
+        # a run pins the conditional baseline and nothing else.
+        (0.1, [0.0, 1.0, 1.25, 2.5], [0.0, 1.0, 1.25, 2.5]),
+        (0.0, [4.0], [4.0]),
+        (0.1, [1.0], [1.0]),
     ],
 )
-def test_validation_guidance_is_off_unless_configured(
+def test_validation_guidance_sweep_is_what_the_config_asked_for(
     tmp_path, cond_drop, configured, expected, monkeypatch
 ):
     captured = {}
@@ -524,4 +524,4 @@ def test_validation_guidance_is_off_unless_configured(
     build.build_validation(
         _validation_config(cond_drop, configured), tmp_path, dataset=object()
     )
-    assert captured["guidance_scale"] == expected
+    assert captured["guidance_scales"] == expected

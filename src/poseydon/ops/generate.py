@@ -13,7 +13,7 @@ from poseydon.sampling.base import Control
 class Generate(Operation):
     """Sample motion from noise. The base case: no controls at all."""
 
-    def __init__(self, guidance_scale: float = 0.0) -> None:
+    def __init__(self, guidance_scale: float = 1.0) -> None:
         self.guidance_scale = guidance_scale
 
     def build_controls(self, cond: Cond) -> Sequence[Control]:

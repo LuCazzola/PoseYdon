@@ -36,9 +36,21 @@ class DDPM(Sampler):
         device: torch.device | str = "cpu",
         generator: torch.Generator | None = None,
         masks: Masks | None = None,
+        start: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """``start`` fixes z_T, as DDIM's does.
+
+        Without it the two samplers cannot be compared: each draws its own
+        starting noise, so any difference between their outputs is partly the
+        draw rather than the sampler. DDIM took a ``start`` from the beginning
+        and this did not, which made the obvious experiment impossible to run.
+        """
         gaussian = _require_gaussian(process)
-        z_t = torch.randn(shape, device=device, generator=generator)
+        z_t = (
+            torch.randn(shape, device=device, generator=generator)
+            if start is None
+            else start.to(device)
+        )
 
         for step in reversed(range(gaussian.num_steps)):
             t = torch.full((shape[0],), step, device=device, dtype=torch.long)

@@ -74,26 +74,42 @@ optimizer:
 validation:
   every_n_steps: 25000
   run_at_start: true
-  # Classifier-free guidance strength for the OBSERVATION, not for training.
-  # OFF, and off is a measurement rather than caution: against this project's
-  # own 25k checkpoint (trained at `model.cond_drop: 0.1`), a scale of 2.5 made
-  # 9 of 10 retarget metrics worse -- bone-length drift 0.080 -> 0.093 and IK
-  # residual 0.080 -> 0.096 on Scorpion, foot skate 0.066 -> 0.116 on Raptor.
-  # Only one number improved, and the harm is MONOTONE in the scale: at 1.25
-  # it is 3 better / 7 worse, at 2.5 it is 1 better / 9 worse. So this is not a
-  # mistuned scale, it is guidance not helping this task yet.
+  # Classifier-free guidance for the OBSERVATION, not for training. Every
+  # scale here is sampled as its own retarget, from the SAME z_T, so the four
+  # videos of a pair differ by the guidance and nothing else.
   #
-  # The reading is that a retarget's conditional
-  # branch is already maximally specified -- `LatentPin` pins an exact z_sem --
-  # so extrapolating away from a weakly-modelled unconditional branch buys no
-  # sharpening and costs manifold drift, which is precisely what those two
-  # metrics measure.
+  # The scale is `uncond + w * (cond - uncond)`, so it means one thing across
+  # its whole range and each of these four is a different question:
   #
-  # Turn it on to watch guidance rather than to improve the metric, and expect
-  # to re-measure late in training: the null latent at 25k has seen gradient
-  # from only ~10% of samples. A second forward pass per denoising step, three
-  # pairs every 25k steps, is nothing next to the 100-step DDPM it wraps.
-  guidance_scale: 0.0
+  #   0.0   the UNCONDITIONAL branch -- what the model does ignoring the
+  #         content clip entirely. Never sampled before, and it is the branch
+  #         guidance extrapolates AWAY from: if it stays garbage, guidance
+  #         keeps costing manifold drift; if it sharpens, the ordering below
+  #         should flip. That is the hypothesis, watchable.
+  #   1.0   the identity, `uncond + 1*(cond - uncond) == cond` -- the model as
+  #         trained, unwrapped and free. THE BASELINE.
+  #   >1    extrapolation past the conditional.
+  #
+  # 1.25 and 2.5 because both are already MEASURED, on this project's
+  # own 25k checkpoint (cond_drop 0.1): against the unguided baseline, 1.25 was
+  # 3 better / 7 worse and 2.5 was 1 better / 9 worse -- bone-length drift
+  # 0.080 -> 0.093 and IK residual 0.080 -> 0.096 on Scorpion, foot skate
+  # 0.066 -> 0.116 on Raptor. The harm is MONOTONE in the scale, so that is not
+  # a mistuned dial; at 25k it is guidance not helping this task.
+  #
+  # The reading was that a retarget's conditional branch is already maximally
+  # specified -- `LatentPin` pins an exact z_sem -- so extrapolating away from a
+  # weakly-modelled unconditional branch buys no sharpening and costs manifold
+  # drift, which is what those two metrics measure. That reading predicts the
+  # ordering HOLDS as the null latent trains. Keeping all three on the dashboard
+  # is what tests it, and 0.0 stays first because it is the baseline.
+  #
+  # Cost: MEASURED at 90s for 3 pairs x 3 scales, so ~2 minutes for these four,
+  # every 25k steps. A scale other than 1.0 is two forward passes per denoising
+  # step, but the encode, IK solve and render are the same at every scale, so
+  # the real multiplier is ~1.4x per scale rather than 2x. Cut the list to
+  # `[1.0]` to go back to a single conditional observation.
+  guidance_scales: [0.0, 1.0, 1.25, 2.5]
   pairs:
     - {content: {rig: Flamingo, action: onelegbent}, target: Scorpion}
     - {content: {rig: Coyote,   action: attack3},    target: Crab}

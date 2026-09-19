@@ -28,7 +28,7 @@ class Retarget(Operation):
         self,
         content: torch.Tensor,
         content_cond: Cond,
-        guidance_scale: float = 0.0,
+        guidance_scale: float = 1.0,
     ) -> None:
         self.content = content
         self.content_cond = content_cond

@@ -79,7 +79,7 @@ data/truebones/
 ├── rigs/_base.yaml               shared manifest fragment
 ├── rigs/<Rig>/
 │   ├── manifest.yaml   authored  facing, foot_joints, contact, fps, tags
-│   ├── prepare.npz     stage 1   rest rotations, scale, ground, XZ, per-clip facing table
+│   ├── preproc.npz     stage 1   rest rotations, scale, ground, XZ, per-clip facing table
 │   ├── mesh.npz        stage 1   verts, faces, skin weights, bind pose
 │   ├── skeleton.npz    stage 2   offsets, parents, raw and humanized names,
 │   │                             reduction map, prepare constants, name embeddings
@@ -110,9 +110,9 @@ data/**/*.fbx
 data/**/index.jsonl
 ```
 
-**Every file has exactly one writer.** Stage 1 writes `prepare.npz`, `mesh.npz`
+**Every file has exactly one writer.** Stage 1 writes `preproc.npz`, `mesh.npz`
 and the prepared BVH/FBX; stage 2 writes `skeleton.npz`, `stats.npz`, the clip
-`.npz` and the index. Stage 2 reads `prepare.npz` and folds the rig constants
+`.npz` and the index. Stage 2 reads `preproc.npz` and folds the rig constants
 into `skeleton.npz` and each clip's facing quaternion into its own `.npz`, so
 the training-facing files are self-contained and stage 2 can be re-run without
 Blender.
@@ -161,7 +161,7 @@ scale, ground. Reordering changes the result.
 The per-clip facing is the one that would be lost silently. `rotate_to_face_axis`
 derives it from that clip's frame 0, so once the prepared file faces +Z the
 original orientation is unrecoverable from it. It is written to
-`rigs/<Rig>/prepare.npz` as a clip-id-keyed table.
+`rigs/<Rig>/preproc.npz` as a clip-id-keyed table.
 
 `EnforceRigid.invert` re-inserts the per-joint position channels filled with the
 rest offsets. A source BVH declaring six channels per joint comes back declaring
@@ -228,10 +228,10 @@ text:   null
 Passes:
 
 - **per clip** — read `clips/<Rig>/<action>.bvh`, write `<action>.npz` carrying
-  the motion arrays and that clip's facing quaternion from `prepare.npz`, and
+  the motion arrays and that clip's facing quaternion from `preproc.npz`, and
   write `<action>.yaml` if absent.
 - **per rig** — build the reduction map; humanize joint names; optionally encode
-  them; fold in `prepare.npz` and `mesh.npz`; write `skeleton.npz`.
+  them; fold in `preproc.npz` and `mesh.npz`; write `skeleton.npz`.
 - **per rig, schema-dependent** — extract the schema over every clip of the rig
   through the reduction, fit the `Normalizer` under the per-block policy, extract
   and normalize the rest frame, write `stats.npz`.

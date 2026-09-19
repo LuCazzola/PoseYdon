@@ -34,7 +34,7 @@ from poseydon.core.batch import Cond, Masks
 from poseydon.core.spec import FeatureSpec
 from poseydon.models.modiffae import JOINT_NAMES, TEMPORAL_VALID, Z_SEM, MoDiffAE
 from poseydon.process import GaussianDiffusion
-from poseydon.sampling import DDIM
+from poseydon.sampling import DDIM, DDPM
 
 SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_contact", 1)))
 REF_DIR = Path("data/truebones/reference")
@@ -116,11 +116,17 @@ def main() -> int:
     parser.add_argument("--save", default="truebones_attnpool")
     parser.add_argument("--frames", type=int, default=40)
     parser.add_argument("--steps", type=int, default=None, help="DDIM steps; default = all")
-    parser.add_argument("--start", default="noise", choices=["noise", "zeros"],
-                        help="z_T. `noise` is the real trajectory; `zeros` is "
-                             "out of distribution and was the first version's "
-                             "mistake")
+    parser.add_argument("--start", default="invert", choices=["invert", "noise", "zeros"],
+                        help="z_T. `invert` runs DDIM inversion on the clip and is "
+                             "the only setting that asks for RECONSTRUCTION: a "
+                             "random z_T can only produce something consistent "
+                             "with the latent, never this particular clip. "
+                             "`zeros` is out of distribution and was an early "
+                             "mistake, kept so the difference is reproducible")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--sampler", default="ddim", choices=["ddim", "ddpm"],
+                        help="DDPM gets the SAME z_T and the same pinned latent, "
+                             "so the comparison isolates the sampler")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--every", type=int, default=10,
                         help="report every Nth step of the trajectory")
@@ -145,8 +151,9 @@ def main() -> int:
     )
     cache = dict(np.load(REF_DIR / "t5_cache.npz", allow_pickle=False))
 
-    print(f"{args.save}  DDIM eta=0  {args.steps or process.num_steps} steps  "
-          f"{args.frames} frames  z_T={args.start}  on {args.device}\n")
+    print(f"{args.save}  {args.steps or process.num_steps} steps  "
+          f"{args.frames} frames  z_T={args.start}  {args.sampler.upper()}  "
+          f"on {args.device}\n")
     header = f"{'rig':11s} {'joints':>6s} " + " ".join(f"{n:>13s}" for n in SPEC.names)
     print(header)
     print("-" * len(header))
@@ -175,17 +182,32 @@ def main() -> int:
         traced = _Trace(model)
         with torch.no_grad():
             z_sem, _ = model.encode(x, cond, masks)
-            out = DDIM(steps=args.steps).sample(
-                traced, process, tuple(x.shape),
-                Cond({**cond.payloads, Z_SEM: z_sem}), masks=masks,
-                device=args.device,
-                start=(
-                    torch.randn(
-                        x.shape, generator=torch.Generator().manual_seed(args.seed)
-                    ).to(args.device)
-                    if args.start == "noise"
-                    else torch.zeros_like(x)
-                ),
+            pinned = Cond({**cond.payloads, Z_SEM: z_sem})
+
+            if args.start == "invert" and args.sampler == "ddpm":
+                raise SystemExit(
+                    "DDPM cannot invert: inversion is a property of the "
+                    "deterministic DDIM map. Use `--start noise` to compare "
+                    "samplers, which is the comparison DDPM can take part in."
+                )
+            if args.start == "invert":
+                # The noise that PRODUCES this clip, with the latent already
+                # pinned so inversion and sampling walk the same conditioning.
+                start = DDIM(steps=args.steps).invert(
+                    model, process, x, pinned, device=args.device, masks=masks
+                )
+            elif args.start == "noise":
+                start = torch.randn(
+                    x.shape, generator=torch.Generator().manual_seed(args.seed)
+                ).to(args.device)
+            else:
+                start = torch.zeros_like(x)
+
+            sampler = DDIM(steps=args.steps) if args.sampler == "ddim" else DDPM()
+            out = sampler.sample(
+                traced, process, tuple(x.shape), pinned, masks=masks,
+                device=args.device, start=start,
+                generator=torch.Generator(device=args.device).manual_seed(args.seed),
             )
         trajectories[rig] = traced.steps
 

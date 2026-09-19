@@ -27,7 +27,9 @@ optimizer: {learning_rate: 1e-4, weight_decay: 0.0}
 # What to do with the model, and how to solve the trajectory.
 operation:
   _target_: poseydon.ops.generate.Generate
-  guidance_scale: 0.0
+  # 1.0 is the identity -- the model sampled as trained. 0.0 is the
+  # UNCONDITIONAL branch, and above 1.0 extrapolates away from it.
+  guidance_scale: 1.0
 
 sampler:
   _target_: poseydon.sampling.diffusion.DDIM

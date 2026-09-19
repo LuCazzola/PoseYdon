@@ -161,10 +161,10 @@ def test_it_logs_every_metric_per_pair_and_their_mean(tmp_path, monkeypatch):
     scalars, step = logger.metrics[0]
     assert step == 25_000
     for slug in ("Flamingo_onelegbent__to__Scorpion", "Coyote_attack3__to__Crab"):
-        assert scalars[f"retarget/{slug}/foot_skate"] == 1.0
-        assert scalars[f"retarget/{slug}/ik_residual_mean"] == 2.0
-    assert scalars["retarget/mean/foot_skate"] == 1.0
-    assert scalars["retarget/mean/ik_residual_mean"] == 2.0
+        assert scalars[f"retarget/{slug}/g1/foot_skate"] == 1.0
+        assert scalars[f"retarget/{slug}/g1/ik_residual_mean"] == 2.0
+    assert scalars["retarget/mean/g1/foot_skate"] == 1.0
+    assert scalars["retarget/mean/g1/ik_residual_mean"] == 2.0
 
 
 def test_the_generator_is_seeded_from_the_step(tmp_path, monkeypatch):
@@ -231,8 +231,8 @@ def test_one_bad_pair_does_not_cost_the_others(tmp_path, monkeypatch):
         scalars = callback.run(_trainer(step=7, logger=logger), _module(_Model()))
 
     assert seen == ["Flamingo/onelegbent", "Coyote/attack3"], "the second pair was skipped too"
-    assert scalars["retarget/Coyote_attack3__to__Crab/foot_skate"] == 3.0
-    assert "retarget/Flamingo_onelegbent__to__Scorpion/foot_skate" not in scalars
+    assert scalars["retarget/Coyote_attack3__to__Crab/g1/foot_skate"] == 3.0
+    assert "retarget/Flamingo_onelegbent__to__Scorpion/g1/foot_skate" not in scalars
     # The surviving pair still reaches the logger.
     assert logger.metrics and logger.metrics[0][1] == 7
 
@@ -294,12 +294,12 @@ def test_one_artifact_per_firing_holds_every_pair(tmp_path, monkeypatch, _wandb)
     assert artifact.type == "retarget-validation"
     assert artifact.name == "retarget-abc123"
     assert sorted(artifact.files) == [
-        "Coyote_attack3__to__Crab/a.bvh",
-        "Coyote_attack3__to__Crab/a.mp4",
-        "Coyote_attack3__to__Crab/a.npz",
-        "Flamingo_onelegbent__to__Scorpion/a.bvh",
-        "Flamingo_onelegbent__to__Scorpion/a.mp4",
-        "Flamingo_onelegbent__to__Scorpion/a.npz",
+        "Coyote_attack3__to__Crab/g1/a.bvh",
+        "Coyote_attack3__to__Crab/g1/a.mp4",
+        "Coyote_attack3__to__Crab/g1/a.npz",
+        "Flamingo_onelegbent__to__Scorpion/g1/a.bvh",
+        "Flamingo_onelegbent__to__Scorpion/g1/a.mp4",
+        "Flamingo_onelegbent__to__Scorpion/g1/a.npz",
     ]
     # The mp4 additionally as a playable video, one per pair.
     assert sum("video" in k for e in experiment.events for k in e) == 2
@@ -323,3 +323,135 @@ def test_a_firing_where_every_pair_failed_uploads_nothing(tmp_path, monkeypatch,
     with pytest.warns(RuntimeWarning):
         callback.run(_trainer(step=5, logger=logger), _module(_Model()))
     assert experiment.logged == []
+
+
+def test_every_scale_is_sampled_from_the_same_starting_noise(tmp_path, monkeypatch):
+    """The property that makes a guidance sweep a comparison.
+
+    Each scale must denoise the SAME z_T. If the generator ran on between
+    scales, g0 and g2.5 would differ by the noise draw as well as the guidance,
+    and the sweep would report a difference it did not measure.
+    """
+    callback = _callback(tmp_path, monkeypatch, results=None, guidance_scales=[0.0, 1.25, 2.5])
+    callback.run(_trainer(step=25_000), _module(_Model()))
+
+    calls = callback.calls  # type: ignore[attr-defined]
+    assert [c["guidance_scale"] for c in calls] == [0.0, 1.25, 2.5] * 2, "one retarget per scale per pair"
+    # `_callback`'s stub draws from the generator, so an un-reset stream would
+    # hand each scale a different first number.
+    draws = []
+    for scale in (0.0, 1.25, 2.5):
+        generator = torch.Generator().manual_seed(25_000)
+        draws.append(torch.rand(4, generator=generator).tolist())
+    assert draws[0] == draws[1] == draws[2]
+
+
+def test_each_scale_gets_its_own_keys_and_its_own_mean(tmp_path, monkeypatch):
+    """A mean across SCALES would move when a scale is added, and score nothing."""
+    logger = _Logger()
+    callback = _callback(tmp_path, monkeypatch, results=None, guidance_scales=[0.0, 2.5])
+    callback.run(_trainer(step=100, logger=logger), _module(_Model()))
+
+    scalars, _ = logger.metrics[0]
+    for tag in ("g0", "g2.5"):
+        assert scalars[f"retarget/Coyote_attack3__to__Crab/{tag}/foot_skate"] == 1.0
+        assert scalars[f"retarget/mean/{tag}/foot_skate"] == 1.0
+    assert "retarget/mean/foot_skate" not in scalars, "the sweep was averaged into one number"
+
+
+def test_each_scale_writes_into_its_own_directory(tmp_path, monkeypatch):
+    """`run_retarget` names a file from the rig pair alone, so without a
+    directory per scale the sweep's three outputs overwrite each other."""
+    callback = _callback(tmp_path, monkeypatch, results=None, guidance_scales=[0.0, 1.25])
+    callback.run(_trainer(step=50, logger=None), _module(_Model()))
+    out = {str(c["out_dir"]) for c in callback.calls}  # type: ignore[attr-defined]
+    assert out == {str(tmp_path / "step-50" / "g0"), str(tmp_path / "step-50" / "g1.25")}
+
+
+def test_an_empty_sweep_is_refused():
+    with pytest.raises(ValueError, match="guidance_scales"):
+        RetargetValidation(
+            pairs=PAIRS, dataset=None, process=None, sampler=None, out_dir=".",
+            guidance_scales=[],
+        )
+
+
+def _with_source(tmp_path, monkeypatch, **kwargs):
+    """A callback whose retarget returns a content animation, and a stub renderer."""
+    from poseydon.training import validation as module
+    from poseydon.io import render as render_module
+
+    anim = SimpleNamespace(
+        parents=[-1, 0], fps=30.0, global_positions=lambda: torch.zeros(2, 2, 3).numpy()
+    )
+    monkeypatch.setattr(
+        module,
+        "run_retarget",
+        lambda **kw: SimpleNamespace(
+            npz="a.npz", bvh="a.bvh", mp4="a.mp4", content_anim=anim
+        ),
+    )
+    monkeypatch.setattr(module, "retarget_metrics", lambda *a, **k: {"foot_skate": 1.0})
+    rendered: list = []
+    monkeypatch.setattr(
+        render_module, "render_skeleton", lambda path, *a, **k: rendered.append(path) or path
+    )
+    callback = RetargetValidation(
+        pairs=PAIRS, dataset=object(), process=object(), sampler=object(),
+        out_dir=tmp_path, **kwargs,
+    )
+    return callback, rendered
+
+
+def test_the_source_clip_is_pushed_once_per_content_clip(tmp_path, monkeypatch, _wandb):
+    """It says what the retarget was ASKED to reproduce.
+
+    The clip does not change with the step or the scale, so a copy per firing
+    is the same animation uploaded 24 times over a 600k-step run.
+    """
+    experiment = _Experiment()
+    logger = _Logger()
+    logger.experiment = experiment
+
+    callback, rendered = _with_source(tmp_path, monkeypatch, guidance_scales=[0.0, 2.5])
+    callback.run(_trainer(step=0, logger=logger), _module(_Model()))
+    callback.run(_trainer(step=25_000, logger=logger), _module(_Model()))
+
+    keys = [k for event in experiment.events for k in event if k.endswith("/source")]
+    assert keys == [
+        "retarget/Flamingo_onelegbent__to__Scorpion/source",
+        "retarget/Coyote_attack3__to__Crab/source",
+    ], "once per content clip: not per scale, and not again at the next firing"
+    assert len(rendered) == 2
+
+
+def test_a_source_render_failure_does_not_cost_the_metrics(tmp_path, monkeypatch, _wandb):
+    from poseydon.io import render as render_module
+
+    experiment = _Experiment()
+    logger = _Logger()
+    logger.experiment = experiment
+
+    callback, _ = _with_source(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        render_module, "render_skeleton",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no ffmpeg")),
+    )
+    with pytest.warns(RuntimeWarning, match="source clip"):
+        scalars = callback.run(_trainer(step=0, logger=logger), _module(_Model()))
+    assert scalars["retarget/Flamingo_onelegbent__to__Scorpion/g1/foot_skate"] == 1.0
+
+
+def test_the_default_sweep_is_the_identity(tmp_path, monkeypatch):
+    """1.0, not 0.0.
+
+    The scale is `uncond + w * (cond - uncond)`, so 0.0 is the UNCONDITIONAL
+    branch and 1.0 is the model as trained. A default of 0.0 would mean every
+    run that never configured guidance silently observed its retargets with the
+    content clip ignored -- output that looks like motion and reports metrics,
+    which is the failure mode that has no error message.
+    """
+    callback = _callback(tmp_path, monkeypatch, results=None)
+    assert callback.guidance_scales == [1.0]
+    callback.run(_trainer(step=0), _module(_Model()))
+    assert [c["guidance_scale"] for c in callback.calls] == [1.0, 1.0]  # type: ignore[attr-defined]

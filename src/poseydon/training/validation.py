@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,16 @@ log = logging.getLogger(__name__)
 
 #: Names of the artifact wandb receives, and the type it is filed under.
 ARTIFACT_TYPE = "retarget-validation"
+
+
+def _tag(scale: float) -> str:
+    """`g0`, `g1.25` -- the segment naming one guidance scale.
+
+    One function, because this string is a wandb metric key, a directory name
+    and a path inside an artifact: if those three ever disagree, the dashboard
+    and the files stop lining up and nothing says so.
+    """
+    return f"g{scale:g}"
 
 
 @dataclass(frozen=True)
@@ -86,7 +97,7 @@ class RetargetValidation(L.Callback):
         every_n_steps: int = 25_000,
         run_at_start: bool = True,
         seed: int = 0,
-        guidance_scale: float = 0.0,
+        guidance_scales: Sequence[float] = (1.0,),
     ) -> None:
         if every_n_steps <= 0:
             raise ValueError(f"every_n_steps must be positive, got {every_n_steps}")
@@ -98,12 +109,25 @@ class RetargetValidation(L.Callback):
         self.every_n_steps = every_n_steps
         self.run_at_start = run_at_start
         self.seed = seed
-        # Sampled WITHOUT guidance by default, because a run that does not set
-        # `model.cond_drop` has no trained null latent to guide away from. A
-        # run that does set it wants this on: otherwise the observation of the
-        # task understates the checkpoint, measuring it under conditioning it
-        # was not trained to be sampled with.
-        self.guidance_scale = guidance_scale
+        # EVERY scale in this list is sampled, as its own retarget, and a run
+        # that trains `model.cond_drop` wants several: guidance is a dial whose
+        # useful setting is a property of the checkpoint, not of the method, so
+        # the only way to know is to watch the sweep move as training runs.
+        # `(1.0,)` alone is what a run without a trained null latent gets:
+        # scale 1 is the identity, so it is one unwrapped conditional retarget
+        # per pair -- exactly the single observation this made before.
+        #
+        # Every scale shares one z_T -- see `_one`. Without that the sweep
+        # compares a guidance scale against a different noise draw, which is
+        # the one comparison it must not make.
+        if not guidance_scales:
+            raise ValueError("guidance_scales is empty: nothing would be sampled")
+        self.guidance_scales = [float(g) for g in guidance_scales]
+        # Content clips already rendered and pushed. The source animation does
+        # not change with the step or the scale, so it is uploaded on the FIRST
+        # firing and never again -- it is there to say what the retarget was
+        # asked to reproduce, and a copy per firing is the same clip 24 times.
+        self._source_pushed: set[str] = set()
 
     # -- Lightning hooks ---------------------------------------------------
 
@@ -166,30 +190,80 @@ class RetargetValidation(L.Callback):
         log.warning("retarget validation: %s failed at step %d: %r", what, step, error)
 
     def _one(self, pair, model, step, device, generator, trainer, artifact) -> dict[str, float]:
-        out = self.out_dir / f"step-{step}"
-        out.mkdir(parents=True, exist_ok=True)
-        result = run_retarget(
-            model=model,
-            process=self.process,
-            sampler=self.sampler,
-            dataset=self.dataset,
-            content=pair.content,
-            target_rig=pair.target,
-            out_dir=out,
-            device=device,
-            generator=generator,
-            guidance_scale=self.guidance_scale,
-        )
-        metrics = retarget_metrics(
-            result,
-            model,
-            self.dataset,
-            content_rig=pair.content_rig,
-            target_rig=pair.target,
-            device=device,
-        )
-        self._upload(trainer, pair, result, step, artifact)
-        return {f"retarget/{pair.slug}/{k}": float(v) for k, v in metrics.items()}
+        """This pair at every guidance scale, from the same starting noise."""
+        scalars: dict[str, float] = {}
+        for scale in self.guidance_scales:
+            # Re-seeded per scale, so every scale denoises the SAME z_T and the
+            # differences between them are the guidance and nothing else. The
+            # alternative -- letting the generator run on -- gives each scale a
+            # fresh draw, and then a sweep reports noise as if it were signal.
+            generator.manual_seed(self.seed + step)
+            # A directory per scale, so the nine files of a three-pair sweep do
+            # not overwrite each other: `run_retarget` names a file from the rig
+            # pair alone, which is unique within a scale and not across them.
+            out = self.out_dir / f"step-{step}" / _tag(scale)
+            out.mkdir(parents=True, exist_ok=True)
+            result = run_retarget(
+                model=model,
+                process=self.process,
+                sampler=self.sampler,
+                dataset=self.dataset,
+                content=pair.content,
+                target_rig=pair.target,
+                out_dir=out,
+                device=device,
+                generator=generator,
+                guidance_scale=scale,
+            )
+            metrics = retarget_metrics(
+                result,
+                model,
+                self.dataset,
+                content_rig=pair.content_rig,
+                target_rig=pair.target,
+                device=device,
+            )
+            self._upload(trainer, pair, result, step, artifact, scale)
+            self._source(trainer, pair, result, step)
+            scalars.update(
+                {f"retarget/{pair.slug}/{_tag(scale)}/{k}": float(v) for k, v in metrics.items()}
+            )
+        return scalars
+
+    def _source(self, trainer, pair, result, step: int) -> None:
+        """The content clip itself, rendered on its OWN rig, pushed once.
+
+        Every other video in this run is the model's output; without this there
+        is nothing in the dashboard saying what a Flamingo doing `onelegbent`
+        actually looks like, so a retarget can only be judged against the
+        reader's memory of the clip. Its own try/except: this is context, and
+        losing it must never cost the pair's metrics.
+        """
+        experiment = self._experiment(trainer)
+        if experiment is None or pair.content in self._source_pushed:
+            return
+        anim = getattr(result, "content_anim", None)
+        if anim is None:
+            return
+        try:
+            import wandb
+
+            from poseydon.io.render import render_skeleton
+
+            path = self.out_dir / "source" / f"{pair.content_rig}_{pair.content_action}.mp4"
+            render_skeleton(
+                path,
+                anim.parents,
+                anim.global_positions(),
+                fps=round(anim.fps),
+                title=f"{pair.content}  (source)",
+            )
+            experiment.log({f"retarget/{pair.slug}/source": wandb.Video(str(path))}, step=step)
+            # Marked only on success, so a failed render is retried next firing
+            # rather than silently never appearing.
+            self._source_pushed.add(pair.content)
+        except Exception as error:  # noqa: BLE001 -- see the class docstring
+            self._warn(f"source clip {pair.content}", step, error)
 
     @staticmethod
     def _experiment(trainer):
@@ -213,7 +287,7 @@ class RetargetValidation(L.Callback):
 
         return wandb.Artifact(f"retarget-{experiment.id}", type=ARTIFACT_TYPE)
 
-    def _upload(self, trainer, pair, result, step, artifact) -> None:
+    def _upload(self, trainer, pair, result, step, artifact, scale: float) -> None:
         """This pair's three files into the firing's artifact, plus a playable video."""
         experiment = self._experiment(trainer)
         if experiment is None:
@@ -222,9 +296,10 @@ class RetargetValidation(L.Callback):
 
         if artifact is not None:
             for path in (result.npz, result.bvh, result.mp4):
-                artifact.add_file(str(path), name=f"{pair.slug}/{Path(path).name}")
+                artifact.add_file(str(path), name=f"{pair.slug}/{_tag(scale)}/{Path(path).name}")
         experiment.log(
-            {f"retarget/{pair.slug}/video": wandb.Video(str(result.mp4))}, step=step
+            {f"retarget/{pair.slug}/{_tag(scale)}/video": wandb.Video(str(result.mp4))},
+            step=step,
         )
 
     def _commit(self, trainer, artifact, step: int) -> None:
@@ -243,9 +318,13 @@ class RetargetValidation(L.Callback):
         """
         if not scalars:
             return
+        # Everything after `retarget/<slug>/`, so the mean is taken across
+        # PAIRS within a scale. Grouping on the metric name alone would average
+        # g0.0 together with g2.5 and report the sweep's midpoint as the run's
+        # score -- a number that moves when a scale is added.
         by_metric: dict[str, list[float]] = {}
         for key, value in scalars.items():
-            by_metric.setdefault(key.rsplit("/", 1)[1], []).append(value)
+            by_metric.setdefault(key.split("/", 2)[2], []).append(value)
         scalars.update(
             {f"retarget/mean/{name}": sum(v) / len(v) for name, v in by_metric.items()}
         )

@@ -4,4 +4,5 @@ accelerator: cpu
 devices: 1
 precision: 32-true
 log_every_n_steps: 1
-gradient_clip_val: 1.0
+# Matches `default.yaml`; see the measurement there.
+gradient_clip_val: null

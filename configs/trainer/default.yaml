@@ -8,4 +8,24 @@ devices: 1
 # available. Not fp16: bf16 needs no loss scaling.
 precision: bf16-mixed
 log_every_n_steps: 50
-gradient_clip_val: 1.0
+# OFF, which is what the reference does: its one clipping call is commented out
+# (`train/training_loop.py:238`) and `fp16_util._optimize_normal` only LOGS the
+# gradient norm. `1.0` here was never a measured choice, and measurement is
+# damning -- over steps 125k-150k the norm ran at a median 5.29 (mean 7.73, p90
+# 14.4, p99 38.4, max 114.8), so Lightning's default `norm` algorithm engaged on
+# 100.00% of steps. That is not a spike guard; it renormalizes every gradient to
+# unit length, scaling the median step by 0.19 and the worst by 0.009.
+#
+# It also inverts the weighting it looks like it protects. The norm rises
+# monotonically with the noise level -- a measured 2.48 at t=0.14T against 20.27
+# at t=0.94T, a 6.8x spread that is intrinsic to drawing one `t` per sample --
+# so a fixed ceiling squashes hardest exactly the high-noise steps that carry
+# the most signal.
+#
+# Unclipped is safe here because the optimizer is AdamW: it divides by its own
+# second-moment estimate, so a 115-norm step still moves the weights by about
+# `lr`, and a large gradient changes the direction rather than the distance.
+#
+# For a spike guard rather than a leash, `trainer.gradient_clip_val=30` sits
+# just below the measured p99 and leaves 99% of steps untouched.
+gradient_clip_val: null

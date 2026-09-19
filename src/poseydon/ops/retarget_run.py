@@ -156,7 +156,7 @@ def run_retarget(
     device: torch.device | str = "cpu",
     generator: torch.Generator | None = None,
     reconstruct: str | None = None,
-    guidance_scale: float = 0.0,
+    guidance_scale: float = 1.0,
 ) -> RetargetResult:
     """Decode one clip's semantics onto another rig, and write the evidence.
 

@@ -5,6 +5,23 @@ root: data/truebones
 manifests: data/truebones/rigs
 index: data/truebones/index.jsonl
 
+# Clips this run must never see, dropped from the index before anything reads
+# it. `skeletons` takes rig names, `clips` takes clip ids (`Crow__fly1`), both
+# matched exactly. An entry matching nothing is an ERROR, not a no-op: a
+# blacklist is acted on for days, and a typo'd name that quietly matched
+# nothing would train the very clips it was written to drop.
+#
+# Recorded in the recipe, so a checkpoint carries what it was trained WITHOUT.
+# Not CHECKED against it -- dropping clips does not change what the feature
+# tensor means, so it must never reject a legitimate sample.
+#
+# Lives here beside `root`/`manifests`/`index`, the other per-corpus keys,
+# rather than beside the loader keys below: mixing several corpora into one run
+# gives each its own blacklist, and none of this has to move for that.
+blacklist:
+  skeletons: []
+  clips: []
+
 # Batch 16, not the reference's 10: measured E[0.431 s/step] against 1.054 at
 # batch 32, and 13.2 GB peak against 128 GB available. See design spec §4.
 batch_size: 16

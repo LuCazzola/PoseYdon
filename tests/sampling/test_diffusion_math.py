@@ -370,3 +370,29 @@ def test_ddim_carries_the_noise_term_along_the_trajectory():
     early = float(recorder.states[process.num_steps - 1].std())
     late = float(recorder.states[0].std())
     assert late < early, "the state must approach the prediction as t falls"
+
+
+def test_both_samplers_accept_the_same_starting_noise():
+    """Otherwise DDPM vs DDIM is confounded by the draw.
+
+    Each sampler drawing its own z_T means any difference between their outputs
+    is partly the noise and partly the sampler, and the two cannot be separated.
+    """
+    process = _process(steps=8)
+    start = torch.randn(SHAPE, generator=torch.Generator().manual_seed(3))
+    z0 = torch.full(SHAPE, 0.2)
+
+    a = DDPM().sample(_Constant(z0), process, SHAPE, Cond({}), start=start,
+                      generator=torch.Generator().manual_seed(0))
+    b = DDPM().sample(_Constant(z0), process, SHAPE, Cond({}), start=start,
+                      generator=torch.Generator().manual_seed(0))
+    torch.testing.assert_close(a, b)
+
+    # And the start is genuinely used: a different z_T must change the path.
+    other = torch.randn(SHAPE, generator=torch.Generator().manual_seed(4))
+    recorder, recorder_other = _Recorder(), _Recorder()
+    DDPM().sample(_Contraction(), process, SHAPE, Cond({}), start=start,
+                  controls=[recorder], generator=torch.Generator().manual_seed(0))
+    DDPM().sample(_Contraction(), process, SHAPE, Cond({}), start=other,
+                  controls=[recorder_other], generator=torch.Generator().manual_seed(0))
+    assert not torch.allclose(recorder.states[7], recorder_other.states[7])
