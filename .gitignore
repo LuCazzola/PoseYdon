@@ -254,3 +254,9 @@ assets/media/*
 runs/
 data/*/reference/
 artifacts/
+
+# Exports written by scripts/anim_2_fbx.py. Generated assets, reproducible
+# from a checkpoint's samples plus the corpus, so nothing here is authored.
+out/
+/data/_raw/*
+!/data/_raw/README.md
