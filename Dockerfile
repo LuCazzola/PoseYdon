@@ -131,8 +131,25 @@ FROM debian:bookworm-slim AS fbx
 # silently for weeks looking like a pass). Debian ships a distro
 # `python3-pytest` package built against the system interpreter, so it is
 # importable from inside Blender the same way PyYAML/numpy/scipy are.
+# libegl1 + the Mesa drivers, for EEVEE. Blender's rasterizing engines --
+# EEVEE and Workbench -- need an OpenGL context, and a headless container has
+# no display to get one from: without these, ANY render aborts the process
+# outright with `Couldn't open libEGL.so.1` before a single frame is drawn.
+# libegl1 supplies the EGL loader that lets Blender create a context with no X
+# server or Wayland compositor, and libgl1-mesa-dri supplies llvmpipe, Mesa's
+# software rasterizer, which is what actually executes the GL calls on a
+# machine whose GPU is not attached to this container (the `fbx` service takes
+# no CDI device, deliberately -- see docker-compose.yml).
+#
+# This is not a preference between renderers. Cycles is a CPU path tracer and
+# needs no GL at all, so it was the only engine that ran here before -- but it
+# path-traces every frame across every core, which is a wholly unreasonable
+# price for a preview whose entire job is to confirm a mesh follows its
+# skeleton. EEVEE rasterizes, and on llvmpipe it is far cheaper.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       blender python3-yaml python3-numpy python3-scipy python3-pytest \
+      python3-matplotlib python3-imageio \
+      libegl1 libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
