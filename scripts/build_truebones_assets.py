@@ -1,12 +1,12 @@
 """Build all Truebones model/presentation FBX assets from canonical raw data."""
 from pathlib import Path
 import numpy as np
-from poseydon.build.character_assets import CharacterAssetContext, build_character_assets, _to_y_up, _rest_positions, _similarity
+from poseydon.build.character_assets import CharacterAssetContext, CharacterAssets, build_character_assets, _write_report
 from poseydon.build.index import is_all_takes_bundle
 from poseydon.features.reduce import build_reduction, apply_reduction
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY
-from poseydon.io.fbx import FBX
+from poseydon.io.fbx import FBX, _to_y_up, _rest_positions, _similarity
 raw=Path("data/_raw/truebones/source"); out=Path("data/truebones/rigs")
 Path("tmp/asset-fails.txt").write_text(""); count=0
 for rigdir in sorted(out.iterdir()):
@@ -40,5 +40,9 @@ for rigdir in sorted(out.iterdir()):
     try:
         assets=build_character_assets(context,rigdir); count += assets.model is not None
     except Exception as error:
+        for stale in (rigdir / "model_character.fbx", rigdir / "presentation.fbx"):
+            if stale.exists(): stale.unlink()
+        context = locals().get("context")
+        if context is not None: _write_report(context, rigdir, CharacterAssets(None, None, f"{type(error).__name__}: {error}"))
         Path("tmp/asset-fails.txt").open("a").write(f"{rigdir.name}: {type(error).__name__}: {error}\n")
 print("built",count)

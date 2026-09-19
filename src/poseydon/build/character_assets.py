@@ -93,6 +93,25 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
             "decision": "preserve" if context.skinning_plan is None else str(context.skinning_plan),
         },
     ]
+    stages = ("rest_relative", "promote_root", "face_axis", "enforce_rigid", "centre_xz", "scale_to_mean_bone_length", "put_on_ground")
+    operations.extend({
+        "operation_id": f"{context.rig}/transform/{index:03d}",
+        "kind": stage,
+        "direction": "prepare",
+        "scope": "rig" if stage != "face_axis" else "clip",
+        "parameters": {},
+    } for index, stage in enumerate(stages, start=len(operations)))
+    joint_decisions = [
+        {"operation_id": f"{context.rig}/joint/{index:04d}", "joint": name, "operation": "retain", "reason": "model topology"}
+        for index, name in enumerate(context.model_names)
+    ]
+    joint_decisions.extend({
+        "operation_id": f"{context.rig}/joint-removal/{index:04d}",
+        "joint": getattr(removal, "name", str(removal)),
+        "operation": getattr(removal, "kind", "exclude"),
+        "reason": getattr(removal, "reason", "declared policy"),
+        "destination": getattr(removal, "recipient", None),
+    } for index, removal in enumerate(context.removals))
     payload = {
         "dataset": "truebones",
         "rig": context.rig,
@@ -108,6 +127,8 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
         "reason": assets.reason,
         "warnings": [] if assets.reason is None else [assets.reason],
         "operations": operations,
+        "joint_decisions": joint_decisions,
+        "skinning_decisions": [],
     }
     report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return report
