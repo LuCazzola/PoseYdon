@@ -52,6 +52,7 @@ from poseydon.build.index import action_slug, is_all_takes_bundle, strip_skeleto
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
+from poseydon.io.bvh import BVH
 
 DEFAULT_RAW_ROOT = Path("data/_raw/truebones/source")
 DEFAULT_OUT_ROOT = Path("data/truebones")
@@ -111,6 +112,7 @@ def process_species(
 
             action_name = strip_skeleton_prefix(action_slug(source.stem), species)
             scene.write(clips_dir / f"{action_name}.fbx")
+            BVH.from_animation(scene.to_animation()).write(clips_dir / f"{action_name}.bvh")
             n_written += 1
 
             # One mesh per character, from the first file that carries one.
