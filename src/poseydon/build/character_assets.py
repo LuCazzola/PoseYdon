@@ -43,7 +43,7 @@ def _bind_positions(scene, names: tuple[str, ...]) -> np.ndarray:
 
 def _canonical_matrix(scene, context: CharacterAssetContext):
     from mathutils import Matrix, Vector
-    from poseydon.io.fbx import TO_Y_UP, _similarity
+    from poseydon.io.fbx import TO_Y_UP, _similarity, _rest_positions
     if context.model_rest is None:
         return Matrix.Identity(4)
     model_names = tuple(context.model_names)
