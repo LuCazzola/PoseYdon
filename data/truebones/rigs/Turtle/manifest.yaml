@@ -20,3 +20,13 @@ foot_joints:
   - Bip01_L_Toe01
   - Bip01_L_Toe0Nub
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'Turtle-Attack.fbx'
+  textures: null

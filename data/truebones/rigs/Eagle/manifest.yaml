@@ -26,3 +26,13 @@ foot_joints:
   - BN_Toe_L_21
   - Bip01_L_Toe0
 tags: [flying]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Tpose.bvh
+  fbx: 'Eagle-EggSteal.fbx'
+  textures: null

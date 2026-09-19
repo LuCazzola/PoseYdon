@@ -6,3 +6,13 @@ facing:
   shoulders: {right: _19, left: _16}
 foot_joints: []   # the reference's heuristic finds none for this rig
 tags: [flying, bird]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'CrowALL-Ascend.fbx'
+  textures: null

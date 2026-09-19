@@ -8,3 +8,13 @@ foot_joints:
   - NPC_L_Toe
   - NPC_R_Toe
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'BEAR-AngerySwat.fbx'
+  textures: null

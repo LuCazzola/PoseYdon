@@ -25,3 +25,13 @@ foot_joints:
   - BN_Tail_06
   - BN_Tail_07
 tags: [snake]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Tpose.bvh
+  fbx: 'Cobra-Attack.fbx'
+  textures: null

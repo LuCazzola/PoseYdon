@@ -14,3 +14,13 @@ foot_joints:
   - _RToe0_
   - _LToe0_
 tags: [milliped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'SPIDER-Attack1.fbx'
+  textures: null

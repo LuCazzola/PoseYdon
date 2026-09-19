@@ -17,3 +17,13 @@ foot_joints:
   - Bip01_L_Toe0
   - Bip01_L_Toe01
 tags: [biped, bird]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: Flamingo_Tpose.bvh
+  fbx: 'Flamingo-BendIdle.fbx'
+  textures: null

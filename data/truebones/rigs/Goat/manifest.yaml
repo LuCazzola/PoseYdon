@@ -10,3 +10,13 @@ foot_joints:
   - Bip01_R_Foot
   - Bip01_R_Toe0
 tags: [quadruped, mammal]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Idle.bvh
+  fbx: 'Goat-Attack.fbx'
+  textures: null

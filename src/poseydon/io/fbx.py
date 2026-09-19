@@ -55,7 +55,7 @@ from pathlib import Path
 import numpy as np
 
 from poseydon.core.animation import Animation
-from poseydon.core.rotations import matrix_to_quat, quat_apply, quat_inverse, quat_mul, quat_to_matrix
+from poseydon.core.rotations import QUAT_IDENTITY, matrix_to_quat, quat_apply, quat_inverse, quat_mul, quat_to_matrix
 from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 
 try:
@@ -202,25 +202,51 @@ class FBX:
         return cls(armatures[0], [o for o in bpy.data.objects if o.type == "MESH"])
 
     def to_animation(self) -> Animation:
-        """Sample the evaluated armature into PoseYdon's Y-up animation model."""
-        names = tuple(self.joint_names)
-        parents = np.asarray(self.joint_parents, dtype=np.int32)
+        """Sample the evaluated armature into PoseYdon's Y-up animation model.
+
+        FBX files occasionally contain a locator/object root beside the
+        character root.  PoseYdon's mathematical animation type requires one
+        root, so those roots are joined under a deterministic synthetic root;
+        single-root files retain their original names and hierarchy exactly.
+        """
+        source_names = tuple(self.joint_names)
+        source_parents = np.asarray(self.joint_parents, dtype=np.int32)
         first, last = self.frame_range()
         frame_numbers = tuple(range(first, last + 1))
-        positions = np.empty((len(frame_numbers), len(names), 3), dtype=np.float64)
-        global_rotations = np.empty((len(frame_numbers), len(names), 4), dtype=np.float64)
+        n_source = len(source_names)
+        positions = np.empty((len(frame_numbers), n_source, 3), dtype=np.float64)
+        global_rotations = np.empty((len(frame_numbers), n_source, 4), dtype=np.float64)
         for sample, frame in enumerate(frame_numbers):
             self.set_frame(frame)
-            for joint, name in enumerate(names):
+            for joint, name in enumerate(source_names):
                 pose_matrix = self.armature.matrix_world @ self.armature.pose.bones[name].matrix
                 positions[sample, joint] = _to_y_up(pose_matrix.translation)
                 blender_rotation = pose_matrix.to_quaternion().to_matrix()
                 y_up_rotation = TO_Y_UP @ blender_rotation @ TO_Y_UP.transposed()
                 global_rotations[sample, joint] = matrix_to_quat(np.asarray(y_up_rotation))
+
+        roots = np.flatnonzero(source_parents < 0).tolist()
+        synthetic = len(roots) > 1
+        if synthetic:
+            names = ("__FBX_ROOT__",) + source_names
+            parents = np.concatenate((np.array([-1], dtype=np.int32), source_parents + 1))
+            for root in roots:
+                parents[root + 1] = 0
+            offsets = np.vstack((np.zeros((1, 3)), self.joint_offsets))
+            positions = np.concatenate((np.zeros((len(frame_numbers), 1, 3)), positions), axis=1)
+            global_rotations = np.concatenate(
+                (np.tile(QUAT_IDENTITY, (len(frame_numbers), 1, 1)), global_rotations), axis=1
+            )
+        else:
+            names = source_names
+            parents = source_parents
+            offsets = self.joint_offsets
+
         rotations = global_rotations.copy()
         translations = positions.copy()
-        for joint in range(1, len(names)):
-            parent = parents[joint]
+        for joint, parent in enumerate(parents):
+            if parent < 0:
+                continue
             inverse_parent = quat_inverse(global_rotations[:, parent])
             rotations[:, joint] = quat_mul(inverse_parent, global_rotations[:, joint])
             translations[:, joint] = quat_apply(
@@ -228,7 +254,7 @@ class FBX:
             )
         return Animation(
             rotations=rotations, translations=translations,
-            offsets=self.joint_offsets, parents=parents, names=names,
+            offsets=offsets, parents=parents, names=names,
             fps=float(bpy.context.scene.render.fps / bpy.context.scene.render.fps_base),
         )
 

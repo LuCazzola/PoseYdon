@@ -49,6 +49,11 @@ import sys
 from pathlib import Path
 
 from poseydon.build.index import action_slug, is_all_takes_bundle, strip_skeleton_prefix
+from poseydon.build.character_assets import CharacterAssetContext, build_character_assets, _rest_positions, _similarity, _to_y_up
+from poseydon.features.reduce import build_reduction, apply_reduction
+from poseydon.core.animation import RigidBodyAnimation
+from poseydon.core.rotations import QUAT_IDENTITY
+import numpy as np
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
@@ -134,6 +139,81 @@ def process_species(
     return n_written, warnings
 
 
+def build_assets_for_species(manifest: SkeletonManifest, raw_root: Path, out_root: Path) -> None:
+    """Publish canonical model/presentation FBXs and an audit report.
+
+    When a prepared BVH skeleton exists, choose the raw FBX with the smallest
+    bind-fit residual and reduce it to the exact model topology.  If the
+    modalities disagree beyond the declared threshold, retain the FBX
+    topology explicitly rather than publishing a misleading hybrid asset.
+    """
+    rig_dir = out_root / "rigs" / manifest.name
+    sources = sorted(
+        p for p in (raw_root / manifest.name).glob("*.fbx")
+        if not is_all_takes_bundle(p.stem, manifest.name)
+    )
+    if not sources:
+        assets = build_character_assets(
+            CharacterAssetContext(manifest.name, None, (), ()), rig_dir
+        )
+        print(f"{manifest.name}: FBX assets skipped ({assets.reason})", flush=True)
+        return
+
+    model = None
+    skeleton = rig_dir / "skeleton.npz"
+    if skeleton.is_file():
+        with np.load(skeleton, allow_pickle=True) as data:
+            names = tuple(str(value) for value in data["names"])
+            full = RigidBodyAnimation.from_root_motion(
+                rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)),
+                root_pos=np.zeros((1, 3)), offsets=data["offsets"],
+                parents=data["parents"].astype(np.int32), names=names, fps=1.0,
+            )
+        model = apply_reduction(full, build_reduction(full))
+
+    selected = None
+    if model is not None:
+        target = _rest_positions(model)
+        for source in sources:
+            try:
+                scene = FBX.read(source)
+                if not all(name in scene.joint_names for name in model.names):
+                    continue
+                source_positions = np.stack(
+                    [_to_y_up(scene.joint_position(name, rest=True)) for name in model.names]
+                )
+                scale, rotation, offset = _similarity(source_positions, target)
+                fitted = scale * (source_positions @ rotation.T) + offset
+                residual = float(np.max(np.linalg.norm(fitted - target, axis=1)))
+                if selected is None or residual < selected[0]:
+                    selected = (residual, source)
+            except Exception:
+                continue
+
+    if selected is not None and selected[0] <= 0.05:
+        source = selected[1]
+        context = CharacterAssetContext(
+            rig=manifest.name, raw_fbx=source,
+            model_names=tuple(model.names),
+            model_parents=tuple(int(value) for value in model.parents),
+            removals=build_reduction(full).ops, model_rest=model,
+        )
+        mode = "BVH-model topology"
+    else:
+        source = selected[1] if selected is not None else sources[0]
+        scene = FBX.read(source)
+        context = CharacterAssetContext(
+            rig=manifest.name, raw_fbx=source,
+            model_names=tuple(scene.joint_names),
+            model_parents=tuple(scene.joint_parents),
+        )
+        mode = "FBX-authoritative topology"
+    assets = build_character_assets(context, rig_dir)
+    print(
+        f"{manifest.name}: model={assets.model} presentation={assets.presentation} ({mode})",
+        flush=True,
+    )
+
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser(description="Process raw Truebones FBX files.")
@@ -164,6 +244,7 @@ def main() -> None:
         written, warnings = process_species(
             manifest, args.raw_root, args.out_root, args.write_obj
         )
+        build_assets_for_species(manifest, args.raw_root, args.out_root)
         print(f"{manifest.name}: wrote {written} fbx", flush=True)
         total += written
         all_warnings.extend(warnings)

@@ -6,3 +6,13 @@ facing:
   shoulders: {right: jt_FrontLeg2_R, left: jt_FrontLeg2_L}
 foot_joints: []   # the reference's heuristic finds none for this rig
 tags: [milliped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Idle.bvh
+  fbx: 'Scorpion-Attack Retreat.fbx'
+  textures: null

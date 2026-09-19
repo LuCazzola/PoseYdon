@@ -24,3 +24,13 @@ foot_joints:
   - Bip01_L_Toe0
   - Bip01_L_Toe0Nub
 tags: [biped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: Chicken_TPOSE.bvh
+  fbx: 'Chicken-EggLaying.fbx'
+  textures: null

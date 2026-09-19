@@ -24,3 +24,13 @@ foot_joints:
   - BN_Foot_R_03
   - BN_Foot_L_03
 tags: [milliped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Tpose.bvh
+  fbx: 'Centipede-Attack.fbx'
+  textures: null

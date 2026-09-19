@@ -20,3 +20,13 @@ foot_joints:
   - Bip01_R_Toe0
   - Bip01_R_Toe0Nub
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'Comodoa.fbx'
+  textures: null

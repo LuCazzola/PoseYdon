@@ -12,3 +12,13 @@ foot_joints:
   - Bip01_L_Toe0
   - Bip01_L_Toe0Nub
 tags: [quadruped, mammal]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Tpose.bvh
+  fbx: 'Skunk-Die.fbx'
+  textures: null

@@ -8,3 +8,13 @@ foot_joints:
   - RightFoot
   - LeftFoot
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Trottle.bvh
+  fbx: 'Rat-AlertRun.fbx'
+  textures: null

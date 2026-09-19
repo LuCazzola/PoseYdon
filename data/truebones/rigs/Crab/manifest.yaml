@@ -6,3 +6,13 @@ facing:
   shoulders: {right: BN_Arm_R_02, left: BN_Arm_L_02}
 foot_joints: []   # the reference's heuristic finds none for this rig
 tags: [milliped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Walk.bvh
+  fbx: 'Crab-Attack1.fbx'
+  textures: null

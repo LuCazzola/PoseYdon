@@ -12,3 +12,13 @@ foot_joints:
   - Sabrecat_RightToe0_RT00_
   - Sabrecat_RightToe0_RT01_
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Startwalk.bvh
+  fbx: 'SABREALL-180Flip.fbx'
+  textures: null

@@ -16,3 +16,13 @@ foot_joints:
   - BN_Foot_R_02
   - BN_Foot_L_02
 tags: [flying]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Tpose.bvh
+  fbx: 'Giantbee-Attack.fbx'
+  textures: null

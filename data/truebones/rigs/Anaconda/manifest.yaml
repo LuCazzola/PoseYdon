@@ -33,3 +33,13 @@ foot_joints:
   - BN_Tone_03
   - BN_Tone_04
 tags: [snake]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Idle.bvh
+  fbx: 'AnacondaALL-Attack.fbx'
+  textures: null

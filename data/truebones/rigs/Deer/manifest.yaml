@@ -8,3 +8,13 @@ foot_joints:
   - ElkRPhalanxPrima
   - ElkLPhalanxPrima
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Idle.bvh
+  fbx: 'DEER-Backing.fbx'
+  textures: null

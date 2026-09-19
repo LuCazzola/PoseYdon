@@ -22,3 +22,13 @@ foot_joints:
   - Bip01_R_Foot_4
   - Bip01_R_FootNub_4
 tags: [milliped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'scorpion-Agitated.fbx'
+  textures: null

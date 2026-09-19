@@ -20,3 +20,13 @@ foot_joints:
   - jt_ToeOutter_R
   - jt_ClawOutter_R
 tags: [biped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'Raptor-AttackRight.fbx'
+  textures: null

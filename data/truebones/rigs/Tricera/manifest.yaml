@@ -10,3 +10,13 @@ foot_joints:
   - Bip01_L_Foot
   - Bip01_L_Toe0
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'Tricera-Attack.fbx'
+  textures: null

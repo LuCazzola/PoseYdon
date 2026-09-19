@@ -6,3 +6,13 @@ facing:
   shoulders: {right: RightArm, left: LeftArm}
 foot_joints: []   # the reference's heuristic finds none for this rig
 tags: [flying]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'Pigeon-Circle.fbx'
+  textures: null

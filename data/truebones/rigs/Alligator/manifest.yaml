@@ -8,3 +8,13 @@ foot_joints:
   - R_ashi
   - L_ashi
 tags: [quadruped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'AlligatorALL-BigMouth.fbx'
+  textures: null

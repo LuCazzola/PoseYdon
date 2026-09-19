@@ -20,3 +20,13 @@ foot_joints:
   - jt_ToeOutter_L
   - jt_ClawOutter_L
 tags: [biped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __walk_loop.bvh
+  fbx: 'T-Rex-Big roar step.fbx'
+  textures: null

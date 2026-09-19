@@ -24,3 +24,13 @@ foot_joints:
   - jt_ClawBack_R
   - jt_ClawBack2_R
 tags: [flying]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __FlyLoop.bvh
+  fbx: 'Pteranodon-ArcLeft.fbx'
+  textures: null

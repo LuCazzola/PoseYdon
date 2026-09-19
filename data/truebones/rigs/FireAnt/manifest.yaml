@@ -14,3 +14,13 @@ foot_joints:
   - Bip01_L_Foot_Rear
   - Bip01_L_Leg_Rear_Nub
 tags: [milliped]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __TPOSE.bvh
+  fbx: 'Fire ant-Angry.fbx'
+  textures: null

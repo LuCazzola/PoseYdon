@@ -166,7 +166,7 @@ class Animation:
             translations=self.translations,
             offsets=self.offsets,
             parents=self.parents,
-            names=np.array(self.names, dtype=object),
+            names=np.asarray(self.names, dtype="<U"),
             fps=np.float64(self.fps),
         )
 

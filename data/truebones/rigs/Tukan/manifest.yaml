@@ -6,3 +6,13 @@ facing:
   shoulders: {right: R_kata, left: L_kata}
 foot_joints: []   # the reference's heuristic finds none for this rig
 tags: [flying]
+
+authority:
+  skeleton: bvh
+  motion: bvh
+  surface: fbx
+  auxiliary_joints: bake
+artifacts:
+  bvh: __Tpose.bvh
+  fbx: 'TUKANALL-Fly.fbx'
+  textures: null
