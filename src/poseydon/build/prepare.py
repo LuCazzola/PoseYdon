@@ -719,7 +719,10 @@ class RigTransform:
         arrays: dict[str, np.ndarray] = {}
         for stage, params in self.rig_params.items():
             for key, value in params.items():
-                arrays[f"rig/{stage}/{key}"] = np.asarray(value)
+                if key == "source_channels":
+                    arrays[f"rig/{stage}/{key}"] = np.array(json.dumps(value))
+                else:
+                    arrays[f"rig/{stage}/{key}"] = np.asarray(value, dtype="<U" if key == "names" else None)
         for clip, stages in self.clip_params.items():
             # Clip names become path segments in the npz keys, and `load`
             # splits on "/" to recover the nesting. A name containing one
@@ -732,7 +735,7 @@ class RigTransform:
                 )
             for stage, params in stages.items():
                 for key, value in params.items():
-                    arrays[f"clip/{clip}/{stage}/{key}"] = np.asarray(value)
+                    arrays[f"clip/{clip}/{stage}/{key}"] = np.asarray(value, dtype="<U" if key == "names" else None)
         arrays["__clips__"] = np.array(json.dumps(sorted(self.clip_params)))
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(Path(path), **arrays)
@@ -750,7 +753,13 @@ class RigTransform:
                 head, *rest = key.split("/")
                 if head == "rig":
                     stage, field = rest
-                    rig.setdefault(stage, {})[field] = data[key]
+                    value = data[key]
+                    if field == "source_channels":
+                        if getattr(value, "dtype", None) is not None and value.dtype == object:
+                            value = tuple(tuple(str(channel) for channel in channels) for channels in value.tolist())
+                        else:
+                            value = tuple(tuple(channel for channel in channels) for channels in json.loads(str(value)))
+                    rig.setdefault(stage, {})[field] = value
                 else:
                     clip, stage, field = rest
                     clips.setdefault(clip, {}).setdefault(stage, {})[field] = data[key]
