@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -93,6 +94,10 @@ class ClipRecord:
     fps: float
     path: str
     tags: tuple[str, ...] = ()
+    prepared_fbx: str | None = None
+    presentation_fbx: str | None = None
+    original_fbx: str | None = None
+    availability_reasons: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -149,6 +154,35 @@ class CorpusIndex:
             and (split is None or record.split == split)
             and (tag is None or tag in record.tags)
         ]
+
+    def without(
+        self,
+        *,
+        skeletons: Iterable[str] = (),
+        clips: Iterable[str] = (),
+    ) -> CorpusIndex:
+        """This index minus whole skeletons and minus individual clips.
+
+        An entry matching nothing RAISES rather than passing quietly. A
+        blacklist is acted on for days: a typo'd rig name would otherwise train
+        a full run on exactly the clips the config said to drop, and nothing
+        anywhere would say so.
+        """
+        skeletons, clips = set(skeletons), set(clips)
+        unmatched = (skeletons - {r.skeleton for r in self.records}) | (
+            clips - {r.clip_id for r in self.records}
+        )
+        if unmatched:
+            raise ValueError(
+                f"blacklist matches no clip in the index: {sorted(unmatched)}"
+            )
+        return CorpusIndex(
+            [
+                record
+                for record in self.records
+                if record.skeleton not in skeletons and record.clip_id not in clips
+            ]
+        )
 
     def skeletons(self) -> list[str]:
         return sorted({record.skeleton for record in self.records})

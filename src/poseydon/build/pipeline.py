@@ -303,6 +303,15 @@ def build_index(config: BuildConfig, warnings: list[str] | None = None) -> Corpu
                 n_frames = int(data["rotations"].shape[0])
                 fps = float(data["fps"])
             split = _split_of(path.with_suffix(".yaml"), warnings)
+            rig_dir = config.out / "rigs" / rig
+            prepared_fbx = rig_dir / "model_character.fbx"
+            presentation_fbx = rig_dir / "presentation.fbx"
+            original_fbx = manifest.artifacts.fbx
+            reasons = {}
+            if not prepared_fbx.is_file():
+                reasons["prepared_fbx"] = "source_surface_missing"
+            if not presentation_fbx.is_file():
+                reasons["presentation_fbx"] = "source_surface_missing"
             index.add(
                 ClipRecord(
                     clip_id=clip_id(rig, path.stem),
@@ -313,6 +322,10 @@ def build_index(config: BuildConfig, warnings: list[str] | None = None) -> Corpu
                     fps=fps,
                     path=str(Path("clips") / rig / path.name),
                     tags=tuple(manifest.tags),
+                    prepared_fbx=str(prepared_fbx) if prepared_fbx.is_file() else None,
+                    presentation_fbx=str(presentation_fbx) if presentation_fbx.is_file() else None,
+                    original_fbx=str(original_fbx) if original_fbx is not None else None,
+                    availability_reasons=reasons,
                 )
             )
     index.save(config.out / "index.jsonl")
