@@ -52,6 +52,8 @@ from pathlib import Path
 
 import numpy as np
 
+from poseydon.core.animation import Animation
+from poseydon.core.rotations import matrix_to_quat, quat_apply, quat_inverse, quat_mul, quat_to_matrix
 from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
 
 try:
@@ -76,11 +78,100 @@ _AXES = {"X": Vector((1.0, 0.0, 0.0)), "Y": FORWARD, "Z": UP}
 # swapping two axes flips handedness and negating the third restores it.
 TO_Y_UP = Matrix(((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0)))
 
+#: Tail length, as a fraction of the rig's mean bone length, given to a bone
+#: whose children are all coincident with it. See `FBX.from_animation`.
+_STUB_FRACTION = 0.05
+
 
 def _to_y_up(vector: Vector) -> np.ndarray:
     """Blender world-space vector -> a PoseYdon Y-up ``(3,)`` array."""
     converted = TO_Y_UP @ vector
     return np.array((converted.x, converted.y, converted.z), dtype=np.float64)
+
+
+def _from_y_up(vector: np.ndarray) -> Vector:
+    """A PoseYdon Y-up ``(3,)`` array -> a Blender world-space vector.
+
+    The inverse of :func:`_to_y_up`. ``TO_Y_UP`` is a rotation (det +1, see its
+    definition), so the inverse is the transpose.
+    """
+    return TO_Y_UP.transposed() @ Vector(
+        (float(vector[0]), float(vector[1]), float(vector[2]))
+    )
+
+
+def _rest_positions(anim: Animation) -> np.ndarray:
+    """``(J, 3)`` joint positions of ``anim`` with every rotation set to identity.
+
+    The rest skeleton is ``translations`` at frame 0, NOT ``offsets``: forward
+    kinematics walks translations, and after an inverse preparation the two are
+    no longer the same array (`RestRelative.invert` restores the source's OFFSET
+    block while rotating the translations back into the source's bind frame).
+    `EnforceRigid` is what makes frame 0 representative -- every non-root
+    translation is constant over time.
+
+    In the REST-RELATIVE space this pose is the rig's T-pose, which is what
+    `FBX.apply_animation` aligns against a bind pose. After
+    `RestRelative.invert` it is instead the source's OFFSET-block pose, which is
+    the frame `FBX.from_animation` builds its edit bones in.
+    """
+    local = anim.translations[0]
+    positions = np.empty_like(local)
+    for joint, parent in enumerate(int(p) for p in anim.parents):
+        positions[joint] = (
+            local[joint] if parent < 0 else positions[parent] + local[joint]
+        )
+    return positions
+
+
+def _similarity(source: np.ndarray, target: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
+    """Least-squares ``(scale, rotation, translation)`` taking ``source`` onto ``target``.
+
+    Umeyama's closed form, with a UNIFORM scale. Fitting the transform rather
+    than composing a known one is what lets `apply_animation` drive a rig whose
+    units, axis convention and facing it knows nothing about: an FBX in
+    centimeters and a BVH in whatever its exporter chose differ by a rotation, a
+    factor and an offset, which is exactly what this recovers. It also absorbs
+    the Y-up/Z-up change, so nothing on that path needs `TO_Y_UP`.
+
+    Uniform, not per-axis, on purpose: a non-uniform fit would silently absorb a
+    genuine skeleton disagreement into a stretch instead of reporting it, and
+    the caller's residual check is the only thing standing between a stale rig
+    and a mangled mesh.
+    """
+    source_mean, target_mean = source.mean(axis=0), target.mean(axis=0)
+    centred_source, centred_target = source - source_mean, target - target_mean
+
+    u, singular, vt = np.linalg.svd(centred_target.T @ centred_source / len(source))
+    # Reflections are not rotations: if the raw solution flips handedness, the
+    # smallest singular direction is the cheapest one to flip back.
+    correction = np.eye(3)
+    if np.linalg.det(u) * np.linalg.det(vt) < 0:
+        correction[2, 2] = -1.0
+    rotation = u @ correction @ vt
+
+    variance = float((centred_source**2).sum() / len(source))
+    scale = float((singular * np.diag(correction)).sum() / variance) if variance > 0 else 1.0
+    return scale, rotation, target_mean - scale * (rotation @ source_mean)
+
+
+def _quat_matrix(quaternion: np.ndarray) -> Matrix:
+    """A scalar-last quaternion -> a Blender ``Matrix``, frame unchanged."""
+    return Matrix([list(row) for row in quat_to_matrix(quaternion)])
+
+
+def _rotation_to_blender(quaternion: np.ndarray) -> Matrix:
+    """A PoseYdon Y-up world rotation -> the same rotation in Blender's frame.
+
+    A change of basis, not a rotation of a vector: ``TO_Y_UP`` carries Blender
+    coordinates into Y-up ones, so a map expressed in Y-up is conjugated by it
+    to be expressed in Blender's.
+
+    `FBX.apply_animation` deliberately does NOT use this: the change of basis it
+    needs is the one `_similarity` fitted, which already contains this one.
+    Applying both would rotate the character twice.
+    """
+    return TO_Y_UP.transposed() @ _quat_matrix(quaternion) @ TO_Y_UP
 
 
 class FBX:
@@ -107,6 +198,300 @@ class FBX:
         if not armatures:
             raise ValueError(f"{path}: no armature in this file")
         return cls(armatures[0], [o for o in bpy.data.objects if o.type == "MESH"])
+
+    def to_animation(self) -> Animation:
+        """Sample the evaluated armature into PoseYdon's Y-up animation model."""
+        names = tuple(self.joint_names)
+        parents = np.asarray(self.joint_parents, dtype=np.int32)
+        first, last = self.frame_range()
+        frame_numbers = tuple(range(first, last + 1))
+        positions = np.empty((len(frame_numbers), len(names), 3), dtype=np.float64)
+        global_rotations = np.empty((len(frame_numbers), len(names), 4), dtype=np.float64)
+        for sample, frame in enumerate(frame_numbers):
+            self.set_frame(frame)
+            for joint, name in enumerate(names):
+                pose_matrix = self.armature.matrix_world @ self.armature.pose.bones[name].matrix
+                positions[sample, joint] = _to_y_up(pose_matrix.translation)
+                blender_rotation = pose_matrix.to_quaternion().to_matrix()
+                y_up_rotation = TO_Y_UP @ blender_rotation @ TO_Y_UP.transposed()
+                global_rotations[sample, joint] = matrix_to_quat(np.asarray(y_up_rotation))
+        rotations = global_rotations.copy()
+        translations = positions.copy()
+        for joint in range(1, len(names)):
+            parent = parents[joint]
+            inverse_parent = quat_inverse(global_rotations[:, parent])
+            rotations[:, joint] = quat_mul(inverse_parent, global_rotations[:, joint])
+            translations[:, joint] = quat_apply(
+                inverse_parent, positions[:, joint] - positions[:, parent]
+            )
+        return Animation(
+            rotations=rotations, translations=translations,
+            offsets=self.joint_offsets, parents=parents, names=names,
+            fps=float(bpy.context.scene.render.fps / bpy.context.scene.render.fps_base),
+        )
+
+    @classmethod
+    def from_animation(cls, anim: Animation, name: str = "Armature") -> FBX:
+        """Build a keyed armature from an :class:`~poseydon.core.animation.Animation`.
+
+        The counterpart to :meth:`poseydon.io.bvh.BVH.from_animation`, and what
+        `scripts/anim_2_fbx.py` exports a generated clip through. The scene it
+        leaves behind is a fresh one holding a single armature and no mesh, so
+        :meth:`write` exports exactly the skeleton and its animation.
+
+        **Childless joints do not become bones.** A BVH End Site is a childless
+        joint with an offset, synthesized under every real leaf on read; FBX has
+        no such concept, so writing one would hand the user joints their own
+        asset never had. They are consumed as their parent's TAIL direction
+        instead, which is the only thing an End Site's offset ever meant, and
+        leaves the bone count equal to `build/pipeline.py::_n_real_joints` --
+        the count that module already defines as "the count an FBX skeleton is
+        comparable against".
+
+        **Bones are keyed through `matrix_basis`, not `matrix`.** The world-space
+        `pose_bone.matrix` setter needs the parent's pose already evaluated, so
+        driving it means a `view_layer.update()` between every bone of every
+        frame -- a full depsgraph evaluation some ten thousand times for a
+        200-frame clip. The basis is the same quantity algebraically,
+
+            basis = rest^-1 @ parent_rest @ parent_world^-1 @ world
+
+        computed from static rest matrices and world transforms this module
+        already has, so no evaluation is needed at all.
+
+        Rotations are carried through world space rather than joint-locally, for
+        the reason `scripts/process_dataset_truebones_fbx.py` states about the
+        two corpora: BVH and FBX each express a joint's rotation in its own
+        local bone frame, differing by a constant per-joint offset. World space
+        is where they are the same thing.
+        """
+        parents = [int(p) for p in anim.parents]
+        children: list[list[int]] = [[] for _ in parents]
+        for joint, parent in enumerate(parents):
+            if parent >= 0:
+                children[parent].append(joint)
+
+        bones = [joint for joint in range(anim.n_joints) if children[joint]]
+        if not bones:
+            raise ValueError(
+                "this animation has no joint with a child, so there is no bone to "
+                "build; an armature cannot be made from a single point"
+            )
+
+        local = anim.translations[0]
+        rest = _rest_positions(anim)
+        head = [_from_y_up(rest[joint]) for joint in range(anim.n_joints)]
+
+        # Blender deletes an edit bone of zero length, and a rig that reached
+        # here through `invert_reduction` is full of coincident joints -- every
+        # one the reduction removed had a zero offset by definition. Such a bone
+        # gets a stub tail instead: its length is cosmetic (the module docstring
+        # says as much about leaf bones), while its HEAD is the joint position
+        # and is exact either way.
+        lengths = np.linalg.norm(local[1:], axis=-1)
+        real = lengths[lengths > 1e-8]
+        stub = max(float(real.mean()) * _STUB_FRACTION, 1e-4) if real.size else 1e-4
+
+        def tail_of(joint: int) -> Vector:
+            for child in children[joint]:
+                if (head[child] - head[joint]).length > 1e-8:
+                    return head[child]
+            # Every child sits exactly on top of this joint, so the data names
+            # no direction. Continue this joint's own bone, or world up at a
+            # root that has none.
+            parent = parents[joint]
+            along = head[joint] - head[parent] if parent >= 0 else Vector((0.0, 0.0, 0.0))
+            if along.length <= 1e-8:
+                along = UP
+            return head[joint] + along.normalized() * stub
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        scene = bpy.context.scene
+        scene.render.fps = max(1, round(anim.fps))
+        scene.frame_start = 1
+        scene.frame_end = anim.n_frames
+
+        armature = bpy.data.armatures.new(name)
+        obj = bpy.data.objects.new(name, armature)
+        scene.collection.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+
+        bpy.ops.object.mode_set(mode="EDIT")
+        for joint in bones:
+            bone = armature.edit_bones.new(anim.names[joint])
+            if bone.name != anim.names[joint]:
+                raise ValueError(
+                    f"Blender renamed joint `{anim.names[joint]}` to `{bone.name}`; "
+                    "the exported rig would not carry the names the source did"
+                )
+            bone.head = head[joint]
+            bone.tail = tail_of(joint)
+        for joint in bones:
+            # A bone's parent always has a child -- this one -- so it is itself
+            # a bone. No ancestor search is needed.
+            if parents[joint] >= 0:
+                armature.edit_bones[anim.names[joint]].parent = armature.edit_bones[
+                    anim.names[parents[joint]]
+                ]
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+        positions, rotations = anim.global_transforms()
+        rest_matrix = {
+            joint: armature.bones[anim.names[joint]].matrix_local.copy()
+            for joint in bones
+        }
+        inverse_rest = {joint: matrix.inverted() for joint, matrix in rest_matrix.items()}
+        pose = {joint: obj.pose.bones[anim.names[joint]] for joint in bones}
+        for bone in pose.values():
+            bone.rotation_mode = "QUATERNION"
+
+        for frame in range(anim.n_frames):
+            world = {
+                joint: Matrix.Translation(_from_y_up(positions[frame, joint]))
+                @ _rotation_to_blender(rotations[frame, joint]).to_4x4()
+                for joint in bones
+            }
+            for joint in bones:
+                parent = parents[joint]
+                if parent < 0:
+                    basis = inverse_rest[joint] @ world[joint]
+                else:
+                    basis = (
+                        inverse_rest[joint]
+                        @ rest_matrix[parent]
+                        @ world[parent].inverted()
+                        @ world[joint]
+                    )
+                bone = pose[joint]
+                bone.matrix_basis = basis
+                bone.keyframe_insert("location", frame=frame + 1)
+                bone.keyframe_insert("rotation_quaternion", frame=frame + 1)
+
+        bpy.context.view_layer.update()
+        return cls(obj, [])
+
+    def apply_animation(self, anim: Animation, max_residual: float = 0.05) -> float:
+        """Replace this scene's animation with ``anim``, keeping its mesh and skin.
+
+        The skinned counterpart to :meth:`from_animation`. That one builds a bare
+        armature and so returns a skeleton; this one drives the armature the user
+        already has -- mesh, skin weights, materials and all -- so what comes out
+        of :meth:`write` afterwards is their own asset performing generated
+        motion.
+
+        ``anim`` must be REST-RELATIVE: identity rotation on every joint has to
+        reproduce the rig's T-pose, which is what `RestRelative` establishes and
+        what an FBX bind pose already is ("the FBX bind pose IS the T-pose: 0.00
+        degrees median", `scripts/process_dataset_truebones_fbx.py`). That shared
+        meaning of "zero" is the whole reason the two can be married at all:
+        joint rotations become deltas from the bind, and neither side's local
+        bone-frame convention -- which genuinely differ, by a constant per-joint
+        offset -- ever has to be converted.
+
+        Everything else is FITTED rather than assumed. ``anim``'s T-pose is
+        aligned onto this rig's bind pose by :func:`_similarity`, recovering the
+        rotation, uniform scale and translation between them, so units (Scorpion:
+        a factor of 100.2783), axis convention and facing need no agreement in
+        advance and no recorded parameters. Joints are matched BY NAME, and only
+        those this armature has are driven -- a BVH's End Sites have no bone here
+        and are not expected to.
+
+        Returns the fit residual as a fraction of this rig's mean bone length,
+        and raises above ``max_residual``: past a point the two are not the same
+        skeleton, and draping a skin over the difference deforms the character
+        rather than animating it. Measured at 1.15e-06 for Scorpion.
+        """
+        bones = self.armature.data.bones
+        driven = [name for name in anim.names if name in bones]
+        missing = [bone.name for bone in bones if bone.name not in set(anim.names)]
+        if missing:
+            raise ValueError(
+                f"this armature has {len(missing)} bone(s) the animation does not "
+                f"drive ({', '.join(missing[:3])}), so they would stay in the bind "
+                "pose while the rest of the character moves"
+            )
+        index_of = {name: i for i, name in enumerate(anim.names)}
+
+        # Bind heads in ARMATURE-OBJECT space, which is the space `matrix_local`
+        # and `pose_bone.matrix` both live in. Doing the whole fit there means
+        # the armature object's own transform never enters it.
+        bind = {name: bones[name].matrix_local.copy() for name in driven}
+        target = np.array([tuple(bind[name].translation) for name in driven])
+        source = _rest_positions(anim)[[index_of[name] for name in driven]]
+        scale, rotation, offset = _similarity(source, target)
+
+        lengths = np.array(
+            [
+                (bind[name].translation - bind[bones[name].parent.name].translation).length
+                for name in driven
+                if bones[name].parent is not None and bones[name].parent.name in bind
+            ]
+        )
+        real = lengths[lengths > 1e-8]
+        bone_length = float(real.mean()) if real.size else 1.0
+        residual = float(
+            np.abs(scale * (source @ rotation.T) + offset - target).max() / bone_length
+        )
+        if residual > max_residual:
+            raise ValueError(
+                f"this rig's bind pose and the animation's T-pose disagree by "
+                f"{residual:.3g} bone lengths, past the {max_residual:g} bound -- "
+                "they are not the same skeleton, and skinning across the "
+                "difference would deform the character rather than pose it"
+            )
+
+        positions, rotations = anim.global_transforms()
+        # Both mapped through the fitted similarity: a point by `s R x + t`, and
+        # a rotation by conjugation, which is what a change of basis does to one.
+        posed = scale * (positions @ rotation.T) + offset
+        blender_rotation = Matrix([list(row) for row in rotation])
+
+        scene = bpy.context.scene
+        scene.render.fps = max(1, round(anim.fps))
+        scene.frame_start = 1
+        scene.frame_end = anim.n_frames
+        # The imported action is this clip's ORIGINAL motion. Left in place, its
+        # keys survive on every channel the loop below does not write.
+        if self.armature.animation_data is not None:
+            self.armature.animation_data_clear()
+        self.armature.animation_data_create()
+
+        pose = {name: self.armature.pose.bones[name] for name in driven}
+        for bone in pose.values():
+            bone.rotation_mode = "QUATERNION"
+        inverse_bind = {name: bind[name].inverted() for name in driven}
+
+        for frame in range(anim.n_frames):
+            world = {}
+            for name in driven:
+                joint = index_of[name]
+                delta = (
+                    blender_rotation
+                    @ _quat_matrix(rotations[frame, joint])
+                    @ blender_rotation.transposed()
+                )
+                world[name] = Matrix.Translation(
+                    Vector(tuple(posed[frame, joint]))
+                ) @ (delta @ bind[name].to_quaternion().to_matrix()).to_4x4()
+            for name in driven:
+                parent = bones[name].parent
+                if parent is None or parent.name not in world:
+                    basis = inverse_bind[name] @ world[name]
+                else:
+                    basis = (
+                        inverse_bind[name]
+                        @ bind[parent.name]
+                        @ world[parent.name].inverted()
+                        @ world[name]
+                    )
+                bone = pose[name]
+                bone.matrix_basis = basis
+                bone.keyframe_insert("location", frame=frame + 1)
+                bone.keyframe_insert("rotation_quaternion", frame=frame + 1)
+
+        bpy.context.view_layer.update()
+        return residual
 
     # -------------------------------------------------------------- geometry
 
@@ -306,7 +691,7 @@ class FBX:
 
     # ----------------------------------------------------------------- write
 
-    def write(self, path: str | Path) -> None:
+    def write(self, path: str | Path, embed_textures: bool = False) -> None:
         """Export to FBX, with full animation fidelity and a movable object.
 
         Two export settings, both load-bearing, and they interact:
@@ -332,6 +717,23 @@ class FBX:
 
         Result: 0 object-level curves, so the armature is directly selectable
         and movable, with animation indistinguishable from the source.
+
+        ``embed_textures`` packs the image files into the FBX itself. The
+        default `path_mode="AUTO"` writes a texture path RELATIVE to the output
+        file, and that path is wrong whenever the export does not sit beside the
+        source: exporting Scorpion to ``out/`` rewrote
+        ``/app/data/truebones/source/Scorpion/tex/radscorpion.JPG`` as
+        ``out/app/data/.../radscorpion.JPG``, which resolves to nothing, so the
+        character loads with no texture and renders MAGENTA -- in a preview
+        render and equally in whatever tool the file was handed to.
+
+        Off by default all the same, because the two callers want opposite
+        things. `scripts/process_dataset_truebones_fbx.py` writes one FBX per
+        clip of 73 rigs into the corpus, and packing a rig's textures into every
+        one of its clips multiplies them by the clip count for files that are
+        intermediate artefacts nothing textures. A single user-facing export
+        (`scripts/anim_2_fbx.py --skin`) wants to be self-contained and pays the
+        size once.
         """
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         bpy.ops.export_scene.fbx(
@@ -339,6 +741,11 @@ class FBX:
             add_leaf_bones=False,
             bake_anim_simplify_factor=0.01,
             bake_anim_force_startend_keying=False,
+            **(
+                {"path_mode": "COPY", "embed_textures": True}
+                if embed_textures
+                else {}
+            ),
         )
 
     def bind_pose_arrays(
