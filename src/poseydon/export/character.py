@@ -24,7 +24,7 @@ class CharacterExporter:
     clip_params: dict = field(default_factory=dict)
     source_fbx: Path | None = None
     model_fbx: Path | None = None
-    presentation_fbx: Path | None = None
+    presentation_asset: Path | None = None
 
     @classmethod
     def load(cls, corpus: str | Path, raw: str | Path, rig: str):
@@ -118,16 +118,20 @@ class CharacterExporter:
             raise ArtifactUnavailableError("corpus", self.rig, representation, "fbx", "source_surface_missing")
         from poseydon.io.fbx import FBX
         scene = FBX.read(path)
-        restored = (
-            self._restore(anim, "rest_relative", facing_from=facing_from)
-            if representation == "presentation"
-            else self._restore(anim, facing_from=facing_from)
-        )
-        if representation == "original":
+        if representation == "prepared":
+            # The model FBX is already in canonical prepared space; applying
+            # the reduced model animation directly is the point of this mode.
+            restored = anim
+        elif representation == "presentation":
+            # Restore the source hierarchy while leaving RestRelative undone
+            # so identity still means the canonical bind pose.
+            restored = self._restore(anim, "rest_relative", facing_from=facing_from)
+        else:
+            restored = self._restore(anim, facing_from=facing_from)
             restored = scene.align_animation_to_bind(restored)
-        scene.apply_animation(restored, allow_undriven=representation == "original")
+        scene.apply_animation(restored, allow_undriven=representation in {"presentation", "original"})
         return scene
 
     def prepared_fbx(self, anim, facing_from: str | None = None): return self._fbx(anim, self.model_fbx, "prepared", facing_from)
-    def presentation_fbx(self, anim, facing_from: str | None = None): return self._fbx(anim, self.presentation_fbx, "presentation", facing_from)
+    def presentation_fbx(self, anim, facing_from: str | None = None): return self._fbx(anim, self.presentation_asset, "presentation", facing_from)
     def original_fbx(self, anim, facing_from: str | None = None): return self._fbx(anim, self.source_fbx, "original", facing_from)

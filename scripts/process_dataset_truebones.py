@@ -22,6 +22,7 @@ import numpy as np
 
 from poseydon.build.corpus import rest_action, rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
+from poseydon.build.report import PreparationReport
 from poseydon.build.prepare import (
     CLIP,
     CentreXZ,
@@ -134,7 +135,8 @@ def process_species(
     rest_bvh = BVH.read(rest_path)
     rest = rest_bvh.to_animation()
     chain = _chain_for(rest_bvh.channels, manifest.name)
-    rig_params = chain.fit_rig(rest, resolve(manifest, rest.names))
+    report = PreparationReport.start("truebones", manifest.name, manifest.authority)
+    rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report)
 
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -156,7 +158,7 @@ def process_species(
                     f"{source.fps:.4f}"
                 )
             resolved = resolve(manifest, source.names)
-            prepared, params = chain.apply(source, resolved, rig_params)
+            prepared, params = chain.apply(source, resolved, rig_params, audit=report)
 
             action = strip_skeleton_prefix(action_slug(clip_path.stem), manifest.name)
             BVH.from_animation(prepared).write(clips_dir / f"{action}.bvh")
@@ -171,6 +173,7 @@ def process_species(
             continue
         n_written += 1
 
+    report.write(out_root / "rigs" / manifest.name / "preparation-report.json")
     RigTransform(rig_params=rig_params, clip_params=clip_params).save(
         out_root / "rigs" / manifest.name / "prepare.npz"
     )

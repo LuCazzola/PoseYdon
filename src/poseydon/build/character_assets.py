@@ -75,37 +75,55 @@ def _write_atomic(scene: FBX, path: Path) -> None:
 def _write_report(context: CharacterAssetContext, output: Path, assets: CharacterAssets) -> Path:
     report = context.report_path or output / "preparation-report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
-    operations = [
+    existing = json.loads(report.read_text()) if report.is_file() else {}
+    asset_operations = [
         {
-            "operation_id": f"{context.rig}/topology/000",
+            "operation_id": f"{context.rig}/topology/asset",
             "kind": "topology_contract",
+            "direction": "asset",
+            "scope": "rig",
             "joint_names": list(context.model_names),
             "parents": list(context.model_parents),
         },
         {
-            "operation_id": f"{context.rig}/correspondence/000",
+            "operation_id": f"{context.rig}/correspondence/asset",
             "kind": "joint_correspondence",
+            "direction": "asset",
+            "scope": "rig",
             "source": None if context.raw_fbx is None else str(context.raw_fbx),
             "target_joint_count": len(context.model_names),
         },
         {
-            "operation_id": f"{context.rig}/skinning/000",
+            "operation_id": f"{context.rig}/skinning/asset",
             "kind": "skinning_policy",
+            "direction": "asset",
+            "scope": "rig",
             "decision": "preserve" if context.skinning_plan is None else str(context.skinning_plan),
         },
     ]
-    stages = ("rest_relative", "promote_root", "face_axis", "enforce_rigid", "centre_xz", "scale_to_mean_bone_length", "put_on_ground")
-    operations.extend({
-        "operation_id": f"{context.rig}/transform/{index:03d}",
-        "kind": stage,
-        "direction": "prepare",
-        "scope": "rig" if stage != "face_axis" else "clip",
-        "parameters": {},
-    } for index, stage in enumerate(stages, start=len(operations)))
-    joint_decisions = [
-        {"operation_id": f"{context.rig}/joint/{index:04d}", "joint": name, "operation": "retain", "reason": "model topology"}
-        for index, name in enumerate(context.model_names)
-    ]
+    operations = list(existing.get("operations", ()))
+    if operations:
+        operations.extend(asset_operations)
+        unique = {}
+        for operation in operations:
+            unique[operation["operation_id"]] = operation
+        operations = list(unique.values())
+    else:
+        operations = asset_operations
+        stages = ("rest_relative", "promote_root", "face_axis", "enforce_rigid", "centre_xz", "scale_to_mean_bone_length", "put_on_ground")
+        operations.extend({
+            "operation_id": f"{context.rig}/transform/{index:03d}",
+            "kind": stage,
+            "direction": "prepare",
+            "scope": "rig" if stage != "face_axis" else "clip",
+            "parameters": {},
+        } for index, stage in enumerate(stages, start=len(operations)))
+    joint_decisions = list(existing.get("joint_decisions", ()))
+    if not joint_decisions:
+        joint_decisions = [
+            {"operation_id": f"{context.rig}/joint/{index:04d}", "joint": name, "operation": "retain", "reason": "model topology"}
+            for index, name in enumerate(context.model_names)
+        ]
     joint_decisions.extend({
         "operation_id": f"{context.rig}/joint-removal/{index:04d}",
         "joint": getattr(removal, "name", str(removal)),
@@ -113,10 +131,12 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
         "reason": getattr(removal, "reason", "declared policy"),
         "destination": getattr(removal, "recipient", None),
     } for index, removal in enumerate(context.removals))
-    payload = {
-        "dataset": "truebones",
+    authority = context.authority if isinstance(context.authority, dict) else existing.get("authority", {"skeleton": "bvh", "motion": "bvh", "surface": "fbx", "auxiliary_joints": "bake"})
+    payload = dict(existing)
+    payload.update({
+        "dataset": existing.get("dataset", "truebones"),
         "rig": context.rig,
-        "authority": (context.authority if isinstance(context.authority, dict) else {"skeleton": "bvh", "motion": "bvh", "surface": "fbx", "auxiliary_joints": "bake"}),
+        "authority": authority,
         "source_fbx": None if context.raw_fbx is None else str(context.raw_fbx),
         "source_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},
         "model_skeleton": {"names": list(context.model_names), "parents": list(context.model_parents)},
@@ -126,14 +146,13 @@ def _write_report(context: CharacterAssetContext, output: Path, assets: Characte
         "outputs": {"model_fbx": None if assets.model is None else str(assets.model), "presentation_fbx": None if assets.presentation is None else str(assets.presentation)},
         "availability": {"prepared_fbx": assets.model is not None, "presentation_fbx": assets.presentation is not None},
         "reason": assets.reason,
-        "warnings": [] if assets.reason is None else [assets.reason],
+        "warnings": list(dict.fromkeys(list(existing.get("warnings", ())) + ([] if assets.reason is None else [assets.reason]))),
         "operations": operations,
         "joint_decisions": joint_decisions,
-        "skinning_decisions": [],
-    }
+        "skinning_decisions": list(existing.get("skinning_decisions", ())),
+    })
     report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return report
-
 
 def build_character_assets(context: CharacterAssetContext, output: Path) -> CharacterAssets:
     """Build independent full-presentation and reduced model FBX assets."""

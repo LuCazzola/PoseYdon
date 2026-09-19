@@ -20,5 +20,5 @@ authority:
   auxiliary_joints: bake
 artifacts:
   bvh: __IdleLoop.bvh
-  fbx: 'Camel-Bite.fbx'
+  fbx: 'Camel-IdleLoop.fbx'
   textures: null

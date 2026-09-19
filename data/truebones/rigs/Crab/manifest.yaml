@@ -14,5 +14,5 @@ authority:
   auxiliary_joints: bake
 artifacts:
   bvh: __Walk.bvh
-  fbx: 'Crab-Attack1.fbx'
+  fbx: 'Crab-Walk.fbx'
   textures: null

@@ -49,7 +49,7 @@ import sys
 from pathlib import Path
 
 from poseydon.build.index import action_slug, is_all_takes_bundle, strip_skeleton_prefix
-from poseydon.build.character_assets import CharacterAssetContext, build_character_assets, _rest_positions, _similarity, _to_y_up
+from poseydon.build.character_assets import CharacterAssetContext, build_character_assets
 from poseydon.features.reduce import build_reduction, apply_reduction
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY
@@ -57,6 +57,7 @@ import numpy as np
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.fbx import FBX
+from poseydon.io.fbx import _rest_positions, _similarity, _to_y_up
 from poseydon.io.bvh import BVH
 
 DEFAULT_RAW_ROOT = Path("data/_raw/truebones/source")
@@ -95,6 +96,10 @@ def process_species(
     rig_dir = out_root / "rigs" / species
     n_written = 0
     mesh_written = False
+    mesh_source = None if manifest.artifacts.fbx is None else species_dir / manifest.artifacts.fbx
+    if mesh_source is not None and not mesh_source.is_file():
+        warnings.append(f"{species}: declared FBX surface {mesh_source.name} is missing")
+        mesh_source = None
 
     for source in sources:
         # One bad file must not cost a species: Truebones ships rigs whose
@@ -123,7 +128,7 @@ def process_species(
             # One mesh per character, from the first file that carries one.
             # It has no frame to be faced from, so face the BIND pose: the
             # mesh is a per-rig reference, not a clip.
-            if not mesh_written and scene.meshes:
+            if not mesh_written and scene.meshes and (mesh_source is None or source == mesh_source):
                 scene.rotate(scene.facing_rotation(pairs, TARGET_AXIS, rest=True))
                 rig_dir.mkdir(parents=True, exist_ok=True)
                 scene.write_mesh_npz(rig_dir / "mesh.npz")
