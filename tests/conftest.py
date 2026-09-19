@@ -35,12 +35,10 @@ def corpus_root() -> Path:
 
 
 @pytest.fixture(scope="session")
-def source_root(corpus_root: Path) -> Path:
-    """The raw corpus, under whichever name it currently has."""
-    for name in ("source", "Truebone_Z-OO"):
-        candidate = corpus_root / name
-        if candidate.is_dir():
-            return candidate
+def source_root() -> Path:
+    candidate = Path("data/_raw/truebones/source")
+    if candidate.is_dir():
+        return candidate
     pytest.skip("no raw corpus directory")
 
 
