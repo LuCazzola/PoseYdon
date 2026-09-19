@@ -45,6 +45,18 @@ class RemovalOp:
     kind: str
     children: tuple[str, ...] = ()
 
+    @property
+    def operation_id(self) -> str:
+        return f"reduction/{self.kind}/{self.name}"
+
+    @property
+    def recipient(self) -> str | None:
+        return self.parent if self.kind == COLLAPSE else None
+
+    @property
+    def reason(self) -> str:
+        return "zero-offset leaf" if self.kind == DROP else "zero-offset sole-child chain"
+
 
 @dataclass(frozen=True)
 class JointReduction:
