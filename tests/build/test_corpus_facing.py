@@ -1,4 +1,3 @@
-from pathlib import Path
 """The prepared corpus faces +Z, rig by rig, pinned against real numbers.
 
 `scripts.process_dataset_truebones._sanity_check` measures this at build time
@@ -15,6 +14,8 @@ nothing, exactly the mistake this branch already fixed once in
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pytest
