@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from poseydon.io.bvh import BVH
-from tests.conftest import CORPUS, SAMPLE_RIGS
+from tests.conftest import SAMPLE_RIGS
 
 
 def test_read_names_matches_full_read():

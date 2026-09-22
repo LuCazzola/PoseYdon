@@ -10,9 +10,15 @@ and an inherited `training.anim.npz` silently belonged to a different action in
 another, which reads as a badly broken export rather than a mismatched pair.
 """
 from __future__ import annotations
-import argparse, hashlib, json, shutil
+
+import argparse
+import hashlib
+import json
+import shutil
 from pathlib import Path
+
 from poseydon.build.index import action_slug, is_all_takes_bundle, strip_skeleton_prefix
+
 
 def _sha(path):
     if path is None or not Path(path).is_file(): return None
@@ -90,7 +96,7 @@ def _training(corpus: Path, rig: str, prepared: Path, folder: Path):
         resolved = _reindex_resolved(resolve(manifest, animation.names), old_to_new)
         features, spec = extract_features(reduced, resolved, DEFAULT_FEATURES)
         np.savez(features_path, features=features, names=np.array(spec.names, dtype=object))
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - features are optional here
         print(f"{rig}: no training features ({type(error).__name__}: {error})")
         features_path.unlink(missing_ok=True)
         features_path = None
@@ -112,7 +118,7 @@ def discover(corpus, raw, output):
                 animation,features=_training(Path(corpus),rigdir.name,prepared,folder)
                 context["training_anim"]=animation
                 if features is not None: context["training_features"]=features
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - one rig must not cost the corpus
                 print(f"{rigdir.name}: no training animation ({type(error).__name__}: {error})")
         # The roundtrips are the Blender companion's output, derived from the
         # training animation just rewritten -- so anything already here

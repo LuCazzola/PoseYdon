@@ -4,10 +4,18 @@ Run this companion in the headless Blender container after
 ``build_skeleton_visual_debug.py`` has copied the deterministic inputs.
 """
 from __future__ import annotations
-import argparse, json, sys
+
+import argparse
+import hashlib
+import json
+import sys
 from pathlib import Path
+
 from poseydon.core.animation import Animation
 from poseydon.export import CharacterExporter
+
+#: metadata.json field name for each artifact this script owns.
+FIELDS={"roundtrip.bvh":"roundtrip_bvh","roundtrip.fbx":"roundtrip_fbx"}
 
 def _drop(bundle: Path, *names: str) -> None:
     """Remove artifacts this run could not rebuild, so none is left stale."""
@@ -15,6 +23,39 @@ def _drop(bundle: Path, *names: str) -> None:
         path=bundle/name
         if path.exists():
             path.unlink()
+
+
+def _record(bundle: Path, name: str, reason: str | None) -> None:
+    """Write this artifact's outcome into the bundle's own metadata.
+
+    `build_skeleton_visual_debug.py` writes metadata before this companion
+    runs, so the two roundtrip entries are necessarily null there. Left that
+    way the bundle under-reports itself: the file is on disk with no hash
+    beside it, and a rig whose FBX was REFUSED is indistinguishable from one
+    whose vendor asset is simply absent. Both are filled in here, by the run
+    that actually knows.
+    """
+    metadata=bundle/"metadata.json"
+    if not metadata.is_file():
+        return
+    data=json.loads(metadata.read_text())
+    field=FIELDS[name]
+    path=bundle/name
+    if reason is None and path.is_file():
+        digest=hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1<<20), b""): digest.update(block)
+        data[field]={"path":str(path),"sha256":digest.hexdigest()}
+        data.setdefault("unavailable",{}).pop(field,None)
+    else:
+        data[field]=None
+        data.setdefault("unavailable",{})[field]=reason or "not_generated"
+    metadata.write_text(json.dumps(data,indent=2,sort_keys=True)+"\n")
+
+
+def _reason(error: Exception) -> str:
+    """The typed reason where the exporter gives one, else the exception."""
+    return getattr(error,"reason",None) or f"{type(error).__name__}: {error}"
 
 
 def _action(bundle: Path) -> str | None:
@@ -45,9 +86,10 @@ def main(argv=None):
         animation=Animation.load(training)
         try:
             exporter=CharacterExporter.load(args.corpus,args.raw,bundle.name)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - one rig must not cost the corpus
             _drop(bundle,"roundtrip.bvh","roundtrip.fbx")
-            print(f"{bundle.name}: unavailable ({type(error).__name__}: {error})",flush=True)
+            for name in FIELDS: _record(bundle,name,_reason(error))
+            print(f"{bundle.name}: unavailable ({_reason(error)})",flush=True)
             continue
         # These bundles reconstruct a REAL clip, so its recorded yaw is on
         # hand and is the exact answer; the rig-level rest facing that a
@@ -61,13 +103,17 @@ def main(argv=None):
         # one that cannot be rebuilt must not be left behind from a previous
         # run beside a fresh sibling. Stale is worse than absent -- it is the
         # shape a bundle takes when half of it silently did not regenerate.
-        for name,build in (("roundtrip.bvh",lambda: exporter.original_bvh(animation,facing_from=facing).write(bundle/"roundtrip.bvh")),
-                           ("roundtrip.fbx",lambda: exporter.original_fbx(animation,facing_from=facing).write(bundle/"roundtrip.fbx",embed_textures=True))):
+        for name in FIELDS:
             try:
-                build(); written.append(name)
-            except Exception as error:
+                if name.endswith(".bvh"):
+                    exporter.original_bvh(animation,facing_from=facing).write(bundle/name)
+                else:
+                    exporter.original_fbx(animation,facing_from=facing).write(bundle/name,embed_textures=True)
+                written.append(name); _record(bundle,name,None)
+            except Exception as error:  # noqa: BLE001 - one artifact must not cost the other
                 _drop(bundle,name)
-                print(f"{bundle.name}: {name} unavailable ({type(error).__name__}: {error})",flush=True)
+                _record(bundle,name,_reason(error))
+                print(f"{bundle.name}: {name} unavailable ({_reason(error)})",flush=True)
         if written:
             ok += 1
             print(f"{bundle.name}: wrote {', '.join(written)}",flush=True)

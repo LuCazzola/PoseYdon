@@ -1,9 +1,11 @@
 from pathlib import Path
 
+import numpy as np
+
 from poseydon.cli import main
 from poseydon.core.animation import Animation
 from poseydon.core.rotations import QUAT_IDENTITY
-import numpy as np
+
 
 def _input(path: Path):
     Animation(

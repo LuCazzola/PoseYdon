@@ -22,8 +22,8 @@ import pytest
 from poseydon.build.corpus import rest_action
 from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.build.prepare import RigTransform
-from poseydon.core.skeleton import SkeletonManifest
 from poseydon.core.kinematics import forward_kinematics
+from poseydon.core.skeleton import SkeletonManifest
 from poseydon.export import CharacterExporter
 from poseydon.features.reduce import apply_reduction
 from poseydon.io.bvh import BVH

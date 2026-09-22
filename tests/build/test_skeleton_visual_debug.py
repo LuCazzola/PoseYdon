@@ -1,6 +1,7 @@
 import json
-from pathlib import Path
+
 from scripts.build_skeleton_visual_debug import build_bundle
+
 
 def test_bundle_records_typed_absence_and_hash(tmp_path):
     bvh=tmp_path/"x.bvh"; bvh.write_text("fixture")
@@ -24,12 +25,12 @@ def test_discover_derives_the_training_animation_and_drops_stale_roundtrips(tmp_
     """
     import numpy as np
     import pytest
+    from scripts.build_skeleton_visual_debug import discover
 
     from poseydon.core.animation import Animation, RigidBodyAnimation
     from poseydon.core.rotations import QUAT_IDENTITY
     from poseydon.features.reduce import apply_reduction, build_reduction
     from poseydon.io.bvh import BVH
-    from scripts.build_skeleton_visual_debug import discover
     from tests.conftest import CORPUS
 
     raw = CORPUS.parent / "_raw" / "truebones"
