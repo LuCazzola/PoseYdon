@@ -104,18 +104,18 @@ class CharacterExporter:
             if facing_from not in self.clip_params:
                 raise KeyError(f"unknown facing clip `{facing_from}` for rig `{self.rig}`")
             params.update(self.clip_params[facing_from])
-        elif "face_axis" not in params:
+        running = []
+        for stage in reversed(self.chain.stages):
+            if stage.name == stop_before:
+                break
+            running.append(stage)
+        if facing_from is None and "face_axis" in {s.name for s in running} and "face_axis" not in params:
             raise KeyError(
                 f"`{self.rig}`'s preproc.npz records no rig-level facing, so a "
                 "generated clip has no frame to be restored into; pass "
                 "`facing_from` to borrow a recorded clip's yaw, or rebuild the "
                 "rig with scripts/process_dataset_truebones.py"
             )
-        running = []
-        for stage in reversed(self.chain.stages):
-            if stage.name == stop_before:
-                break
-            running.append(stage)
         # An inverse is only as good as its recorded parameters, and a missing
         # one used to fall back to `{}` -- which for `enforce_rigid` is a silent
         # no-op and for the rest an opaque KeyError from inside the stage. Name
