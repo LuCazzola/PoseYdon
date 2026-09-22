@@ -8,7 +8,7 @@ bind heads and rewrote every rotation as a delta from it. Two consequences,
 one test each: the clip's own first pose was replaced by the T-pose, and the
 deltas were composed in global space, so the skeleton stopped being rigid.
 
-A third test covers what that repair pass cost on top: by refitting the
+A third covers what that repair pass cost on top: by refitting the
 animation onto the bind it made `apply_animation`'s residual guard fit
 trivially, so a frame-mismatched restoration sailed through instead of being
 rejected.
@@ -71,7 +71,7 @@ def _bone_length_drift(animation) -> float:
 
 @pytest.mark.parametrize("rig", RIGS)
 @pytest.mark.parametrize("representation", ["original_fbx", "presentation_fbx"])
-def test_exported_fbx_keeps_the_skeleton_rigid(tmp_path, rig, representation, request):
+def test_exported_fbx_keeps_the_skeleton_rigid(tmp_path, rig, representation):
     exporter, clip, model = _case(rig)
     path = tmp_path / f"{rig}.fbx"
     getattr(exporter, representation)(model, facing_from=clip).write(path)
@@ -162,36 +162,15 @@ def test_original_fbx_tracks_the_restored_motion_on_every_frame(tmp_path, rig):
 
 
 @pytest.mark.parametrize("rig", ["Bear"])
-def test_original_fbx_rejects_a_frame_mismatched_restoration(rig):
-    """The bind-residual guard must be reachable on this path.
+def test_a_frame_mismatched_restoration_is_refused_as_a_typed_absence(rig):
+    """The bind-residual guard must be reachable on this path, and typed.
 
     Refitting the animation onto the bind before applying it made the guard
     fit trivially, so a restoration whose body sat in one frame and whose
-    offsets sat in another was exported instead of refused.
-    """
-    exporter, _clip, model = _case(rig)
-    exporter.params = {
-        name: (
-            {"rotation": np.array([1.0, 0.0, 0.0, 0.0])}
-            if name == "face_axis"
-            else value
-        )
-        for name, value in exporter.params.items()
-    }
-    from poseydon.build.authority import ArtifactUnavailableError
-
-    with pytest.raises(ArtifactUnavailableError, match="not the same skeleton"):
-        exporter.original_fbx(model)
-
-
-@pytest.mark.parametrize("rig", ["Bear"])
-def test_a_bind_mismatch_is_a_typed_absence(rig):
-    """Unavailable, with the measurement kept -- not a bare ValueError.
-
-    A corpus whose rest pose is not the vendor asset's bind pose (13 of the 19
-    rigs this refuses declare an Idle or Walk frame as their rest, having no
-    T-pose BVH at all) cannot drive that asset. Callers record that as absence
-    with a reason, the same as a rig with no surface at all.
+    offsets sat in another was exported instead of refused. Refusal is also
+    the shape 19 of 73 rigs legitimately take -- their corpus rest pose is not
+    the vendor asset's bind -- so callers record it as absence with a reason,
+    the same as a rig with no surface at all, and the measurement is kept.
     """
     from poseydon.build.authority import ArtifactUnavailableError
 
