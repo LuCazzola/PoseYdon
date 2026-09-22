@@ -178,5 +178,33 @@ def test_original_fbx_rejects_a_frame_mismatched_restoration(rig):
         )
         for name, value in exporter.params.items()
     }
-    with pytest.raises(ValueError, match="not the same skeleton"):
+    from poseydon.build.authority import ArtifactUnavailableError
+
+    with pytest.raises(ArtifactUnavailableError, match="not the same skeleton"):
         exporter.original_fbx(model)
+
+
+@pytest.mark.parametrize("rig", ["Bear"])
+def test_a_bind_mismatch_is_a_typed_absence(rig):
+    """Unavailable, with the measurement kept -- not a bare ValueError.
+
+    A corpus whose rest pose is not the vendor asset's bind pose (13 of the 19
+    rigs this refuses declare an Idle or Walk frame as their rest, having no
+    T-pose BVH at all) cannot drive that asset. Callers record that as absence
+    with a reason, the same as a rig with no surface at all.
+    """
+    from poseydon.build.authority import ArtifactUnavailableError
+
+    exporter, _clip, model = _case(rig)
+    exporter.params = {
+        name: (
+            {"rotation": np.array([1.0, 0.0, 0.0, 0.0])}
+            if name == "face_axis"
+            else value
+        )
+        for name, value in exporter.params.items()
+    }
+    with pytest.raises(ArtifactUnavailableError) as failure:
+        exporter.original_fbx(model)
+    assert failure.value.reason.startswith("source_bind_mismatch")
+    assert "bone lengths" in failure.value.reason

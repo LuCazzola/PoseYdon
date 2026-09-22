@@ -1,3 +1,14 @@
+"""Collect one comparable bundle per rig: source, prepared, model and roundtrip.
+
+The bundle's whole value is that everything in it describes the SAME clip, so
+`original.bvh` and `roundtrip.bvh` can be opened side by side. The model-space
+animation is therefore DERIVED from the chosen action here rather than carried
+over from whatever a previous run left in the directory: the sample is chosen
+by what the raw tree happens to pair, that choice moves as the tree changes,
+and an inherited `training.anim.npz` silently belonged to a different action in
+60 of 73 bundles -- a roundtrip of one clip filed next to the source of
+another, which reads as a badly broken export rather than a mismatched pair.
+"""
 from __future__ import annotations
 import argparse, hashlib, json, shutil
 from pathlib import Path
@@ -40,6 +51,52 @@ def build_bundle(contexts, output):
                 if field.endswith("fbx"): metadata["unavailable"][field]="source_surface_missing"
         (dest/"metadata.json").write_text(json.dumps(metadata,indent=2,sort_keys=True)+"\n")
 
+def _training(corpus: Path, rig: str, prepared: Path, folder: Path):
+    """The model-space animation and features for THIS clip.
+
+    Derived, not inherited: the same reduction `CharacterExporter` applies,
+    against the same prepared clip the rest of the bundle describes. Returns
+    ``(animation_path, features_path)``; the features are optional, because a
+    manifest whose facing or foot joints did not survive reduction cannot
+    resolve one, and an absent file is the honest record of that.
+    """
+    import numpy as np
+
+    from poseydon.augment.topology import _reindex_resolved
+    from poseydon.core.animation import RigidBodyAnimation
+    from poseydon.core.rotations import QUAT_IDENTITY
+    from poseydon.core.skeleton import SkeletonManifest, resolve
+    from poseydon.features import DEFAULT_FEATURES, extract_features
+    from poseydon.features.reduce import apply_reduction, build_reduction
+    from poseydon.io.bvh import BVH
+
+    with np.load(corpus / "rigs" / rig / "skeleton.npz", allow_pickle=True) as data:
+        names = tuple(str(x) for x in data["names"])
+        rest = RigidBodyAnimation.from_root_motion(
+            rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)),
+            root_pos=np.zeros((1, 3)), offsets=data["offsets"],
+            parents=data["parents"].astype(np.int32), names=names, fps=1.0)
+    reduction = build_reduction(rest)
+    animation = BVH.read(prepared).to_animation().as_rigid_body(joint_translation="drop")
+    reduced = apply_reduction(animation, reduction)
+    folder.mkdir(parents=True, exist_ok=True)
+    animation_path = folder / "training.anim.npz"
+    reduced.save(animation_path)
+
+    features_path = folder / "training.features.npz"
+    try:
+        manifest = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml")
+        old_to_new = {old: new for new, old in enumerate(reduction.source_of)}
+        resolved = _reindex_resolved(resolve(manifest, animation.names), old_to_new)
+        features, spec = extract_features(reduced, resolved, DEFAULT_FEATURES)
+        np.savez(features_path, features=features, names=np.array(spec.names, dtype=object))
+    except Exception as error:
+        print(f"{rig}: no training features ({type(error).__name__}: {error})")
+        features_path.unlink(missing_ok=True)
+        features_path = None
+    return animation_path, features_path
+
+
 def discover(corpus, raw, output):
     contexts=[]
     for rigdir in sorted((Path(corpus)/"rigs").iterdir()):
@@ -49,10 +106,20 @@ def discover(corpus, raw, output):
         action,bvh,fbx=sample
         prepared=Path(corpus)/"clips"/rigdir.name/(action+".bvh")
         context={"rig":rigdir.name,"action":action,"original_bvh":bvh,"original_fbx":fbx,"prepared_bvh":prepared if prepared.is_file() else None}
-        old=Path(output)/rigdir.name
-        for field,filename in (("roundtrip_bvh","roundtrip.bvh"),("roundtrip_fbx","roundtrip.fbx"),("training_anim","training.anim.npz"),("training_features","training.features.npz")):
-            candidate=old/filename
-            if candidate.is_file(): context[field]=candidate
+        folder=Path(output)/rigdir.name
+        if prepared.is_file():
+            try:
+                animation,features=_training(Path(corpus),rigdir.name,prepared,folder)
+                context["training_anim"]=animation
+                if features is not None: context["training_features"]=features
+            except Exception as error:
+                print(f"{rigdir.name}: no training animation ({type(error).__name__}: {error})")
+        # The roundtrips are the Blender companion's output, derived from the
+        # training animation just rewritten -- so anything already here
+        # describes a clip this run may have replaced. Dropped rather than left
+        # to look current; the companion writes them next.
+        for filename in ("roundtrip.bvh","roundtrip.fbx"):
+            (folder/filename).unlink(missing_ok=True)
         for field,filename in (("prepared_fbx","char-model.fbx"),("presentation_fbx","char-full.fbx")):
             candidate=Path(corpus)/"rigs"/rigdir.name/filename
             if candidate.is_file(): context[field]=candidate

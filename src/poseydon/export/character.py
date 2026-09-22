@@ -172,7 +172,24 @@ class CharacterExporter:
             # source hierarchy and frame while leaving that meaning intact. The
             # two differ only in WHICH asset they drive.
             restored = self._restore(anim, "rest_relative", facing_from=facing_from)
-        scene.apply_animation(restored, allow_undriven=representation in {"presentation", "original"})
+        try:
+            scene.apply_animation(
+                restored, allow_undriven=representation in {"presentation", "original"}
+            )
+        except ValueError as mismatch:
+            if "not the same skeleton" not in str(mismatch):
+                raise
+            # A rig whose corpus rest pose is not the vendor asset's bind pose
+            # cannot be driven at all: `apply_animation` reads identity as the
+            # bind, and the two disagree by a per-joint rotation that positions
+            # alone cannot recover (that is what `RestRelative` needs the
+            # source's own bind rotations for). It is a typed ABSENCE, not a
+            # crash -- but the measurement stays in the message, because the
+            # other way to reach it is a genuinely wrong restoration.
+            raise ArtifactUnavailableError(
+                "corpus", self.rig, representation, "fbx",
+                f"source_bind_mismatch ({mismatch})",
+            ) from mismatch
         return scene
 
     def prepared_fbx(self, anim, facing_from: str | None = None): return self._fbx(anim, self.model_fbx, "prepared", facing_from)
