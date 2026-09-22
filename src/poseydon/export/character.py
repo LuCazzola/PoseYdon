@@ -3,15 +3,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 from poseydon.build.authority import ArtifactUnavailableError
-from poseydon.build.prepare import PrepareChain
 from poseydon.core.animation import Animation, RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.features.reduce import apply_reduction, build_reduction, invert_reduction
 from poseydon.io.bvh import BVH
 
-def _chain_for(rig: str) -> PrepareChain:
-    return PrepareChain((RestRelative(), PromoteRoot(), FaceAxis(axis="+Z"), EnforceRigid(joint_translation="drop"), CentreXZ(), ScaleToMeanBoneLength(), PutOnGround()))
-from poseydon.build.prepare import CLIP, CentreXZ, EnforceRigid, FaceAxis, PrepareChain, PromoteRoot, PutOnGround, RestRelative, ScaleToMeanBoneLength
+from poseydon.build.prepare import PrepareChain, prepare_chain
 
 @dataclass
 class CharacterExporter:
@@ -46,7 +43,10 @@ class CharacterExporter:
             from poseydon.build.prepare import RigTransform
             transform = RigTransform.load(prep)
             params, clip_params = transform.rig_params, transform.clip_params
-        chain = _chain_for(rig)
+        # Inversion reads the persisted parameters, so the chain needs neither
+        # this rig's channel layout nor its promotion target -- only the ORDER,
+        # which `prepare_chain` is the single definition of.
+        chain = prepare_chain()
         raw_rig = raw / "source" / rig if (raw / "source" / rig).is_dir() else raw / rig
         source_fbx = None
         candidates = sorted(raw_rig.glob("*.fbx")) if raw_rig.is_dir() else []
@@ -59,7 +59,12 @@ class CharacterExporter:
                 from poseydon.io.fbx import FBX, _rest_positions, _similarity, _to_y_up
                 model_rest = rest
                 restore_params = {name: dict(value) for name, value in params.items()}
-                restore_params["face_axis"] = {"rotation": np.array([1.0, 0.0, 0.0, 0.0])}
+                restore_params.setdefault(
+                    # Only reached for a rig prepared before the rig-level
+                    # facing was recorded; `_similarity` solves for a rotation
+                    # anyway, so the candidate ranking survives it.
+                    "face_axis", {"rotation": np.array([1.0, 0.0, 0.0, 0.0])}
+                )
                 for stage in reversed(chain.stages):
                     model_rest = stage.invert(model_rest, restore_params.get(stage.name, {}))
                 for candidate in candidates:
@@ -99,19 +104,55 @@ class CharacterExporter:
             if facing_from not in self.clip_params:
                 raise KeyError(f"unknown facing clip `{facing_from}` for rig `{self.rig}`")
             params.update(self.clip_params[facing_from])
-        else:
-            # A generated model output has no historical source-facing yaw;
-            # canonical +Z is the documented deterministic default.
-            params["face_axis"] = {"rotation": np.array([1.0, 0.0, 0.0, 0.0])}
+        elif "face_axis" not in params:
+            raise KeyError(
+                f"`{self.rig}`'s preproc.npz records no rig-level facing, so a "
+                "generated clip has no frame to be restored into; pass "
+                "`facing_from` to borrow a recorded clip's yaw, or rebuild the "
+                "rig with scripts/process_dataset_truebones.py"
+            )
+        running = []
         for stage in reversed(self.chain.stages):
             if stage.name == stop_before:
                 break
-            current = stage.invert(current, params.get(stage.name, {}))
+            running.append(stage)
+        # An inverse is only as good as its recorded parameters, and a missing
+        # one used to fall back to `{}` -- which for `enforce_rigid` is a silent
+        # no-op and for the rest an opaque KeyError from inside the stage. Name
+        # what is absent instead: the usual cause is a corpus prepared by an
+        # older chain than the one being inverted with.
+        missing = [stage.name for stage in running if stage.name not in params]
+        if missing:
+            raise KeyError(
+                f"`{self.rig}` has no recorded parameters for preparation "
+                f"stage(s) {', '.join(missing)}; this corpus was prepared by a "
+                "different chain than the one being inverted with, so rebuild "
+                "it with scripts/process_dataset_truebones.py"
+            )
+        for stage in running:
+            current = stage.invert(current, params[stage.name])
         return current
 
     def prepared_bvh(self, anim): return BVH.from_animation(anim)
+
     def original_bvh(self, anim, facing_from: str | None = None):
-        return BVH.from_animation(self._restore(anim, facing_from=facing_from))
+        """The clip on the source rig, in the source file's own layout.
+
+        The CHANNELS block comes back too. `EnforceRigid.invert` is the
+        identity on the animation precisely because the declaration is the
+        writer's job, and the source layout was recorded for this: a joint the
+        source gave position channels gets them back, carrying its rest offset,
+        so the file is structurally the rig the user supplied and the bones
+        still do not stretch.
+        """
+        return BVH.from_animation(
+            self._restore(anim, facing_from=facing_from),
+            channels=self._source_channels(),
+        )
+
+    def _source_channels(self):
+        recorded = self.params.get("enforce_rigid", {}).get("source_channels")
+        return None if recorded is None else tuple(tuple(spec) for spec in recorded)
 
     def _fbx(self, anim, path, representation, facing_from: str | None = None):
         if path is None:
@@ -122,13 +163,15 @@ class CharacterExporter:
             # The model FBX is already in canonical prepared space; applying
             # the reduced model animation directly is the point of this mode.
             restored = anim
-        elif representation == "presentation":
-            # Restore the source hierarchy while leaving RestRelative undone
-            # so identity still means the canonical bind pose.
-            restored = self._restore(anim, "rest_relative", facing_from=facing_from)
         else:
-            restored = self._restore(anim, facing_from=facing_from)
-            restored = scene.align_animation_to_bind(restored)
+            # Both `presentation` and `original` drive an existing armature, and
+            # `apply_animation` requires a REST-RELATIVE animation: identity has
+            # to mean the bind pose, which is the shared meaning of zero that
+            # lets a BVH-derived clip and a vendor FBX be married at all. So the
+            # inverse stops before `rest_relative` in each case, restoring the
+            # source hierarchy and frame while leaving that meaning intact. The
+            # two differ only in WHICH asset they drive.
+            restored = self._restore(anim, "rest_relative", facing_from=facing_from)
         scene.apply_animation(restored, allow_undriven=representation in {"presentation", "original"})
         return scene
 

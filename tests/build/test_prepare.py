@@ -92,10 +92,16 @@ class Double(PrepareStage):
         )
 
 
-def test_fit_rig_keeps_only_rig_scoped_parameters():
+def test_fit_rig_keeps_every_stages_rest_fit():
+    """Clip-scoped fits are kept too: they are the rig's own default.
+
+    A clip overwrites them in `apply`, so keeping them changes no prepared
+    output. What they buy is an answer for a GENERATED clip, which has no
+    recorded clip parameters to restore -- see `fit_rig`'s docstring.
+    """
     chain = PrepareChain((Shift(), Double()))
     rig = chain.fit_rig(_anim(), resolved=None)
-    assert set(rig) == {"shift"}
+    assert set(rig) == {"shift", "double"}
 
 
 def test_apply_then_invert_is_the_identity():
@@ -136,9 +142,10 @@ def test_invert_runs_stages_in_reverse_order():
 def test_a_clip_scoped_stage_refits_on_each_animation():
     chain = PrepareChain((Double(),))
     rig = chain.fit_rig(_anim(), resolved=None)
-    assert rig == {}
-    _prepared, params = chain.apply(_anim(), resolved=None, rig_params=rig)
+    _prepared, params = chain.apply(_anim(), resolved=None, rig_params={})
     assert "double" in params
+    # Refitted, not inherited: `apply` needs no rig-scoped entry for it.
+    assert params["double"] == rig["double"]
 
 
 def test_apply_rejects_a_missing_rig_parameter():

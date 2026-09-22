@@ -403,63 +403,6 @@ class FBX:
     def from_animation(cls, anim: Animation, name: str = "Armature") -> FBX:
         return cls.from_bare_animation(anim, name=name)
 
-    def align_animation_to_bind(self, anim: Animation) -> Animation:
-        """Reframe source-space motion onto this imported bind pose.
-
-        Original export must preserve the vendor bind pose even when paired BVH
-        and FBX files have small rest-geometry discrepancies.  We therefore
-        map frame-to-frame displacements through the best uniform similarity,
-        anchor frame zero exactly on the FBX bind heads, and express rotations
-        as deltas from the vendor bind orientation.
-        """
-        names = tuple(name for name in anim.names if name in self.armature.data.bones)
-        if not names:
-            raise ValueError("animation has no joints in the FBX armature")
-        indices = [anim.names.index(name) for name in names]
-        source_positions, source_rotations = anim.global_transforms()
-        source_positions = source_positions[:, indices]
-        source_rotations = source_rotations[:, indices]
-        target_positions = np.stack([
-            _to_y_up(self.joint_position(name, rest=True)) for name in names
-        ])
-        scale, rotation, _offset = _similarity(source_positions[0], target_positions)
-        mapped = target_positions[None] + scale * (
-            (source_positions - source_positions[0]) @ rotation.T
-        )
-        rotation_matrix = Matrix([list(row) for row in rotation])
-        mapped_global_rotations = np.empty_like(source_rotations)
-        for frame in range(anim.n_frames):
-            for joint in range(len(names)):
-                delta = quat_mul(
-                    quat_inverse(source_rotations[0, joint]), source_rotations[frame, joint]
-                )
-                mapped_global_rotations[frame, joint] = matrix_to_quat(
-                    np.asarray(rotation_matrix @ _quat_matrix(delta) @ rotation_matrix.transposed())
-                )
-        parent_indices = []
-        name_to_local = {name: i for i, name in enumerate(names)}
-        for name in names:
-            parent = self.armature.data.bones[name].parent
-            parent_indices.append(-1 if parent is None or parent.name not in name_to_local else name_to_local[parent.name])
-        parents = np.asarray(parent_indices, dtype=np.int32)
-        local_rotations = mapped_global_rotations.copy()
-        translations = mapped.copy()
-        offsets = np.empty((len(names), 3), dtype=np.float64)
-        for joint, parent in enumerate(parents):
-            if parent < 0:
-                offsets[joint] = mapped[0, joint]
-                continue
-            inverse_parent = quat_inverse(mapped_global_rotations[:, parent])
-            local_rotations[:, joint] = quat_mul(inverse_parent, mapped_global_rotations[:, joint])
-            translations[:, joint] = quat_apply(
-                inverse_parent, mapped[:, joint] - mapped[:, parent]
-            )
-            offsets[joint] = mapped[0, joint] - mapped[0, parent]
-        return Animation(
-            rotations=local_rotations, translations=translations,
-            offsets=offsets, parents=parents, names=names, fps=anim.fps,
-        )
-
     def apply_animation(self, anim: Animation, max_residual: float = 0.05, allow_undriven: bool = False) -> float:
         """Replace this scene's animation with ``anim``, keeping its mesh and skin.
 

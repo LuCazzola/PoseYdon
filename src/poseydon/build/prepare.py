@@ -35,6 +35,43 @@ RIG = "rig"
 CLIP = "clip"
 
 
+def prepare_chain(
+    source_channels: tuple[tuple[str, ...], ...] | None = None,
+    promote_target: str | None = None,
+) -> PrepareChain:
+    """The canonical source-to-prepared chain: ONE definition of the order.
+
+    The order is contractual, not incidental, and it was previously written out
+    twice -- once where a corpus is prepared and once where a clip is returned
+    to source space. Two copies of an ordered inverse is a silent-drift hazard
+    of the worst kind: the second list is only ever exercised by inverting, so
+    a stage added to the first and forgotten in the second unprepares a corpus
+    with the wrong transform and reports nothing.
+
+    What each argument pins is documented on the stage it configures. Both only
+    affect `fit`, so a caller that INVERTS a recorded preparation needs neither:
+    `apply` and `invert` read the persisted parameters.
+
+    `PromoteRoot` sits after `RestRelative` (whose `_check` requires a clip to
+    carry exactly the joints its rest pose declares, which a promoted clip no
+    longer does), before `EnforceRigid` (so the preserved translation channel
+    is the PROMOTED root's, not the locator's) and before
+    `ScaleToMeanBoneLength` (a locator-to-body connector is not an anatomical
+    bone and must not enter the mean).
+    """
+    return PrepareChain(
+        (
+            RestRelative(),
+            PromoteRoot(target=promote_target),
+            FaceAxis(axis="+Z"),
+            EnforceRigid(joint_translation="drop", source_channels=source_channels),
+            CentreXZ(),
+            ScaleToMeanBoneLength(),
+            PutOnGround(),
+        )
+    )
+
+
 class PrepareStage(ABC):
     """One invertible step of the source-to-prepared transform."""
 
@@ -63,12 +100,24 @@ class PrepareChain:
     def fit_rig(
         self, rest: Animation, resolved: Any, audit: AuditSink | None = None
     ) -> dict[str, dict]:
-        """Fit every stage against the rest pose; keep the rig-scoped results.
+        """Fit every stage against the rest pose.
 
         Each stage fits against the animation as the PRECEDING stages left it,
         which is why this applies as it goes: the scale factor is measured on an
         already-rest-relative skeleton, and the ground height on an already
         scaled one.
+
+        CLIP-scoped stages are fitted here too, and their results are kept
+        rather than discarded. A clip refits them anyway -- `apply` overwrites
+        every clip-scoped key -- so keeping them costs nothing there, and it is
+        the only record of what the stage would say about the rig ITSELF. That
+        matters for `face_axis`: a GENERATED clip has no historical yaw to put
+        back, and the rig's own rest-pose facing is the one answer that leaves
+        the restored motion in the same frame as the source-frame constants
+        `PromoteRoot.invert` and `RestRelative.invert` stamp back. Substituting
+        identity there does not merely leave the rig unturned; it lands the
+        body in canonical +Z while those constants stay in the source frame,
+        which displaces the reinserted locator chain by up to 1.7 rig extents.
         """
         params: dict[str, dict] = {}
         current = rest
@@ -81,7 +130,7 @@ class PrepareChain:
                     stage=stage.name, direction="fit_rig", scope=stage.scope,
                     parameters=params[stage.name], before=before, after=current,
                 )
-        return {stage.name: params[stage.name] for stage in self.stages if stage.scope == RIG}
+        return params
 
     def apply(
         self, anim: Animation, resolved: Any, rig_params: dict[str, dict],

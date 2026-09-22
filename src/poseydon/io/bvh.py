@@ -36,6 +36,10 @@ CHANNEL_AXIS = {
     "Zrotation": "Z",
 }
 _POSITION_CHANNELS = ("Xposition", "Yposition", "Zposition")
+#: The order :meth:`BVH.write` emits when a joint declares none. It has to
+#: agree with that default, or the struct and the file it writes disagree.
+DEFAULT_ROTATION_ORDER = "ZYX"
+_DEFAULT_ROTATION_CHANNELS = tuple(f"{axis}rotation" for axis in DEFAULT_ROTATION_ORDER)
 
 _END_SITE_RE = re.compile(r"End\s+Site\s*(?:#\s*name:\s*(\S+))?", re.IGNORECASE)
 
@@ -289,9 +293,9 @@ class BVH:
                 if not children[joint]:
                     built.append(())
                 elif joint == 0 or moves[joint]:
-                    built.append((*_POSITION_CHANNELS, "Zrotation", "Xrotation", "Yrotation"))
+                    built.append((*_POSITION_CHANNELS, *_DEFAULT_ROTATION_CHANNELS))
                 else:
-                    built.append(("Zrotation", "Xrotation", "Yrotation"))
+                    built.append(_DEFAULT_ROTATION_CHANNELS)
             channels = tuple(built)
         elif len(channels) != animation.n_joints:
             raise ValueError(
@@ -309,12 +313,20 @@ class BVH:
             fps=animation.fps,
         )
 
-    def write(self, path: str | Path, order: str = "ZYX") -> None:
+    def write(self, path: str | Path, order: str = DEFAULT_ROTATION_ORDER) -> None:
         """Write to a BVH file.
 
         Leaf joints become ``End Site`` entries carrying their name in the
         same ``#name:`` comment :meth:`read` understands, so a round trip
         preserves joint count and naming.
+
+        ``order`` is the fallback for a joint that declares no rotation
+        channels. A joint that DOES declare them is written in its own order:
+        the declaration and the numbers under it have to agree, and a rig
+        restored to a source file's layout carries that source's order (the
+        Truebones corpus is ``ZXY`` throughout, not this default). Writing one
+        order under another joint's label is how a faithful hierarchy still
+        plays back as a different pose.
         """
         children = _children_of(self.parents)
 
@@ -330,7 +342,16 @@ class BVH:
         lines.append(f"Frame Time: {1.0 / self.fps:.10f}")
 
         jointed = [j for j in range(len(self.names)) if children[j]]
-        angles = quat_to_euler(self.rotations[:, jointed], order)
+        # Grouped by declared order, one conversion per group -- the same shape
+        # as `_channels_to_arrays` on the way in, for the same reason.
+        angles = np.empty((self.rotations.shape[0], len(jointed), 3), dtype=np.float64)
+        groups: dict[str, list[int]] = {}
+        for position, joint in enumerate(jointed):
+            groups.setdefault(self._rotation_order(joint, order), []).append(position)
+        for spelling, positions in groups.items():
+            angles[:, positions] = quat_to_euler(
+                self.rotations[:, [jointed[p] for p in positions]], spelling
+            )
         translating = [j for j in jointed if self._has_position(j)]
 
         for frame in range(self.rotations.shape[0]):
@@ -346,6 +367,13 @@ class BVH:
 
     def _has_position(self, joint: int) -> bool:
         return any(name in self.channels[joint] for name in _POSITION_CHANNELS)
+
+    def _rotation_order(self, joint: int, fallback: str) -> str:
+        """This joint's declared rotation order, or ``fallback`` if it has none."""
+        declared = "".join(
+            CHANNEL_AXIS[name] for name in self.channels[joint] if name in CHANNEL_AXIS
+        )
+        return declared if len(declared) == 3 else fallback
 
 
 def _children_of(parents: np.ndarray) -> list[list[int]]:
@@ -371,7 +399,9 @@ def _write_joint(lines, bvh, children, joint, depth, order) -> None:
     lines.append(f"{pad}\tOFFSET {ox:.6f} {oy:.6f} {oz:.6f}")
 
     if not is_end_site:
-        channel_names = " ".join(f"{axis}rotation" for axis in order)
+        channel_names = " ".join(
+            f"{axis}rotation" for axis in bvh._rotation_order(joint, order)
+        )
         if bvh._has_position(joint):
             lines.append(
                 f"{pad}\tCHANNELS 6 Xposition Yposition Zposition {channel_names}"

@@ -328,10 +328,28 @@ def _export(args: argparse.Namespace) -> int:
             artifact.write(args.out, embed_textures=True)
         print(f"wrote {args.out}")
         return 0
+    if getattr(CharacterExporter, f"{args.representation}_{args.format}", None) is None:
+        # `presentation` is an FBX-only representation: it is a mesh-bearing
+        # asset driven by the clip, and a BVH carries no mesh.
+        print(
+            f"--representation {args.representation} has no {args.format} form; "
+            f"available: "
+            + ", ".join(
+                sorted(
+                    name.rsplit("_", 1)[0]
+                    for name in vars(CharacterExporter)
+                    if name.endswith(f"_{args.format}") and not name.startswith("_")
+                )
+            ),
+            file=sys.stderr,
+        )
+        return 2
     exporter = CharacterExporter.load(args.corpus, args.raw, args.rig)
     method = getattr(exporter, f"{args.representation}_{args.format}")
     try:
-        artifact = method(anim, facing_from=args.facing_from) if args.format == "fbx" or args.representation == "original" else method(anim)
+        # `prepared_bvh` is the only representation that stays in canonical
+        # space, so it is the only one with no frame to be restored into.
+        artifact = method(anim) if (args.format, args.representation) == ("bvh", "prepared") else method(anim, facing_from=args.facing_from)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 2

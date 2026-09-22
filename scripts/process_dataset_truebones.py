@@ -23,18 +23,7 @@ import numpy as np
 from poseydon.build.corpus import rest_action, rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.build.report import PreparationReport
-from poseydon.build.prepare import (
-    CLIP,
-    CentreXZ,
-    EnforceRigid,
-    FaceAxis,
-    PrepareChain,
-    PromoteRoot,
-    PutOnGround,
-    RestRelative,
-    RigTransform,
-    ScaleToMeanBoneLength,
-)
+from poseydon.build.prepare import CLIP, PrepareChain, RigTransform, prepare_chain
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.ingest.pipeline import available_rigs
@@ -48,39 +37,19 @@ _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 def _chain_for(
     source_channels: tuple[tuple[str, ...], ...] | None, rig: str = ""
 ) -> PrepareChain:
-    """Build the chain with `EnforceRigid` recording THIS rig's real channels.
+    """The canonical chain, configured with THIS rig's real channels and root.
 
-    The layout differs per rig, so it cannot live on a module-level constant;
-    `EnforceRigid.fit` records `source_channels` verbatim when given one rather
-    than inferring a layout from the (often single-frame, under-declaring)
-    rest pose -- see `EnforceRigid`'s docstring.
+    The order lives in `poseydon.build.prepare.prepare_chain`; what this adds
+    is the two rig-specific fits. `EnforceRigid.fit` records `source_channels`
+    verbatim when given one rather than inferring a layout from the (often
+    single-frame, under-declaring) rest pose -- see `EnforceRigid`'s docstring.
 
     `None` is that stage's documented fallback, for a caller with no source
     file to declare channels for. Preparation always has one; `scripts/anim_2_fbx.py`,
     which reuses this chain to INVERT a preparation, never does -- and never
     fits the stage either, so the layout is not consulted on that path.
     """
-    return PrepareChain(
-        (
-            RestRelative(),
-            # Second, and the position is contractual. After RestRelative,
-            # whose _check requires the clip to carry exactly the joints its
-            # rest pose declares -- a promoted clip would fail it. Before
-            # EnforceRigid, so the translation channel EnforceRigid preserves
-            # is the PROMOTED root's rather than the locator's. And before
-            # ScaleToMeanBoneLength: the connectors this removes are long
-            # (6.47 bone lengths on Pirrana, 4.95 on Bear) and currently enter
-            # the mean, so promoting first changes the canonical scale for
-            # these 14 rigs -- a correction, since a locator-to-body connector
-            # is not an anatomical bone.
-            PromoteRoot(target=PROMOTE_ROOT.get(rig)),
-            FaceAxis(axis=TARGET_AXIS),
-            EnforceRigid(joint_translation="drop", source_channels=source_channels),
-            CentreXZ(),
-            ScaleToMeanBoneLength(),
-            PutOnGround(),
-        )
-    )
+    return prepare_chain(source_channels, PROMOTE_ROOT.get(rig))
 
 
 #: Joint promoted to root, for the 14 rigs that root at a ground locator.

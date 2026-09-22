@@ -198,15 +198,18 @@ def main(argv: list[str] | None = None) -> int:
         args.corpus, args.corpus.parent / "_raw" / "truebones", rig
     )
     if args.skin:
-        # CharacterExporter owns reduction expansion, preparation inversion,
-        # bind-pose alignment, and mesh-bearing source selection.
-        scene = exporter.original_fbx(anim, facing_from=args.facing_from)
-        if args.source_fbx is not None:
+        # CharacterExporter owns reduction expansion, preparation inversion and
+        # mesh-bearing source selection. `--source-fbx` overrides only WHICH
+        # asset is driven, so it takes the same restored animation rather than
+        # building the exporter's scene and throwing it away.
+        restored = exporter._restore(anim, "rest_relative", args.facing_from)
+        if args.source_fbx is None:
+            scene = exporter.original_fbx(anim, facing_from=args.facing_from)
+        else:
             from poseydon.io.fbx import FBX
             scene = FBX.read(args.source_fbx)
-            scene.apply_animation(exporter._restore(anim, "rest_relative", args.facing_from), allow_undriven=True)
+            scene.apply_animation(restored, allow_undriven=True)
         scene.write(args.out, embed_textures=True)
-        restored = exporter._restore(anim, "rest_relative", args.facing_from)
         skin = f", character-aware source FBX ({restored.n_frames} frames)"
     else:
         restored_bvh = exporter.original_bvh(anim, facing_from=args.facing_from)
