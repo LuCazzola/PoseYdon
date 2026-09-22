@@ -177,18 +177,31 @@ class CharacterExporter:
                 restored, allow_undriven=representation in {"presentation", "original"}
             )
         except ValueError as mismatch:
-            if "not the same skeleton" not in str(mismatch):
+            # Two ways this asset and this animation can fail to be the same
+            # rig, both of them a typed ABSENCE rather than a crash -- and in
+            # both the measurement stays in the reason, because the other way
+            # to reach either is a genuinely wrong restoration.
+            #
+            # A bind mismatch: the corpus rest pose is not the vendor asset's
+            # bind, so identity does not mean the same pose on the two sides,
+            # and they disagree by a per-joint rotation that positions alone
+            # cannot recover (what `RestRelative` needs the source's own bind
+            # rotations for). 21 of 73 Truebones rigs, mostly the ones with no
+            # T-pose BVH at all.
+            #
+            # A topology mismatch: the asset carries bones the model animation
+            # has no joint for. That is what the 16 rigs whose paired bind was
+            # rejected get, since their canonical assets were built on the
+            # FBX's own topology rather than the reduced model's.
+            reason = (
+                "source_bind_mismatch" if "not the same skeleton" in str(mismatch)
+                else "model_topology_mismatch" if "does not drive" in str(mismatch)
+                else None
+            )
+            if reason is None:
                 raise
-            # A rig whose corpus rest pose is not the vendor asset's bind pose
-            # cannot be driven at all: `apply_animation` reads identity as the
-            # bind, and the two disagree by a per-joint rotation that positions
-            # alone cannot recover (that is what `RestRelative` needs the
-            # source's own bind rotations for). It is a typed ABSENCE, not a
-            # crash -- but the measurement stays in the message, because the
-            # other way to reach it is a genuinely wrong restoration.
             raise ArtifactUnavailableError(
-                "corpus", self.rig, representation, "fbx",
-                f"source_bind_mismatch ({mismatch})",
+                "corpus", self.rig, representation, "fbx", f"{reason} ({mismatch})",
             ) from mismatch
         return scene
 

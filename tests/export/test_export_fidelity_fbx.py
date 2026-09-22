@@ -187,3 +187,25 @@ def test_a_frame_mismatched_restoration_is_refused_as_a_typed_absence(rig):
         exporter.original_fbx(model)
     assert failure.value.reason.startswith("source_bind_mismatch")
     assert "bone lengths" in failure.value.reason
+
+
+@pytest.mark.parametrize("rig", ["Bird"])
+def test_a_topology_mismatch_is_a_typed_absence_too(rig):
+    """The other way an asset and an animation fail to be the same rig.
+
+    16 of 73 rigs had their paired bind rejected when their canonical assets
+    were built, so those assets carry the vendor FBX's own topology rather
+    than the reduced model's -- and the model animation has no joint for some
+    of their bones. Refused, like a bind mismatch, with a reason.
+    """
+    from poseydon.build.authority import ArtifactUnavailableError
+
+    exporter, clip, model = _case(rig)
+    if exporter.model_fbx is None:
+        pytest.skip(f"{rig}: no prepared FBX asset")
+    with pytest.raises(ArtifactUnavailableError) as failure:
+        exporter.prepared_fbx(model, facing_from=clip)
+    assert failure.value.reason.split(" (")[0] in {
+        "model_topology_mismatch",
+        "source_bind_mismatch",
+    }
