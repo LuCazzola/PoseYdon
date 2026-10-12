@@ -9,6 +9,7 @@ Dockerfile's `train` stage from drifting apart.
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -45,18 +46,25 @@ def test_the_train_service_declares_the_gpu_and_forwards_wandb():
     assert env["WANDB_ENTITY"] == "${WANDB_ENTITY:-}"
 
 
-def test_the_train_stage_overrides_the_cpu_torch_pin():
-    """pyproject pins torch to the CPU index for the test image. If the `train`
-    stage ever stops overriding that, training silently runs on the CPU --
-    600k steps that would never finish, with no error to notice.
+def test_the_train_stage_installs_the_cuda_torch():
+    """torch comes from the CPU index under the `cpu` extra and from the CUDA
+    index under `cu130`. If the `train` stage ever selects the wrong one,
+    training silently runs on the CPU -- 600k steps that would never finish,
+    with no error to notice.
 
     Read from the `train` STAGE specifically, not from the whole file: a match
     anywhere in a four-stage Dockerfile would also be satisfied by a stray
     mention in a comment under `compat`.
     """
     stage = _stage_of(REPO_ROOT / "Dockerfile", "train")
-    assert "download.pytorch.org/whl/cu130" in stage
-    assert "--reinstall-package torch" in stage
+    sync = next(line for line in stage.splitlines() if line.startswith("RUN uv sync"))
+    assert "--extra cu130" in sync and "--extra cpu" not in sync
+
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    sources = {s["extra"]: s["index"] for s in pyproject["tool"]["uv"]["sources"]["torch"]}
+    urls = {i["name"]: i["url"] for i in pyproject["tool"]["uv"]["index"]}
+    assert urls[sources["cu130"]] == "https://download.pytorch.org/whl/cu130"
+    assert urls[sources["cpu"]] == "https://download.pytorch.org/whl/cpu"
 
 
 def test_every_compose_service_targets_a_stage_that_exists():

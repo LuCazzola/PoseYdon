@@ -140,6 +140,38 @@ in the same directories.
 | `fbx` | headless Blender: FBX read/write, Blender tests, rendering |
 
 All four bind-mount the repo and run as the host user, so source edits need no
-rebuild. Only a `pyproject.toml` change needs one.
+rebuild. Only a `pyproject.toml` or `uv.lock` change needs one.
+
+## Dependencies
+
+Docker provides the OS and system packages (Blender, ffmpeg, a compiler).
+Every Python dependency is declared in `pyproject.toml` and pinned in
+`uv.lock`, and each image installs it with one `uv sync --locked`, selecting
+extras:
+
+| extra | for | images |
+|---|---|---|
+| `dev` | pytest, ruff, rendering | `test`, `train`, `compat` |
+| `cpu` / `cu130` | which torch build; mutually exclusive | `cpu`: `test`, `compat`; `cu130`: `train` |
+| `train` | wandb | `train` |
+| `compat` | the reference implementation and what its scripts import | `compat` |
+| `render` | matplotlib, imageio | pulled in by `dev` and `compat` |
+
+The exception is `fbx`. Blender runs on Debian's own Python, so its numpy,
+scipy, PyYAML and pytest are apt packages built against that interpreter. Any
+library code the FBX scripts import has to work with those versions.
+
+To add or upgrade a dependency, run on the host, then rebuild the affected
+images:
+
+```bash
+uv add <pkg>                      # core dependency
+uv add <pkg> --optional train     # into an extra
+uv lock --upgrade-package <pkg>   # move one pin
+docker compose build test train compat
+```
+
+Commit `uv.lock` with the `pyproject.toml` change. `uv sync --locked` refuses
+to build an image from a lock that disagrees with `pyproject.toml`.
 
 The docs site needs no container: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve`.

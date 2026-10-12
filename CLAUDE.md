@@ -34,6 +34,9 @@ The library, tests and scripts never run on host Python; they go through
 docker compose. The docs site (`uvx`) is the one exception: it needs nothing
 from `poseydon`.
 
+- Python dependencies live in `pyproject.toml` + `uv.lock`, never in the
+  Dockerfile: `uv add <pkg> [--optional <extra>]`, then `docker compose build`.
+  Docker carries only OS and system packages (and Blender's distro Python).
 - Tests: `docker compose run --rm -T test python -m pytest -q`
 - Docs site: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve` (http://127.0.0.1:8000)
 - Docs check: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs build --strict`

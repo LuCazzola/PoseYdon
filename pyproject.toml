@@ -16,16 +16,55 @@ dependencies = [
 dev = ["pytest>=8", "ruff>=0.6", "poseydon[render]"]
 # Rendering is optional: training and sampling never need it.
 render = ["matplotlib>=3.8", "imageio>=2.34", "imageio-ffmpeg>=0.5"]
+# Which torch build. Exactly one of these two is always selected (see
+# `conflicts` below): `cpu` for the test and compat images, a fraction of the
+# CUDA wheel's size, and `cu130` for training on the GB10.
+cpu = ["torch>=2.4"]
+cu130 = ["torch>=2.4"]
+# Training-only: run logging.
+train = ["wandb>=0.17"]
+# The published reference implementation and what its scripts import, for the
+# parity tools in tools/reference/. Never a dependency of the suite.
+compat = [
+    "motion",
+    "transformers",
+    "sentencepiece",
+    "num2words",
+    "einops",
+    "blobfile",
+    "moviepy<2",
+    "poseydon[render]",
+]
 
-# The test image installs CPU-only torch: it is a fraction of the size of the
-# default CUDA wheel and nothing in the test suite needs a GPU. Real training
-# should use an image built against the appropriate CUDA wheel instead.
+[tool.uv]
+# Every image is Linux on aarch64 (the GB10) or x86_64; the lock need not
+# solve for anything else.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
+
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+# Unpinned upstream; uv.lock pins the commit.
+motion = { git = "https://github.com/inbar-2344/Motion.git" }
+
+# Its setup.py needs setuptools older than 81 to build.
+[tool.uv.extra-build-dependencies]
+motion = ["setuptools<81", "wheel"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [project.scripts]

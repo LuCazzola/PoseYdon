@@ -1,11 +1,16 @@
 # Every PoseYdon image, as named stages of one file.
 #
-# There used to be four Dockerfiles. Three of them shared a base AND a
-# dependency layer -- `Dockerfile.train` repeated `Dockerfile`'s
-# `uv sync --extra dev --no-install-project` verbatim -- which meant the image
-# training runs in could silently drift from the image the suite is tested in.
-# One `base` stage removes that class of bug: `test`, `train` and `compat` are
-# provably the same dependency set plus their own additions.
+# The split of responsibilities: this file provides the OS and the system
+# packages; every Python dependency is declared in pyproject.toml and pinned in
+# uv.lock, and each image installs it with one `uv sync --locked`. So no image
+# carries a Python package the lock does not name, and `test`, `train` and
+# `compat` cannot drift apart: they are the same locked set, differing only in
+# the extras each selects. The one exception is `fbx`, whose Python is
+# Blender's -- see that stage.
+#
+# Adding or upgrading a Python dependency is `uv add <pkg> [--optional <extra>]`
+# (or `uv lock --upgrade-package <pkg>`) on the host, then
+# `docker compose build <service>`.
 #
 # Build one with `docker compose build <service>`; each service names its
 # `target:` in docker-compose.yml. BuildKit builds only the stage asked for and
@@ -13,9 +18,14 @@
 # Blender.
 
 # ---------------------------------------------------------------------------
-# base -- the dependency set the suite is tested against.
+# base -- the OS, uv, and the project's dependency manifest.
 # ---------------------------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS base
+FROM python:3.12-slim-bookworm AS base
+
+# uv pinned to the version that writes uv.lock, so the lock format always
+# matches the reader. Copied in rather than taken as the base image because
+# uv's own 0.13 images ship only on Debian trixie, and the OS stays bookworm.
+COPY --from=ghcr.io/astral-sh/uv:0.13.0 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -27,16 +37,18 @@ ENV UV_LINK_MODE=copy \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# Only pyproject.toml is copied, so editing source never invalidates this layer.
-# --no-install-project means the package itself is not built here; pytest's
-# `pythonpath = ["src"]` setting makes it importable from the bind mount instead.
-COPY pyproject.toml ./
-RUN uv sync --extra dev --no-install-project
+# Only the manifest and the lock are copied, so editing source never
+# invalidates the dependency layer. --no-install-project means the package
+# itself is not built here; pytest's `pythonpath = ["src"]` setting makes it
+# importable from the bind mount instead.
+COPY pyproject.toml uv.lock ./
 
 # ---------------------------------------------------------------------------
 # test -- the default. CPU only; nothing in the suite needs a GPU.
 # ---------------------------------------------------------------------------
 FROM base AS test
+
+RUN uv sync --locked --no-install-project --extra dev --extra cpu
 
 CMD ["pytest", "-v"]
 
@@ -45,10 +57,8 @@ CMD ["pytest", "-v"]
 # ---------------------------------------------------------------------------
 FROM base AS train
 
-# `base` honours pyproject's [tool.uv.sources] pin and installs CPU torch; this
-# replaces exactly that one package with the CUDA build. Done this way round so
-# the shared pyproject.toml -- and therefore the CPU test image -- needs no
-# change at all.
+# `cu130` selects torch from PyTorch's CUDA 13.0 index instead of the CPU one;
+# the two extras conflict, so exactly one torch is ever installed.
 #
 # Route chosen on measurement, not preference (design spec §4, "The aarch64
 # image"): this works end to end on the GB10 and an NGC PyTorch aarch64 base
@@ -58,10 +68,7 @@ FROM base AS train
 # NOT installed: build-essential. It is needed only by torch.compile, which
 # this run does not use -- measured at +8% on a median batch and 2.3x WORSE on
 # the largest rig, because dynamic joint counts recompile constantly.
-RUN uv pip install --python /opt/venv/bin/python \
-      --index-url https://download.pytorch.org/whl/cu130 \
-      --reinstall-package torch torch && \
-    uv pip install --python /opt/venv/bin/python wandb
+RUN uv sync --locked --no-install-project --extra dev --extra cu130 --extra train
 
 CMD ["python", "-c", "import torch; print(torch.__version__, torch.cuda.is_available())"]
 
@@ -74,21 +81,19 @@ CMD ["python", "-c", "import torch; print(torch.__version__, torch.cuda.is_avail
 # embeddings, running its models, and benchmarking its BVH loader.
 FROM base AS compat
 
+# git fetches the reference package (pinned by commit in uv.lock); a compiler
+# builds it; ffmpeg is for the reference's video writer.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONPATH=/app/src:/app
 
-# The reference's own dependency, which is why its cond.npy cannot be opened
-# without it. Installed only here.
-# Motion declares no build-system requirements, so --no-build-isolation needs
-# setuptools already present -- and specifically a setuptools old enough to still
-# ship pkg_resources, removed in 81. Two pins to install one package: part of why
-# PoseYdon vendors its own BVH IO instead.
-RUN uv pip install "setuptools<81" wheel \
-    && uv pip install --no-build-isolation "git+https://github.com/inbar-2344/Motion.git" \
-    && uv pip install transformers sentencepiece num2words matplotlib imageio imageio-ffmpeg "moviepy<2" einops blobfile
+# The `compat` extra carries the reference (`motion`) and what its scripts
+# import. Its build needs a setuptools old enough to ship pkg_resources (< 81);
+# that pin is declared in pyproject's [tool.uv.extra-build-dependencies], so the
+# build stays isolated and nothing here installs packages by hand.
+RUN uv sync --locked --no-install-project --extra dev --extra cpu --extra compat
 
 CMD ["python", "-c", "import Animation, BVH, Quaternions; print('Motion available')"]
 
@@ -97,6 +102,9 @@ CMD ["python", "-c", "import Animation, BVH, Quaternions; print('Motion availabl
 # ---------------------------------------------------------------------------
 # The one stage that shares nothing with `base`, and cannot: Blender links
 # against the SYSTEM Python, so it needs distro packages rather than a venv.
+# This is the deliberate exception to "every Python dependency comes from
+# uv.lock": here Python packages ARE system dependencies, because they must be
+# built against the interpreter Blender embeds.
 # Blender's Python API is the only mature FBX reader available here -- and
 # `pip install bpy` is not an option on arm64, which has no bpy wheels on PyPI,
 # so this uses the distro Blender driven with `blender --background --python`.
