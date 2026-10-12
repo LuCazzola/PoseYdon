@@ -16,6 +16,7 @@ something.
 | [Architecture](guides/architecture.md) | how the pieces fit, and why they are separate |
 | [Sampling](guides/sampling.md) | samplers, controls, rebuilding a skeleton |
 | [Retargeting](guides/retargeting.md) | cross-topology transfer and its validation |
+| [Data round trip](guides/roundtrip.md) | a character in, generated motion back out on that same character |
 | [Testing](guides/testing.md) | what is covered, and how coverage is checked |
 
 The other two are why it looks the way it does, and the difference between them

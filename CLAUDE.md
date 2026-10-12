@@ -13,8 +13,9 @@ every contract) and the **tooling** around it (`scripts/`, `tools/`,
   `docs/index/INDEX.md` in the same commit; for a new package, add its page too.
 - A change to a script, tool, config group or compose service updates
   `docs/index/tooling.md`.
-- Fixing something a page lists under **Gotchas** as open means updating that
-  bullet in the same commit.
+- Fixing something a page lists as open (under **Gotchas**, or a guide's
+  **Open issues**, e.g. `docs/guides/roundtrip.md`) means updating that bullet
+  in the same commit.
 - A page found disagreeing with the code is fixed toward the code, and the
   commit message says so.
 

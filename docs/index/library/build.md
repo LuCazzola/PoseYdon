@@ -20,6 +20,9 @@ audit reports.
   mapping between the model and presentation rigs.
 - **Audit** (`report.py`): one deterministic `report.json` per rig.
 
+The [round-trip guide](../../guides/roundtrip.md) shows how stage 1 is undone
+on export.
+
 It does **not** own reading files ([io](io.md)), alignment primitives
 ([ingest](ingest.md)), the joint reduction itself
 (`src/poseydon/features/reduce.py`), or the read path at training time

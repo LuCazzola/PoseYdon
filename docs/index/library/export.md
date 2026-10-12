@@ -6,6 +6,9 @@ representation, in BVH or FBX.
 
 ## Purpose
 
+See the [round-trip guide](../../guides/roundtrip.md) for the whole loop this
+closes.
+
 `export` owns the last arrow of the pipeline: reduced canonical motion →
 a file on a character. It loads a rig's recorded transforms and assets and
 exposes one method per representation and format.
