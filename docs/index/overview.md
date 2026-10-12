@@ -14,7 +14,7 @@ centred) and **reduced** (degenerate joints removed, as features). Preparation
 changes geometry and keeps structure; reduction changes structure and keeps
 geometry. Both are invertible, which is what lets a generated clip go back onto
 the character the user supplied
-([data pipeline spec §1](../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#1-three-levels-of-representation)).
+(data pipeline spec §1 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`)).
 
 ```mermaid
 flowchart LR
@@ -159,7 +159,7 @@ Preparation and reduction both record their inverse: `preproc.npz`, the
 reduction mapping in `skeleton.npz`, and the recipe beside each checkpoint.
 That record is what lets [`export`](library/export.md) carry a generated clip
 back to the user's original rig
-([character export spec](../superpowers/specs/2026-09-19-character-aware-motion-export-design.md)).
+(character export spec (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`)).
 
 ### Parity is measured, not claimed
 

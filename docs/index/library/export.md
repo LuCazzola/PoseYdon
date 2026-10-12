@@ -21,7 +21,7 @@ It does **not** own the transforms themselves (`build.prepare`,
 | `src/poseydon/export/character.py` | `CharacterExporter.load(corpus, raw, rig)`; `prepared_bvh`, `original_bvh`, `prepared_fbx`, `presentation_fbx`, `original_fbx`, each with an optional `facing_from=<action>` |
 
 Representations
-([character export spec](../../superpowers/specs/2026-09-19-character-aware-motion-export-design.md#representation-contract)):
+(character export spec (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`)):
 
 | representation | joints | frame | asset |
 |---|---|---|---|
@@ -63,7 +63,7 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
 - **Hard errors, no silent substitutes.** Mismatched topology, missing assets,
   stray skin weights or bind-fit residuals over threshold all raise. No bare
   armature, first-alphabetical asset or identity facing is substituted. Source:
-  [spec "Error handling and invariants"](../../superpowers/specs/2026-09-19-character-aware-motion-export-design.md#error-handling-and-invariants);
+  spec "Error handling and invariants" (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`);
   commits `1e93973`, `debe9be`.
 - **The source FBX is chosen by bind geometry**, not by taking the first vendor
   file, because several Truebones files have locator roots or action-specific

@@ -41,8 +41,8 @@ than no spec.
 
 | area | spec |
 |---|---|
-| features, normalization, parity with the reference | [2026-09-06-data-pipeline-and-training-parity-design](superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md) |
-| the training recipe, retarget validation | [2026-09-08-training-run-and-retarget-validation-design](superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md) |
+| features, normalization, parity with the reference | `docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md` |
+| the training recipe, retarget validation | `docs/superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md` |
 
 ## What is deliberately not here
 

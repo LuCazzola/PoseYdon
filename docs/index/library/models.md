@@ -60,13 +60,13 @@ Called by: training (`build`, `task`, `lightning`, `metrics`), sampling
   chains. `ConditionMasker` drops the whole latent so classifier-free guidance
   has an unconditional branch. They're siblings because they act on different
   objects. Source: `src/poseydon/models/modules/masking.py` docstring;
-  [CFG spec](../../superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md#problem).
+  CFG spec (`docs/superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md`).
 - **Multi-head semantic modulation**, averaged or summed, extends the
   reference's single gated transform. Source: commit `dfeecbc`; CFG spec.
 - **The temporal attention band is a model parameter**, not a conditioner.
   Attention locality belongs to the attention module, and an override replaces
   the band but never the padding mask. Source:
-  [data pipeline spec §9 "The temporal attention band"](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#the-temporal-attention-band);
+  data pipeline spec §9 "The temporal attention band" (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`);
   commits `c004f55`, `41d3d52`.
 
 ## Gotchas

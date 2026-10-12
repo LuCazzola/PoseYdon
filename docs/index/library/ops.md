@@ -49,7 +49,7 @@ Called by: `cli.py` (`sample`, `retarget`), `training/validation.py`,
   watches has to be the code that ships, or nobody can reproduce what it
   reported. Source: `src/poseydon/ops/retarget_run.py` docstring; commit
   `2532901`;
-  [training-run spec](../../superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md).
+  training-run spec (`docs/superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md`).
 - **The decode is as long as the content clip**, because the latent is
   per-frame. Source: `run_retarget` docstring.
 - **Reconstruction comes from the recipe** (`DEFAULT_RECONSTRUCT`, read through

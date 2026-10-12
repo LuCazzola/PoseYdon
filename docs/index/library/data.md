@@ -38,7 +38,7 @@ Produces a `MotionBatch` (see [core](core.md)) for [training](training.md).
 `Normalizer` is also used by `build/pipeline.py` to fit `stats.npz`, and by
 retarget validation and `ops/retarget_run.py` to denormalize.
 
-Read path per item ([spec §9](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#9-read-path)):
+Read path per item (spec §9 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`)):
 
 ```
 load clips/<Rig>/<action>.npz   prepared RigidBodyAnimation, every joint
@@ -64,7 +64,7 @@ Called by: training (`build`, `lightning`, `metrics`, `validation`), ops
   Source: `src/poseydon/data/normalize.py` docstring.
 - **Normalization is declared per block in config** (`configs/dataset/truebones.yaml`),
   with scale modes `channel`, `joint_block`, `block` and `none`. Source:
-  [spec §5](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#5-normalization-policy);
+  spec §5 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`);
   commit `19d6e99`. The shipped policy centres every block and scales per
   channel. See the config, not the spec's example table.
 - **Statistics are loaded, not fitted.** Stage 2 writes `stats.npz` and the

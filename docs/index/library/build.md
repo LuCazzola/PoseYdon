@@ -63,8 +63,8 @@ Called by: `scripts/process_dataset_truebones.py` (stage 1),
   one, and the result must come back on theirs. The facing rotation especially
   can't be recovered once a file already faces +Z. Source:
   `src/poseydon/build/prepare.py` docstring;
-  [data pipeline spec §1](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#1-three-levels-of-representation),
-  [§3](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#3-stage-1-prepare).
+  data pipeline spec §1 and §3
+  (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
 - **One definition of the stage order.** The order was once written out twice,
   for prepare and for unprepare, and the inverse copy is only exercised when
   inverting, so drift there is silent. `prepare_chain()` is the single source.
@@ -79,10 +79,10 @@ Called by: `scripts/process_dataset_truebones.py` (stage 1),
 - **The whole rig rotates, not just the root.** Unlike the reference,
   `rotate_rig` turns offsets too, so a DCC tool draws the rest skeleton and the
   animation in one convention. The cost is per-clip rest geometry (next
-  section). Source: [§3 "Rest geometry is not rig-level"](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#rest-geometry-is-not-rig-level).
+  section). Source: §3 "Rest geometry is not rig-level" (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
 - **Only `stats.npz` depends on the feature schema**, so changing `features:`
   re-runs one pass. Source: `src/poseydon/build/pipeline.py` docstring;
-  [§4](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#4-stage-2-scriptsbuild_featurespy).
+  §4 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
 - **A JSONL index replaces filename parsing**, which the reference did in eight
   places, along with its filelist trees, taxonomy lists and pair files. It's
   append-only, diffable and needs no dependency. Source:
@@ -94,7 +94,7 @@ Called by: `scripts/process_dataset_truebones.py` (stage 1),
 - **Declared source authority.** Each manifest states whether BVH or FBX is
   authoritative for skeleton, motion and surface. Builds then record what each
   rig can export, instead of failing at export time. Source:
-  [character export spec](../../superpowers/specs/2026-09-19-character-aware-motion-export-design.md);
+  character export spec (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`);
   commits `404a5bb`, `53f9d39`.
 - **Build failures are fatal per rig and collected.** Source: commit `3229a57`.
 

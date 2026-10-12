@@ -62,7 +62,7 @@ and the IK and reference-comparison tools.
   Skin weights are indexed by the original joint order, so a generated clip must
   come back on the user's rig. The corpus keeps every joint, and reduction is
   the lens the model looks through. Source: `src/poseydon/features/reduce.py`
-  docstring; [spec §6](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#6-joint-reduction-and-expansion).
+  docstring; spec §6 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
 - **Zero-offset leaves are deleted, and zero-offset internal joints are folded
   only when they are an only child.** Folding turns the parent and so every
   sibling, which isn't worth one token. Ops are recorded by *name* so they

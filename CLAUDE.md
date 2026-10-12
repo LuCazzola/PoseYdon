@@ -22,7 +22,9 @@ every contract) and the **tooling** around it (`scripts/`, `tools/`,
 It cannot catch stale prose: that part is on you.
 
 Write code references in docs as inline code paths (`src/poseydon/core/spec.py`),
-not links: links leaving `docs/` fail the strict site build. Never invent a
+not links: links leaving `docs/` fail the strict site build. Cite specs and
+plans the same way (`docs/superpowers/specs/...`): `docs/superpowers/` is left
+out of the site, so a link into it would be dead there. Never invent a
 rationale; write **rationale not recorded** instead.
 
 ## Running things

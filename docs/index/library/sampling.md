@@ -47,7 +47,7 @@ Called by: ops (every operation, plus `retarget_run`), `training/build.py`,
   two model evaluations per step, and `Control.before_step` is never given the
   model. The original `cfg` control wrote a key no model read, so it changed
   nothing. Source:
-  [CFG spec](../../superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md#problem);
+  CFG spec (`docs/superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md`);
   commit `daee602`.
 - **One guidance formula across the whole range.** 0.0 is the unconditional
   branch, 1.0 is the model as trained (the identity), and anything above 1

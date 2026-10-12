@@ -53,7 +53,7 @@ Called by: `data/dataset.py`, `data/collate.py`, `cli.py` (`list`).
 - **Dropping conditioning is not done here.** Conditioning dropout and the
   null embeddings that classifier-free guidance needs live in the model
   (`MotionMasker`, `ConditionMasker`), not in conditioners. Source:
-  [conditioning masking and CFG spec](../../superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md);
+  conditioning masking and CFG spec (`docs/superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md`);
   see [models](models.md).
 
 ## Gotchas
@@ -69,4 +69,4 @@ Called by: `data/dataset.py`, `data/collate.py`, `cli.py` (`list`).
   the embeddings are silently ignored. `MoDiffAE` wires names differently, and
   passing it the same key raises; see the comment in
   `configs/model/modiffae.yaml`. Source:
-  [spec §9 "Conditioners"](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#conditioners).
+  spec §9 "Conditioners" (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).

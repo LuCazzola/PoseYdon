@@ -126,3 +126,18 @@ def test_every_library_package_has_a_page_with_the_fixed_sections():
         elif gaps := missing_sections(page.read_text()):
             problems[pkg] = gaps
     assert not problems, f"docs/index/library/: {problems}"
+
+
+def test_site_pages_do_not_link_into_superpowers():
+    """docs/superpowers/ is excluded from the site, so a link into it is a 404 there.
+
+    Specs and plans are cited as inline paths instead, like code.
+    """
+    docs = ROOT / "docs"
+    linking = sorted(
+        str(page.relative_to(ROOT))
+        for page in docs.rglob("*.md")
+        if page.relative_to(docs).parts[0] != "superpowers"
+        and re.search(r"\]\([^)]*superpowers/", page.read_text())
+    )
+    assert not linking, f"cite docs/superpowers/ as an inline path, not a link: {linking}"

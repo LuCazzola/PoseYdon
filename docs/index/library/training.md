@@ -57,11 +57,11 @@ Called by: `cli.py` (`train`, and `sample`/`retarget` for recipe and builders),
   with the wrong meaning. `check_recipe` compares `features`, `conditioners`,
   `model`, `process`, `dataset.reduce_tolerance` and `dataset.normalize`.
   Source: `src/poseydon/training/recipe.py` docstring;
-  [spec §8](../../superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md#8-the-processing-recipe).
+  spec §8 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
 - **Retargeting is watched during training** because training loss says
   nothing about whether a Flamingo's semantics land on a Scorpion. Source:
   `src/poseydon/training/validation.py` docstring;
-  [training-run spec](../../superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md);
+  training-run spec (`docs/superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md`);
   [retargeting guide](../../guides/retargeting.md).
 - **Bone-length drift is measured before the IK solve.** On solved output it's
   zero by construction and would report the solver, not the model. Source:
