@@ -91,3 +91,38 @@ def test_index_names_every_package_script_and_tool():
 def test_index_names_only_existing_paths():
     stale = sorted(p for p in mentioned_paths(INDEX.read_text()) if not (ROOT / p).exists())
     assert not stale, f"docs/index/INDEX.md names paths that do not exist: {stale}"
+
+
+LIBRARY_PAGES = ROOT / "docs" / "index" / "library"
+SECTIONS = ("Purpose", "Key files and types", "How it connects",
+            "Why it is shaped this way", "Gotchas")
+
+
+def missing_sections(text: str) -> list[str]:
+    """Fixed headings that are absent or out of order, so agents can jump to them."""
+    found = [h for h in re.findall(r"^## (.+?)\s*$", text, re.M) if h in SECTIONS]
+    return [s for s in SECTIONS if s not in found] or (
+        [] if found == list(SECTIONS) else ["order: " + ", ".join(found)]
+    )
+
+
+def test_missing_sections_reports_absent_and_misordered():
+    full = "\n".join(f"## {s}" for s in SECTIONS)
+    assert missing_sections(full) == []
+    assert missing_sections(full.replace("## Gotchas", "## Gotcha")) == ["Gotchas"]
+    swapped = full.replace("## Purpose", "## X").replace("## Gotchas", "## Purpose")
+    assert missing_sections(swapped + "\n## Gotchas") == [
+        "order: Key files and types, How it connects, Why it is shaped this way, Purpose, Gotchas"
+    ]
+
+
+def test_every_library_package_has_a_page_with_the_fixed_sections():
+    lib = ROOT / "src" / "poseydon"
+    problems = {}
+    for pkg in sorted(p.name for p in lib.iterdir() if (p / "__init__.py").exists()):
+        page = LIBRARY_PAGES / f"{pkg}.md"
+        if not page.exists():
+            problems[pkg] = "no page"
+        elif gaps := missing_sections(page.read_text()):
+            problems[pkg] = gaps
+    assert not problems, f"docs/index/library/: {problems}"
