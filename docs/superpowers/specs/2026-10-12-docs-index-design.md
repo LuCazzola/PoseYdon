@@ -95,18 +95,18 @@ if prose drift shows up in practice.
 
 ## Viewing
 
-A `docs` service in `docker-compose.yml` on the official
-`squidfunk/mkdocs-material` image (pinned tag), bind-mounting the repo and
-publishing port 8000:
+Served on the host with `uvx`, which runs MkDocs Material in a throwaway
+environment:
 
 ```
-docker compose up docs     # http://localhost:8000, live reload
+uvx --with mkdocs-material mkdocs serve    # http://127.0.0.1:8000, live reload
 ```
 
-This adds no `pyproject.toml` dependency and changes no existing image,
-consistent with everything else here running through compose. Material renders
-Mermaid via `pymdownx.superfences`, which ships with the image. Nav: Index
-(INDEX, overview, package pages), Guides, Specs, Plans.
+This adds no `pyproject.toml` dependency and changes no image: the docs need
+nothing from `poseydon` itself, so they have no reason to go through compose.
+The command is recorded in `docs/README.md` and `CLAUDE.md`. Material renders
+Mermaid via `pymdownx.superfences`, which it ships with. Nav: Index (INDEX,
+overview, package pages), Guides, Specs, Plans.
 
 ## Writing the content
 
@@ -119,5 +119,5 @@ never paraphrased into stronger claims than the source makes.
 - `tests/test_docs_index.py` passes on the finished tree, and fails when a
   subpackage is added without an index entry (checked once by hand by adding a
   temporary empty package).
-- `docker compose up docs` serves the site with no build warnings about broken
-  nav or missing files.
+- `uvx --with mkdocs-material mkdocs build --strict` succeeds, so there are no
+  broken nav entries or links.
