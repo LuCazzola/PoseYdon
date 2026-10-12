@@ -8,23 +8,14 @@ docker compose run --rm test pytest
 docker compose run --rm test python -m poseydon.cli list
 ```
 
-Two files need Blender, which the `test` image deliberately does not ship, so
-they are excluded from the run above and must be run inside the `fbx`
-container instead -- `tests/build/test_roundtrip_fbx.py` (FBX read/write and
-`from_animation`/`apply_animation`) and `tests/io/test_render_fbx.py` (the
-Blender renderer):
+Turn a generated clip back into an FBX on the rig you supplied, and look at it.
+FBX needs the Autodesk FBX SDK, fetched once (see
+[tooling](../index/tooling.md#dependencies)):
 
 ```bash
-docker compose run --rm fbx blender -b --python-expr \
-    "import sys, pytest; sys.exit(pytest.main(['tests/build/test_roundtrip_fbx.py','tests/io/test_render_fbx.py','-v','-rs']))"
-```
-
-Turn a generated clip back into an FBX on the rig you supplied, and look at it:
-
-```bash
-docker compose run --rm fbx blender -b --python scripts/anim_2_fbx.py -- \
+docker compose run --rm fbxsdk python -m poseydon.cli export \
     runs/<run>/retargets/step-75000/Flamingo_onelegbent__to__Scorpion.npz \
-    --skin --out out/scorpion.fbx
+    --rig Scorpion --representation original --format fbx --out out/scorpion.fbx
 docker compose run --rm fbx blender -b --python scripts/render_fbx.py -- \
     out/scorpion.fbx --out out/scorpion.mp4 --threads 4
 ```
@@ -39,8 +30,8 @@ poseydon sample --checkpoint runs/**/last.ckpt skeleton=Goat n_samples=4 --rende
 
 ### Representation-aware export
 
-Exports default to the strict prepared representation. Select `--representation prepared|presentation|original` and `--format bvh|fbx`:
+Exports default to the strict prepared representation. Select `--representation prepared|original` and `--format bvh|fbx`:
 
     poseydon export samples/Rig__clip.bvh --rig Rig --representation prepared --format bvh --out prepared.bvh
 
-BVH-only rigs expose BVH representations and report `source_surface_missing` for FBX requests. Paired or FBX-only rigs expose mesh-bearing prepared/presentation FBX assets when preparation produced them. Inspect each rig's `report.json` and index availability fields before requesting a representation.
+A prepared FBX is a bare skeleton; an original FBX is the clip on the vendor's own skinned asset (`fbxsdk` container).

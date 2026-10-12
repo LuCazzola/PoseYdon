@@ -25,7 +25,7 @@ import numpy as np
 
 from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
 from poseydon.core.rotations import QUAT_IDENTITY, quat_apply, quat_inverse, quat_mul
-from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH
+from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH, resolve
 from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ class PrepareChain:
         params: dict[str, dict] = {}
         current = rest
         for stage in self.stages:
-            params[stage.name] = stage.fit(current, resolved)
+            params[stage.name] = stage.fit(current, _rebind(resolved, rest, current))
             before = current
             current = stage.apply(current, params[stage.name])
             if audit is not None:
@@ -141,7 +141,7 @@ class PrepareChain:
         current = anim
         for stage in self.stages:
             if stage.scope == CLIP:
-                params[stage.name] = stage.fit(current, resolved)
+                params[stage.name] = stage.fit(current, _rebind(resolved, anim, current))
             elif stage.name not in params:
                 raise KeyError(
                     f"no fitted parameters for rig-scoped stage `{stage.name}`; "
@@ -171,6 +171,19 @@ class PrepareChain:
                     parameters=params[stage.name], before=before, after=current,
                 )
         return current
+
+
+def _rebind(resolved: Any, source: Animation, current: Animation) -> Any:
+    """``resolved``, re-bound to ``current``'s joints if a stage changed them.
+
+    A manifest is resolved against the SOURCE joints, and `PromoteRoot` removes
+    the locator chain, shifting every surviving index. Indices resolved before
+    it then name whichever joints moved into their slots -- feet for thighs on
+    Horse -- so a later stage fitting by index reads the wrong joints silently.
+    """
+    if resolved is None or tuple(current.names) == tuple(source.names):
+        return resolved
+    return resolve(resolved.manifest, current.names)
 
 
 def _global_binds(local_bind: np.ndarray, parents: np.ndarray) -> np.ndarray:

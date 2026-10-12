@@ -19,12 +19,12 @@ There are two kinds, and the split is deliberate:
   nothing reads its output, so build corpora with the scripts below);
   `train` trains from a composed Hydra config; `sample` generates motion and
   writes BVH (with `--render` for MP4); `retarget` carries one clip onto another
-  rig; `export` writes the prepared, presentation or original representation;
+  rig; `export` writes the prepared or original representation, as BVH or FBX;
   `list` shows the components registered by name. It lives in the library
   because it is installed as the `poseydon` console script.
 - **`scripts/`**: corpus construction and verification, one-shot and
-  dataset-specific, which is why they are scripts and not CLI verbs. Several
-  need Blender and so run only in the `fbx` container.
+  dataset-specific, which is why they are scripts and not CLI verbs. Those
+  that write FBX run in the `fbxsdk` container.
 
 Run the CLI inside the test container:
 
@@ -40,36 +40,29 @@ docker compose run --rm test python -m poseydon.cli list
   raw BVH clips under `--raw-root/<Rig>/`, runs each through
   `PrepareChain`, and writes `clips/<Rig>/<action>.bvh` plus
   `rigs/<Rig>/preproc.npz`, which holds the fitted transform and its inverse.
-- `scripts/process_dataset_truebones_fbx.py` (`fbx` container). The FBX
-  counterpart: same manifests, layout and facing convention, but it carries the
-  mesh and skinning through and writes `mesh.npz` per rig.
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) from `configs/dataset/<name>.yaml`.
-- `scripts/build_truebones_assets.py` (`fbx` container). Builds the
-  mesh-bearing `char-model.fbx` and `char-full.fbx` per rig.
 
-**Export and viewing** (`fbx` container):
+There is no FBX preparation pass: preparation runs on the BVH, and FBX enters
+only at the two ends, through `poseydon export --format fbx`.
 
-- `scripts/anim_2_fbx.py`: a generated `.npz` → FBX on the user's rig. It
-  inverts the reduction, then the preparation chain, then writes an armature.
-  `--skin` drives the rig's own source asset instead, so the output carries
-  mesh, weights and materials.
-- `scripts/render_fbx.py`: any FBX → MP4 with EEVEE. The camera comes from
-  `poseydon.io.framing`, the same function the stick-figure renderer uses, so
-  the two renders of one clip are directly comparable.
+**Export and viewing**:
+
+- `poseydon export <clip> --rig <Rig> --representation original --format fbx`
+  (`fbxsdk` container): a generated clip onto the user's own FBX asset, with
+  its mesh and skin. `--format bvh` runs in `test`.
+- `scripts/render_fbx.py` (`fbx` container): any FBX → MP4 with EEVEE. Blender
+  is used here as a renderer only; nothing reads or writes FBX through it. The
+  camera comes from `poseydon.io.framing`, the same function the stick-figure
+  renderer uses, so the two renders of one clip are directly comparable.
 
 **Verification**:
 
-- `scripts/check_fbx_coherence.py`: measures how far the BVH and FBX arms of
-  the corpus have drifted, comparing in world space after normalizing scale and
-  per-frame placement. It writes nothing.
-- `scripts/audit_truebones_assets.py`: counts mesh-bearing assets and complete
-  `report.json` files. It has no docstring and is a quick audit, not a pipeline
-  step.
-- `scripts/build_skeleton_visual_debug.py`, then
-  `scripts/build_skeleton_visual_debug_fbx.py` (`fbx` container): one bundle per
-  rig under `tmp/skel_visual_debug/<Rig>/` with source, prepared, model and
-  roundtrip versions of the *same* clip, for side-by-side inspection in Blender.
+- `scripts/build_stage_samples.py` (`fbxsdk` container): one clip per rig under
+  `tmp/truebones/<Rig>/` at every stage, `1_source`, `2_prepared`, `3_model`,
+  `4_roundtrip`, each as `.bvh` and `.fbx`, for side-by-side inspection. The
+  prepared and model FBX are bare skeletons; source and roundtrip FBX are the
+  vendor's skinned asset.
 
 ## Tools and probes
 
@@ -82,7 +75,6 @@ nothing. Files whose docstring says *throwaway* exist to be deleted.
 | root and hierarchy shape | `tools/probe_floating_root.py`, `tools/probe_promote_table.py`, `tools/probe_root_chain.py`, `tools/probe_root_shape.py`, `tools/probe_tukan.py` |
 | rest pose and joint sets | `tools/probe_jointset_spread.py`, `tools/probe_tpose_gap.py`, `tools/probe_rest_override.py`, `tools/write_rest_pose.py`, `tools/probe_resolve_after_reduce.py` |
 | inverse kinematics | `tools/ik_grid_search.py`, `tools/ik_contact_compare.py` |
-| scale | `tools/probe_scale_residual.py` |
 | parity with the reference | `tools/probe_reference_retarget.py`, `tools/probe_wandb_parity.py`, `tools/render.py` |
 | joint-name embeddings | `tools/build_joint_name_cache.py` |
 
@@ -110,16 +102,24 @@ measured guidance scales. Read them before changing a default.
 
 ## Tests
 
-`tests/` mirrors `src/poseydon/` package by package. There are two suites:
+Two files:
 
-- **pure**: `docker compose run --rm -T test python -m pytest -q`
-- **Blender**: the FBX tests under `tests/io`, `tests/build` and
-  `tests/export`, run inside the `fbx` container (see the
-  [quick start](../guides/quickstart.md))
+- `tests/test_roundtrip.py`: the data round trip on every prepared clip of
+  one dataset, picked with `--dataset <name>` (default `truebones`) and
+  narrowed with `-k <Rig>` or `-k <Rig>/<action>`. Its BVH half runs anywhere;
+  its FBX half (`test_round_trip_fbx`) needs the `fbxsdk` container and skips
+  elsewhere.
+- `tests/test_docs_index.py` keeps `docs/index/` structurally in step with
+  the tree.
 
-What is covered, golden parity, and why tests are mutation-checked:
-[testing guide](../guides/testing.md). `tests/test_docs_index.py` keeps
-`docs/index/` structurally in step with the tree.
+```bash
+docker compose run --rm -T test python -m pytest -q                 # BVH, ~2 min
+docker compose run --rm -T fbxsdk python -m pytest -q -k Camel      # BVH + FBX, one rig
+```
+
+Under QEMU the FBX half costs about 11 s a clip, a few hours for the whole
+corpus. What is covered and what is not:
+[testing guide](../guides/testing.md).
 
 ## Data
 
@@ -137,9 +137,10 @@ in the same directories.
 | `test` | the pure suite, the CLI, and the non-Blender scripts. CPU-only torch |
 | `train` | training on the GPU, with wandb settings forwarded from `.env` |
 | `compat` | running the reference implementation for parity, pinned CPU torch |
-| `fbx` | headless Blender: FBX read/write, Blender tests, rendering |
+| `fbxsdk` | FBX read/write through the Autodesk FBX SDK, and the FBX half of the tests. x86-64 under QEMU on the GB10 |
+| `fbx` | headless Blender, for `scripts/render_fbx.py` only |
 
-All four bind-mount the repo and run as the host user, so source edits need no
+All five bind-mount the repo and run as the host user, so source edits need no
 rebuild. Only a `pyproject.toml` or `uv.lock` change needs one.
 
 ## Dependencies
@@ -158,8 +159,26 @@ extras:
 | `render` | matplotlib, imageio | pulled in by `dev` and `compat` |
 
 The exception is `fbx`. Blender runs on Debian's own Python, so its numpy,
-scipy, PyYAML and pytest are apt packages built against that interpreter. Any
-library code the FBX scripts import has to work with those versions.
+scipy and PyYAML are apt packages built against that interpreter. Only
+`scripts/render_fbx.py` runs there.
+
+**Autodesk FBX SDK** (`fbxsdk`). FBX is read and written through Autodesk's
+SDK, because Blender's exporter writes wrong rotations near gimbal lock
+(4.76 degrees on Flamingo's root, measured against its own input). The SDK is
+proprietary: free to use, but never committed or redistributed, so each user
+fetches it and accepts Autodesk's license
+(https://aps.autodesk.com/developer/overview/fbx-sdk) themselves. Its Python
+wheel is x86-64 and CPython 3.11 only, so on the GB10 the image runs under
+QEMU, registered once per boot:
+
+```bash
+scripts/fetch_fbx_sdk.sh --accept-license                 # -> third_party/fbxsdk/ (gitignored)
+docker run --privileged --rm tonistiigi/binfmt --install amd64,386
+docker compose build fbxsdk
+```
+
+`fbxsdk` installs the same locked set as `test`, then the SDK's wheel, which
+cannot be in `uv.lock`.
 
 To add or upgrade a dependency, run on the host, then rebuild the affected
 images:

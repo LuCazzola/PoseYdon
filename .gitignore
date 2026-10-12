@@ -263,3 +263,7 @@ out/
 
 # Working notes from planning workflows (specs, plans, ledgers): never committed.
 .superpowers/
+
+# Autodesk FBX SDK: proprietary, fetched per user by scripts/fetch_fbx_sdk.sh, never committed.
+third_party/fbxsdk/
+fbx*_fbx*sdk*.tar.gz

@@ -41,8 +41,7 @@ from [ingest](ingest.md), `augment.JointEdit` (reduction composes with
 augmentation edits), and [solvers](solvers.md) for `positions_ik`.
 
 Produces feature tensors for [data](data.md) and `build/pipeline.py` (the stats
-pass); reductions for `build`, `data`, [export](export.md) and
-`scripts/anim_2_fbx.py`; and reconstruction for the CLI's `sample`,
+pass); reductions for `build`, `data` and [export](export.md); and reconstruction for the CLI's `sample`,
 `ops/retarget_run.py` and `training/metrics.py`.
 
 Called by: build, data, export, ops, training, `cli.py`, the asset scripts,
@@ -55,9 +54,10 @@ and the IK and reference-comparison tools.
   representation is one class plus a decorator. Source:
   `src/poseydon/features/base.py` docstring;
   [architecture guide](../../guides/architecture.md#features-are-composed-at-read-time).
-- **Golden parity.** Every block reproduces the reference's own arrays for
-  seven rigs to ~1e-6, and foot contact is bit-exact. Source: commit `1edbcab`;
-  [testing guide](../../guides/testing.md).
+- **Golden parity.** Every block reproduced the reference's own arrays for
+  seven rigs to ~1e-6, with foot contact bit-exact, when last checked. No test
+  re-checks it since the suite was cut to the round trip. Source: commit
+  `1edbcab`; [testing guide](../../guides/testing.md).
 - **Reduction happens at extraction time and is never baked into the corpus.**
   Skin weights are indexed by the original joint order, so a generated clip must
   come back on the user's rig. The corpus keeps every joint, and reduction is

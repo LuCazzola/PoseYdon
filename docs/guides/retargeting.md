@@ -45,8 +45,8 @@ Flamingo's semantics land on a Scorpion, and that is the task.
 
 ### Representation-aware export
 
-Exports default to the strict prepared representation. Select `--representation prepared|presentation|original` and `--format bvh|fbx`:
+Exports default to the strict prepared representation. Select `--representation prepared|original` and `--format bvh|fbx`:
 
     poseydon export samples/Rig__clip.bvh --rig Rig --representation prepared --format bvh --out prepared.bvh
 
-BVH-only rigs expose BVH representations and report `source_surface_missing` for FBX requests. Paired or FBX-only rigs expose mesh-bearing prepared/presentation FBX assets when preparation produced them. Inspect each rig's `report.json` and index availability fields before requesting a representation.
+A prepared FBX is a bare skeleton; an original FBX is the clip on the vendor's own skinned asset, and needs the `fbxsdk` container (see [export](../index/library/export.md)).

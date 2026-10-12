@@ -12,8 +12,8 @@ is a property of ``RigidBodyAnimation``, applied by an explicit
 a caller actually needs it, not a rule the parser enforces.
 
 End Sites are treated as ordinary joints with an offset, a name and no channels.
-The Truebones files carry their names in a nonstandard ``#name:`` comment; where
-that is missing a name is derived from the parent.
+A name may be given in a nonstandard ``#name:`` comment; where it is missing --
+the usual case, and every Truebones file -- one is derived from the parent.
 
 The MOTION block is parsed in a single vectorized pass rather than line by line,
 which is where a naive parser spends nearly all its time.
@@ -316,9 +316,9 @@ class BVH:
     def write(self, path: str | Path, order: str = DEFAULT_ROTATION_ORDER) -> None:
         """Write to a BVH file.
 
-        Leaf joints become ``End Site`` entries carrying their name in the
-        same ``#name:`` comment :meth:`read` understands, so a round trip
-        preserves joint count and naming.
+        Leaf joints become ``End Site`` entries, carrying a ``#name:`` comment
+        only where :meth:`read` would not derive that name on its own, so a
+        round trip preserves joint count, naming, and the source's notation.
 
         ``order`` is the fallback for a joint that declares no rotation
         channels. A joint that DOES declare them is written in its own order:
@@ -341,7 +341,10 @@ class BVH:
         # a manifest. 10 keeps the round trip within 3e-8 fps.
         lines.append(f"Frame Time: {1.0 / self.fps:.10f}")
 
-        jointed = [j for j in range(len(self.names)) if children[j]]
+        # The order `_write_joint` visits them in, not index order: the two
+        # agree only when the indices are already depth-first, and a merely
+        # topological order shifts every later column onto the wrong joint.
+        jointed = [j for j in _depth_first(children) if children[j]]
         # Grouped by declared order, one conversion per group -- the same shape
         # as `_channels_to_arrays` on the way in, for the same reason.
         angles = np.empty((self.rotations.shape[0], len(jointed), 3), dtype=np.float64)
@@ -352,21 +355,39 @@ class BVH:
             angles[:, positions] = quat_to_euler(
                 self.rotations[:, [jointed[p] for p in positions]], spelling
             )
-        translating = [j for j in jointed if self._has_position(j)]
-
-        for frame in range(self.rotations.shape[0]):
-            row: list[str] = []
-            positions = {j: self.translations[frame, j] for j in translating}
-            for index, joint in enumerate(jointed):
-                if joint in positions:
-                    row.extend(f"{value:.6f}" for value in positions[joint])
-                row.extend(f"{value:.6f}" for value in angles[frame, index])
-            lines.append(" ".join(row))
+        # One column per channel, in each joint's own written sequence.
+        columns = []
+        for index, joint in enumerate(jointed):
+            spelling = self._rotation_order(joint, order)
+            for name in self._layout(joint, order):
+                if name in _POSITION_CHANNELS:
+                    columns.append(self.translations[:, joint, _POSITION_CHANNELS.index(name)])
+                else:
+                    columns.append(angles[:, index, spelling.index(CHANNEL_AXIS[name])])
+        for row in np.stack(columns, axis=1):
+            lines.append(" ".join(f"{value:.6f}" for value in row))
 
         Path(path).write_text("\n".join(lines) + "\n")
 
     def _has_position(self, joint: int) -> bool:
         return any(name in self.channels[joint] for name in _POSITION_CHANNELS)
+
+    def _layout(self, joint: int, fallback: str) -> tuple[str, ...]:
+        """The channels written for ``joint``, in the sequence written.
+
+        A complete declaration -- three rotations, and either no positions or
+        all three -- is kept verbatim, interleaving included: rotations before
+        positions is as legal as after, and the restored file has to be the
+        layout the user supplied. Anything else gets positions (if any) first,
+        then the rotation order.
+        """
+        declared = self.channels[joint]
+        n_positions = sum(name in _POSITION_CHANNELS for name in declared)
+        n_rotations = sum(name in CHANNEL_AXIS for name in declared)
+        if n_rotations == 3 and n_positions in (0, 3) and len(set(declared)) == len(declared) == 3 + n_positions:
+            return tuple(declared)
+        rotations = tuple(f"{axis}rotation" for axis in self._rotation_order(joint, fallback))
+        return (*_POSITION_CHANNELS, *rotations) if self._has_position(joint) else rotations
 
     def _rotation_order(self, joint: int, fallback: str) -> str:
         """This joint's declared rotation order, or ``fallback`` if it has none."""
@@ -383,12 +404,32 @@ def _children_of(parents: np.ndarray) -> list[list[int]]:
     return children
 
 
+def _depth_first(children: list[list[int]]) -> list[int]:
+    """Joint indices in the pre-order :func:`_write_joint` emits them."""
+    order: list[int] = []
+    stack = [0]
+    while stack:
+        joint = stack.pop()
+        order.append(joint)
+        stack.extend(reversed(children[joint]))
+    return order
+
+
 def _write_joint(lines, bvh, children, joint, depth, order) -> None:
     pad = "\t" * depth
     is_end_site = not children[joint]
 
     if is_end_site:
-        lines.append(f"{pad}End Site #name: {bvh.names[joint]}")
+        # Named only where a plain `End Site` would read back as a different
+        # name: `read` derives `<parent>_End` for an unnamed one, so that name
+        # round-trips without the nonstandard comment, which most files --
+        # every Truebones one -- never use.
+        # ponytail: a source that spelled out `#name: <parent>_End` comes back
+        # unnamed (same name, plainer notation); record the style per file if
+        # a corpus ever does that.
+        derived = f"{bvh.names[bvh.parents[joint]]}_End"
+        named = "" if bvh.names[joint] == derived else f" #name: {bvh.names[joint]}"
+        lines.append(f"{pad}End Site{named}")
     elif joint == 0:
         lines.append(f"{pad}ROOT {bvh.names[joint]}")
     else:
@@ -399,15 +440,8 @@ def _write_joint(lines, bvh, children, joint, depth, order) -> None:
     lines.append(f"{pad}\tOFFSET {ox:.6f} {oy:.6f} {oz:.6f}")
 
     if not is_end_site:
-        channel_names = " ".join(
-            f"{axis}rotation" for axis in bvh._rotation_order(joint, order)
-        )
-        if bvh._has_position(joint):
-            lines.append(
-                f"{pad}\tCHANNELS 6 Xposition Yposition Zposition {channel_names}"
-            )
-        else:
-            lines.append(f"{pad}\tCHANNELS 3 {channel_names}")
+        layout = bvh._layout(joint, order)
+        lines.append(f"{pad}\tCHANNELS {len(layout)} {' '.join(layout)}")
         for child in children[joint]:
             _write_joint(lines, bvh, children, child, depth + 1, order)
 

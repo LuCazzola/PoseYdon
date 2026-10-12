@@ -22,7 +22,7 @@ training recipe (`src/poseydon/training/recipe.py`, see [training](training.md))
 | `src/poseydon/core/skeleton.py` | `SkeletonManifest` (per-rig YAML: facing pairs, contact thresholds, foot joints, rest pose, authority), `resolve()` binding names to indices, `ResolvedSkeleton` |
 | `src/poseydon/core/spec.py` | `FeatureSpec`, the ordered `(name, width)` block layout, with `slice()` and `take(tensor, name, axis, drop=)` |
 | `src/poseydon/core/batch.py` | `MotionBatch` (`x` of shape `(B, J, D, T)`, `spec`, `masks`, `window`, `cond`), plus `Masks`, `WindowInfo` and `Cond` |
-| `src/poseydon/core/authority.py` | `AuthorityPolicy` (which source format is authoritative for skeleton, motion and surface) and `ArtifactAvailability` (which export representations a rig can produce) |
+| `src/poseydon/core/authority.py` | `AuthorityPolicy` (which source format is authoritative for skeleton, motion and surface), `SourceArtifacts`, and `ArtifactUnavailableError` (the typed refusal an export raises) |
 | `src/poseydon/core/rotations.py` | quaternion / Euler / matrix / 6D conversions in numpy, wrapping SciPy |
 | `src/poseydon/core/kinematics.py` | numpy forward kinematics; `check_topological_order` |
 | `src/poseydon/core/torch_kinematics.py` | differentiable FK in torch, used by the IK solver |

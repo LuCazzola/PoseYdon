@@ -16,14 +16,14 @@ See [overview](overview.md) for how the pipeline fits together.
 | path | owns | read |
 |---|---|---|
 | `src/poseydon/augment/` | data augmentation applied to training windows | [augment](library/augment.md) |
-| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation, correspondence, skinning, reports | [build](library/build.md) |
+| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation, skeleton, statistics, index, reports | [build](library/build.md) |
 | `src/poseydon/conditioners/` | declared conditioning: the only extra data a batch carries | [conditioners](library/conditioners.md) |
 | `src/poseydon/core/` | the contracts: animation containers, skeleton manifests, `FeatureSpec`, `MotionBatch`, kinematics, rotations, registry | [core](library/core.md) |
 | `src/poseydon/data/` | reading a prepared corpus into feature windows, normalization, rig-balanced sampling, collation | [data](library/data.md) |
-| `src/poseydon/export/` | `CharacterExporter`: model output back onto prepared, presentation or original character space | [export](library/export.md) |
+| `src/poseydon/export/` | `CharacterExporter`: model output back onto the prepared character or the user's original rig, as BVH or FBX; FBX via a per-rig calibration | [export](library/export.md) |
 | `src/poseydon/features/` | composable motion feature representations, extraction and recovery | [features](library/features.md) |
 | `src/poseydon/ingest/` | BVH corpus to aligned animations plus a corpus index | [ingest](library/ingest.md) |
-| `src/poseydon/io/` | BVH and FBX reading and writing, shot framing, stick-figure rendering | [io](library/io.md) |
+| `src/poseydon/io/` | BVH and FBX reading and writing (FBX through the Autodesk FBX SDK), shot framing, stick-figure rendering | [io](library/io.md) |
 | `src/poseydon/losses/` | composable loss terms | [losses](library/losses.md) |
 | `src/poseydon/models/` | denoising models (AnyTop, MoDiffAE) | [models](library/models.md) |
 | `src/poseydon/ops/` | motion tasks run with a trained model: generate, in-between, blend, retarget | [ops](library/ops.md) |
@@ -40,15 +40,10 @@ See [overview](overview.md) for how the pipeline fits together.
 | path | does | read |
 |---|---|---|
 | `scripts/process_dataset_truebones.py` | raw Truebones BVH → canonical, invertible clips under the entity-first layout | [tooling](tooling.md#scripts) |
-| `scripts/process_dataset_truebones_fbx.py` | raw Truebones FBX → +Z-facing clips with skin intact, plus one `mesh.npz` per rig | [tooling](tooling.md#scripts) |
 | `scripts/build_features.py` | prepared BVH → canonical features, per-rig statistics and the clip index | [tooling](tooling.md#scripts) |
-| `scripts/build_truebones_assets.py` | builds every Truebones model/presentation FBX asset from canonical raw data | [tooling](tooling.md#scripts) |
-| `scripts/anim_2_fbx.py` | a generated clip → an FBX on the rig the user authored | [tooling](tooling.md#scripts) |
-| `scripts/render_fbx.py` | an FBX → an MP4 of the character performing it | [tooling](tooling.md#scripts) |
-| `scripts/check_fbx_coherence.py` | checks that the BVH and FBX arms of the corpus describe the same motion | [tooling](tooling.md#scripts) |
-| `scripts/audit_truebones_assets.py` | counts mesh-bearing FBX assets and complete `report.json` files across rigs | [tooling](tooling.md#scripts) |
-| `scripts/build_skeleton_visual_debug.py` | collects one comparable bundle per rig: source, prepared, model, roundtrip | [tooling](tooling.md#scripts) |
-| `scripts/build_skeleton_visual_debug_fbx.py` | generates `CharacterExporter` roundtrip files for the visual-debug bundles | [tooling](tooling.md#scripts) |
+| `scripts/render_fbx.py` | an FBX → an MP4 of the character performing it (Blender, as a renderer only) | [tooling](tooling.md#scripts) |
+| `scripts/fetch_fbx_sdk.sh` | downloads the Autodesk FBX Python SDK into the gitignored `third_party/fbxsdk/`, after `--accept-license` | [tooling](tooling.md#dependencies) |
+| `scripts/build_stage_samples.py` | one clip per rig at every round-trip stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/` | [tooling](tooling.md#scripts) |
 
 ### Probes and one-off tools
 
@@ -70,7 +65,6 @@ meant to be deleted once read.
 | `tools/write_rest_pose.py` | emits a `rest_pose:` line per rig for review before applying | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_resolve_after_reduce.py` | whether `resolve()` survives joint reduction, for every rig | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_tukan.py` | inspects the Tukan T-pose: joint count, mean bone, branching | [tooling](tooling.md#tools-and-probes) |
-| `tools/probe_scale_residual.py` | *throwaway* spike probe on scale residuals | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_reference_retarget.py` | *throwaway*: Flamingo → Scorpion retarget with the reference weights | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_wandb_parity.py` | *throwaway*: pushes a parity retarget run to wandb | [tooling](tooling.md#tools-and-probes) |
 | `tools/render.py` | re-export so reference-comparison scripts keep one import path | [tooling](tooling.md#tools-and-probes) |
@@ -81,13 +75,13 @@ meant to be deleted once read.
 | path | holds | read |
 |---|---|---|
 | `configs/` | Hydra configs: `configs/train.yaml`, `configs/sample.yaml`, groups `configs/data/`, `configs/dataset/`, `configs/model/`, `configs/process/`, `configs/trainer/` | [tooling](tooling.md#configs) |
-| `tests/` | pytest suites mirroring `src/poseydon/` package by package; `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/testing.md) |
-| `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, meshes, report | [layout guide](../guides/truebones-layout.md) |
+| `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/testing.md) |
+| `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/truebones-layout.md) |
 | `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/truebones-layout.md) |
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
 | `docs/index/` | this index, the overview, tooling and one page per library package | [overview](overview.md) |
 | `docs/guides/` | how to run things | [docs](../README.md) |
-| `docker-compose.yml` | services `test`, `train`, `compat`, `fbx` | [tooling](tooling.md#containers) |
+| `docker-compose.yml` | services `test`, `train`, `compat`, `fbxsdk` (FBX I/O), `fbx` (Blender, rendering only) | [tooling](tooling.md#containers) |
 | `Dockerfile` | the multi-stage image behind those services: OS and system packages only | [tooling](tooling.md#containers) |
 | `uv.lock` | every Python dependency, pinned; installed with `uv sync --locked` | [tooling](tooling.md#dependencies) |
 | `CLAUDE.md` | instructions for agents: start here, and keep `docs/index/` current | [index](INDEX.md) |

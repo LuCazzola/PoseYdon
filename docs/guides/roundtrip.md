@@ -58,8 +58,8 @@ grounding per clip would put a flying creature on the floor and erase the
 height difference between a crouch and a stand. `FaceAxis` is the only clip
 stage, so it is the only parameter recorded per clip.
 
-You run preparation with `scripts/process_dataset_truebones.py` (BVH) and
-`scripts/process_dataset_truebones_fbx.py` (FBX). Each rig also gets a
+You run preparation with `scripts/process_dataset_truebones.py`. It runs on
+the BVH only; FBX enters at the two ends, at export. Each rig also gets a
 `report.json` recording what was done and why. See [build](../index/library/build.md).
 
 ## The model's view: reduction
@@ -82,30 +82,33 @@ recorded `JointReduction` is replayed in reverse by `invert_reduction`. See
 ## Coming back: export
 
 `CharacterExporter` in `src/poseydon/export/character.py` takes a model-space
-animation and writes one of three representations:
+animation and writes one of two representations, each as BVH or FBX:
 
-| representation | joints | frame | written onto |
-|---|---|---|---|
-| **prepared** | exactly the model's | canonical (+Z, scaled, centred, grounded) | a bare skeleton (BVH) or `char-model.fbx` |
-| **presentation** | the full deformation rig | see [export](../index/library/export.md) | `char-full.fbx` |
-| **original** | the source's own, after expansion | source units, frame, names, channels and bind | the raw vendor FBX, or a BVH with the source's `CHANNELS` block |
+| representation | joints | frame | BVH | FBX |
+|---|---|---|---|---|
+| **prepared** | exactly the model's | canonical (+Z, scaled, centred, grounded) | the animation | a bare skeleton |
+| **original** | the source's own, after expansion | source units, frame, names, channels | the source's `CHANNELS` block | the vendor's own asset: nodes, mesh, skin, materials |
 
-Presentation exists only as FBX, because a BVH carries no mesh. Only the
-original representation expands the reduction and inverts preparation. A prepared export is the model character exactly as the model
+Only the original representation expands the reduction and inverts
+preparation. A prepared export is the model character exactly as the model
 sees it.
 
+**Original FBX goes through a calibration.** The vendor ships the same clip as
+BVH and as FBX, and the two are the same motion under one similarity (units,
+axes, placement) and a constant per-joint change of frame. The exporter
+measures both from one such pair and checks them on every frame, then writes
+the restored clip onto that FBX through the Autodesk FBX SDK. Nothing assumes
+the FBX bind pose equals the BVH rest pose, so all 73 Truebones rigs export;
+the old Blender path refused 13. See [export](../index/library/export.md).
+
 `poseydon export` takes a generated clip as `.bvh` or `.npz`. BVH output runs
-anywhere; FBX output needs the `fbx` container.
+anywhere; FBX output needs the `fbxsdk` container.
 
 ```bash
-# BVH needs no Blender, so the test container works
-poseydon export samples/Scorpion__clip.bvh --rig Scorpion \
-    --representation original --format bvh --out scorpion.bvh
-
-# inside the fbx container: FBX goes through Blender
-docker compose run --rm fbx blender -b --python scripts/anim_2_fbx.py -- \
-    runs/<run>/retargets/step-75000/Flamingo_onelegbent__to__Scorpion.npz \
-    --skin --out out/scorpion.fbx
+docker compose run --rm test python -m poseydon.cli export samples/Scorpion__clip.bvh \
+    --rig Scorpion --representation original --format bvh --out scorpion.bvh
+docker compose run --rm fbxsdk python -m poseydon.cli export samples/Scorpion__clip.bvh \
+    --rig Scorpion --representation original --format fbx --out scorpion.fbx
 ```
 
 **Facing.** A generated clip never had a facing of its own. With no
@@ -116,10 +119,8 @@ error rather than substituting an identity rotation. That identity fallback
 was removed because it moved reinserted roots by 22–167% of the rig's extent.
 
 **Refusals.** Export fails loudly, never silently, when the generated topology
-doesn't match `skeleton.npz`, when an asset or transform is missing, when a
-removed joint still carries skin weights, or when the bind fit is off. A
-BVH-only rig asked for FBX reports `source_surface_missing`. Check a rig's
-`report.json` before requesting a representation.
+doesn't match `skeleton.npz`, when a transform is missing, or when no vendor
+BVH/FBX pair of one clip agrees well enough to calibrate.
 
 ## What it loses on purpose
 
@@ -143,12 +144,14 @@ places by design. All numbers below come from the 2026-09-28 audit.
 
 | check | what it proves |
 |---|---|
-| `tests/build/test_roundtrip.py` | source → prepare → reduce → expand → unprepare returns the source rig, also with features in the middle |
-| `tests/export/test_export_fidelity.py` | the default facing is a rigid frame; restoring a real clip returns its body pose; original BVH keeps the source `CHANNELS` block across a write/read cycle; a missing stage parameter is named, not skipped |
-| `tests/export/test_export_fidelity_fbx.py` | FBX exports stay rigid, keep the clip's own frame 0, track every frame, and refuse a mismatched rig as a typed absence (Blender suite) |
-| `tests/build/test_roundtrip_fbx.py` | the FBX read/write layer preserves skeletons and posed animation (Blender suite) |
-| `tests/build/test_bvh_fbx_agreement.py`, `scripts/check_fbx_coherence.py` | the BVH and FBX arms describe the same motion, compared in world space |
-| `scripts/build_skeleton_visual_debug.py` + `_fbx.py` | one bundle per rig with source, prepared, model and round-tripped versions of the **same** clip, to open side by side in Blender |
+| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset: features rebuild the model view, and `original_bvh` written to disk matches the **raw source file** in names, hierarchy, `CHANNELS`, frames, offsets, root trajectory and every observable world rotation, with rigid bones |
+| `tests/test_roundtrip.py::test_round_trip_fbx` | the rig's vendor FBX and raw BVH calibrate to within 1e-4 of the extent; `original_fbx` written to disk holds exactly the restored clip on the vendor's node hierarchy; prepared and model skeleton FBX read back as themselves (`fbxsdk` container) |
+| `scripts/build_stage_samples.py` | one clip per rig at every stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/<Rig>/`, to open side by side |
+
+```bash
+docker compose run --rm -T test python -m pytest -q tests/test_roundtrip.py --dataset truebones -k Camel
+docker compose run --rm -T fbxsdk python -m pytest -q tests/test_roundtrip.py --dataset truebones -k Camel
+```
 
 When checking a round trip by hand, compare against an **independent**
 reference: Blender's stock BVH importer, the vendor's own per-action FBX, or
@@ -158,21 +161,16 @@ nothing.
 
 ## Open issues
 
-As of 2026-10-12, these are not fixed in committed code. Update this section
-when they land.
+As of 2026-10-12, this is not fixed. Update this section when it lands.
 
-- Stages after `PromoteRoot` receive pre-promotion joint indices, so facing on
-  promoted rigs is computed from the wrong joints.
-- The BVH writer writes MOTION columns in joint-index order rather than the
-  hierarchy's depth-first order, and ignores a declared channel interleave.
 - `poseydon sample` and retargeting borrow the target rig's conditioning from
   its first-indexed clip, not its rest clip. Because `FaceAxis` rotates
   offsets per clip, exporting with the rig's facing can then come back
   rotated or distorted.
-- FBX export drops held leading and trailing frames from its keys. The take
-  span stays correct.
 
-Fixes for the first two exist as uncommitted work.
+The `PromoteRoot` joint-index fix and the BVH writer's depth-first and
+channel-layout fixes landed on 2026-10-12; see [build](../index/library/build.md)
+and [io](../index/library/io.md).
 
 ## Where to read further
 

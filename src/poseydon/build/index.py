@@ -94,10 +94,7 @@ class ClipRecord:
     fps: float
     path: str
     tags: tuple[str, ...] = ()
-    prepared_fbx: str | None = None
-    presentation_fbx: str | None = None
     original_fbx: str | None = None
-    availability_reasons: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

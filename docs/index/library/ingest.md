@@ -30,8 +30,7 @@ types in `build/index.py`.
 
 Produces alignment helpers used by `build/prepare.py` (the `FaceAxis` stage and
 others), `features/base.py` and `training/metrics.py`, plus rig discovery used
-by `scripts/process_dataset_truebones.py`, `scripts/process_dataset_truebones_fbx.py`
-and `scripts/check_fbx_coherence.py`.
+by `scripts/process_dataset_truebones.py`.
 
 Called by: build, features, training, `cli.py` (`poseydon ingest`) and the
 dataset scripts.

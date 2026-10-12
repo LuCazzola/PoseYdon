@@ -72,6 +72,58 @@ WORLD_LIGHT = (0.28, 0.28, 0.30, 1.0)
 BACKDROP = (1.0, 1.0, 1.0, 1.0)
 
 
+
+class _Scene:
+    """The imported FBX as Blender holds it: one armature, its meshes, its action.
+
+    Rendering is the one FBX job left on Blender, and only as a renderer:
+    reading and writing go through `poseydon.io.fbx` (the Autodesk SDK).
+    """
+
+    def __init__(self, path: Path):
+        import bpy
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.import_scene.fbx(filepath=str(path), automatic_bone_orientation=True)
+        armatures = [o for o in bpy.data.objects if o.type == "ARMATURE"]
+        if not armatures:
+            raise ValueError(f"{path}: no armature in this file")
+        self.armature = armatures[0]
+        self.meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+
+    @property
+    def joint_names(self) -> list[str]:
+        return [b.name for b in self.armature.data.bones]
+
+    def frame_range(self) -> tuple[int, int]:
+        import bpy
+
+        data = self.armature.animation_data
+        if data is None or data.action is None:
+            return (bpy.context.scene.frame_current,) * 2
+        return round(data.action.frame_range[0]), round(data.action.frame_range[1])
+
+    def set_frame(self, frame: int) -> None:
+        import bpy
+
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+
+    def joint_position(self, name: str, rest: bool = False):
+        if rest:
+            return self.armature.matrix_world @ self.armature.data.bones[name].head_local
+        return self.armature.matrix_world @ self.armature.pose.bones[name].head
+
+    def forward(self, facing_pairs, rest: bool = False):
+        """Horizontal forward, ``up x (right - left)`` summed over the pairs."""
+        from mathutils import Vector
+
+        across = Vector((0.0, 0.0, 0.0))
+        for right, left in facing_pairs:
+            across += self.joint_position(right, rest) - self.joint_position(left, rest)
+        return Vector((0.0, 0.0, 1.0)).cross(across.normalized()).normalized()
+
+
 def joint_paths(scene) -> np.ndarray:
     """``(F, J, 3)`` world joint positions over the scene's frame range.
 
@@ -442,9 +494,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import bpy
 
-    from poseydon.io.fbx import FBX
-
-    scene = FBX.read(args.input)
+    scene = _Scene(args.input)
     start, end = scene.frame_range()
     if args.frames is not None:
         end = min(end, start + args.frames - 1)

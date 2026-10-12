@@ -59,6 +59,16 @@ docker compose run --rm test pytest
 docker compose run --rm test python -m poseydon.cli list
 ```
 
+FBX is optional and goes through the Autodesk FBX SDK, which is free to use but
+may not be redistributed. Read Autodesk's license
+(https://aps.autodesk.com/developer/overview/fbx-sdk), then fetch it yourself:
+
+```bash
+scripts/fetch_fbx_sdk.sh --accept-license                          # curl into third_party/fbxsdk/ (gitignored)
+docker run --privileged --rm tonistiigi/binfmt --install amd64,386  # ARM hosts only: the SDK is x86-64
+docker compose build fbxsdk
+```
+
 | | |
 |---|---|
 | [Quick start](docs/guides/quickstart.md) | ingest a corpus, train, sample |
@@ -74,7 +84,7 @@ docker compose run --rm test python -m poseydon.cli list
 ```
 src/poseydon/
 ├── core/          contracts: spec, batch, anim, skeleton, topology, rotations
-├── io/            BVH read and write, rendering
+├── io/            BVH and FBX read and write, rendering
 ├── ingest/        alignment, corpus index, pipeline
 ├── features/      extractors, assembly, recovery
 ├── conditioners/  topology, tpose, joint names, normalization statistics

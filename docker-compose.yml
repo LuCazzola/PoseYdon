@@ -81,10 +81,9 @@ services:
       XDG_CACHE_HOME: /tmp/cache
     command: python -c "import Animation, BVH, Quaternions; print('Motion available')"
 
-  # FBX preprocessing. Blender headless; see Dockerfile.fbx for why it is a
-  # separate image. Blender needs a writable HOME for its config, and runs the
-  # script itself rather than a bare interpreter:
-  #   docker compose run --rm fbx blender -b --python scripts/process_dataset_truebones_fbx.py
+  # Rendering an FBX with Blender, headless (FBX I/O is `fbxsdk`). Blender needs
+  # a writable HOME for its config, and runs the script itself:
+  #   docker compose run --rm fbx blender -b --python scripts/render_fbx.py -- in.fbx --out out.mp4
   fbx:
     build:
       context: .
@@ -98,11 +97,27 @@ services:
       - .:/app
     environment:
       # Same reason as the test service: the image installs no project, so
-      # `poseydon.io.fbx` is found on the path rather than by installation.
+      # `poseydon` is found on the path rather than by installation.
       PYTHONPATH: /app/src:/app
       # Blender wants a writable HOME for its config; the container has none.
       HOME: /tmp
     command: blender --version
+
+  # FBX through the Autodesk FBX SDK (x86-64 only; runs under QEMU on the GB10).
+  # See the `fbxsdk` stage in the Dockerfile for the one-time setup.
+  fbxsdk:
+    build:
+      context: .
+      target: fbxsdk
+    platform: linux/amd64
+    working_dir: /app
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/app
+    environment:
+      PYTHONPATH: /app/src:/app
+      MPLCONFIGDIR: /tmp/matplotlib
+    command: pytest -v
 
 volumes:
   hf-cache:

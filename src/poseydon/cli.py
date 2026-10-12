@@ -328,28 +328,12 @@ def _export(args: argparse.Namespace) -> int:
             artifact.write(args.out, embed_textures=True)
         print(f"wrote {args.out}")
         return 0
-    if getattr(CharacterExporter, f"{args.representation}_{args.format}", None) is None:
-        # `presentation` is an FBX-only representation: it is a mesh-bearing
-        # asset driven by the clip, and a BVH carries no mesh.
-        print(
-            f"--representation {args.representation} has no {args.format} form; "
-            f"available: "
-            + ", ".join(
-                sorted(
-                    name.rsplit("_", 1)[0]
-                    for name in vars(CharacterExporter)
-                    if name.endswith(f"_{args.format}") and not name.startswith("_")
-                )
-            ),
-            file=sys.stderr,
-        )
-        return 2
     exporter = CharacterExporter.load(args.corpus, args.raw, args.rig)
     method = getattr(exporter, f"{args.representation}_{args.format}")
     try:
-        # `prepared_bvh` is the only representation that stays in canonical
-        # space, so it is the only one with no frame to be restored into.
-        artifact = method(anim) if (args.format, args.representation) == ("bvh", "prepared") else method(anim, facing_from=args.facing_from)
+        # `prepared` stays in canonical space, so it has no frame to be
+        # restored into.
+        artifact = method(anim) if args.representation == "prepared" else method(anim, facing_from=args.facing_from)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -457,13 +441,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     retarget.set_defaults(func=_retarget)
 
-    export = sub.add_parser("export", help="export prepared, presentation, or original motion")
+    export = sub.add_parser("export", help="export prepared or original motion")
     export.add_argument("input")
     export.add_argument("--corpus", default="data/truebones")
     export.add_argument("--raw", default="data/_raw/truebones")
     export.add_argument("--rig", required=True)
     export.add_argument("--out", required=True)
-    export.add_argument("--representation", choices=("prepared", "presentation", "original"), default="prepared")
+    export.add_argument("--representation", choices=("prepared", "original"), default="prepared")
     export.add_argument("--format", choices=("bvh", "fbx"), default="bvh")
     export.add_argument("--facing-from", default=None)
     export.add_argument(

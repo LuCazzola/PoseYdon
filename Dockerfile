@@ -5,8 +5,8 @@
 # uv.lock, and each image installs it with one `uv sync --locked`. So no image
 # carries a Python package the lock does not name, and `test`, `train` and
 # `compat` cannot drift apart: they are the same locked set, differing only in
-# the extras each selects. The one exception is `fbx`, whose Python is
-# Blender's -- see that stage.
+# the extras each selects. The exceptions are `fbx`, whose Python is
+# Blender's, and `fbxsdk`, which adds Autodesk's wheel -- see those stages.
 #
 # Adding or upgrading a Python dependency is `uv add <pkg> [--optional <extra>]`
 # (or `uv lock --upgrade-package <pkg>`) on the host, then
@@ -98,47 +98,21 @@ RUN uv sync --locked --no-install-project --extra dev --extra cpu --extra compat
 CMD ["python", "-c", "import Animation, BVH, Quaternions; print('Motion available')"]
 
 # ---------------------------------------------------------------------------
-# fbx -- Blender, headless, for FBX preprocessing.
+# fbx -- Blender, headless, for rendering an FBX (scripts/render_fbx.py).
 # ---------------------------------------------------------------------------
-# The one stage that shares nothing with `base`, and cannot: Blender links
-# against the SYSTEM Python, so it needs distro packages rather than a venv.
-# This is the deliberate exception to "every Python dependency comes from
-# uv.lock": here Python packages ARE system dependencies, because they must be
-# built against the interpreter Blender embeds.
-# Blender's Python API is the only mature FBX reader available here -- and
-# `pip install bpy` is not an option on arm64, which has no bpy wheels on PyPI,
-# so this uses the distro Blender driven with `blender --background --python`.
+# Rendering only: FBX is read and written through the Autodesk SDK in
+# `fbxsdk`, because Blender's FBX exporter writes wrong rotations near gimbal
+# lock. Blender links against the SYSTEM Python, so this stage needs distro
+# packages rather than a venv -- the deliberate exception to "every Python
+# dependency comes from uv.lock". `pip install bpy` is not an option on arm64,
+# which has no bpy wheels on PyPI, so this uses the distro Blender driven with
+# `blender --background --python`.
 FROM debian:bookworm-slim AS fbx
 
-# Blender links against the system Python, so manifest parsing needs the
-# distro's PyYAML rather than a pip install into a bundled interpreter.
-# python3-numpy and python3-scipy are needed transitively, and scipy in
-# particular is NOT dead weight to "optimise away": the FBX script imports
-# poseydon.ingest.pipeline.available_rigs (to share the entity-first layout
-# with the BVH script), which imports poseydon.core.animation, which imports
-# poseydon.core.kinematics, which does `from poseydon.core.rotations import
-# quat_apply, quat_mul` -- and poseydon.core.rotations does `from
-# scipy.spatial.transform import Rotation` at MODULE SCOPE. Nothing the FBX
-# script calls actually touches Rotation (available_rigs is a plain directory
-# scan), but Python executes a module's whole body on import, so this whole
-# chain -- and therefore the FBX script itself -- fails to import at all
-# without scipy installed (verified: removing it reproduces
-# `ModuleNotFoundError: No module named 'scipy'` at the available_rigs import
-# line, before the script's own code ever runs). FBX's own mesh.npz writer
-# uses numpy directly too.
+# PyYAML, numpy and scipy because render_fbx.py imports poseydon.core.skeleton
+# (manifests) and poseydon.io.framing, and poseydon.core.rotations imports
+# scipy at module scope.
 #
-# python3-pytest, for the same "links against the system Python" reason: this
-# image has no pip and no venv, so `pip install pytest` is not an option --
-# and it is not optional dead weight either. `tests/build/test_roundtrip_fbx.py`
-# is a real pytest test that is gated on Blender (`pytest.importorskip("bpy",
-# ...)`), meaning it can ONLY ever execute inside this image. Without a pytest
-# runner in here, that test skips forever in `test` (no Blender) and cannot
-# even be collected in here (no pytest) -- a permanently-skipping test that
-# reports green either way, which is exactly the failure mode this whole plan
-# was written to close (`test_round_trip_returns_the_source_rig[Crab]` skipped
-# silently for weeks looking like a pass). Debian ships a distro
-# `python3-pytest` package built against the system interpreter, so it is
-# importable from inside Blender the same way PyYAML/numpy/scipy are.
 # libegl1 + the Mesa drivers, for EEVEE. Blender's rasterizing engines --
 # EEVEE and Workbench -- need an OpenGL context, and a headless container has
 # no display to get one from: without these, ANY render aborts the process
@@ -155,9 +129,47 @@ FROM debian:bookworm-slim AS fbx
 # price for a preview whose entire job is to confirm a mesh follows its
 # skeleton. EEVEE rasterizes, and on llvmpipe it is far cheaper.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      blender python3-yaml python3-numpy python3-scipy python3-pytest \
+      blender python3-yaml python3-numpy python3-scipy \
       python3-matplotlib python3-imageio \
       libegl1 libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# ---------------------------------------------------------------------------
+# fbxsdk -- FBX read/write through the Autodesk FBX SDK, x86-64 only.
+# ---------------------------------------------------------------------------
+# Blender's FBX exporter writes wrong rotations near gimbal lock (its float32
+# compatible-Euler conversion was measured 4.76 degrees off its own input on
+# Flamingo's root), so FBX I/O goes through Autodesk's SDK instead. Autodesk
+# ships it for x86-64 only, so on the GB10 this stage runs under QEMU:
+#   docker run --privileged --rm tonistiigi/binfmt --install amd64,386
+# (re-run after a reboot). The SDK is proprietary and never committed: fetch it
+# with `scripts/fetch_fbx_sdk.sh --accept-license` before building. Its prebuilt
+# wheel is for CPython 3.11 only, hence the 3.11 base.
+FROM --platform=linux/amd64 python:3.11-slim-bookworm AS fbxsdk
+
+COPY --from=ghcr.io/astral-sh/uv:0.13.0 /uv /uvx /bin/
+WORKDIR /app
+ENV UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# libxml2: the SDK's shared library links against it.
+RUN apt-get update && apt-get install -y --no-install-recommends libxml2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-install-project --extra dev --extra cpu
+
+# The archive holds an installer that asks for the license; fetching it with
+# --accept-license is where the user accepted it.
+COPY third_party/fbxsdk/fbx2020311_fbxpythonsdk_linux.tar.gz /tmp/fbxsdk/
+RUN cd /tmp/fbxsdk && tar xzf fbx2020311_fbxpythonsdk_linux.tar.gz \
+    && chmod +x fbx2020311_fbxpythonsdk_linux && mkdir -p sdk \
+    && (yes yes | ./fbx2020311_fbxpythonsdk_linux sdk >/dev/null) \
+    && uv pip install --python /opt/venv/bin/python sdk/fbx-2020.3.11-cp311-cp311-manylinux1_x86_64.whl \
+    && rm -rf /tmp/fbxsdk
+
+CMD ["pytest", "-v"]

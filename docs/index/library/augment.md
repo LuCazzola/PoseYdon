@@ -33,8 +33,7 @@ Produces edited animations and a `JointEdit` for [data](data.md)'s
 Configured in `configs/train.yaml` under `augmentations:`, each entry a full
 `_target_` with its own `p`.
 
-Called by: `data/dataset.py`, `features/reduce.py`, `cli.py`,
-`scripts/build_skeleton_visual_debug.py`.
+Called by: `data/dataset.py`, `features/reduce.py`, `cli.py`.
 
 ## Why it is shaped this way
 

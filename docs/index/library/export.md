@@ -1,8 +1,8 @@
 # export
 
 `src/poseydon/export/`, library. `CharacterExporter` takes a model-space
-animation and writes it as the prepared, presentation or original
-representation, in BVH or FBX.
+animation and writes it as the prepared or original representation, in BVH or
+FBX.
 
 ## Purpose
 
@@ -10,39 +10,37 @@ See the [round-trip guide](../../guides/roundtrip.md) for the whole loop this
 closes.
 
 `export` owns the last arrow of the pipeline: reduced canonical motion →
-a file on a character. It loads a rig's recorded transforms and assets and
-exposes one method per representation and format.
+a file on a character. It loads a rig's recorded transforms and exposes one
+method per representation and format. It also owns `FbxCalibration`, the
+measured mapping between a rig's BVH joints and its vendor FBX nodes.
 
 It does **not** own the transforms themselves (`build.prepare`,
-`features.reduce`), file I/O ([io](io.md)), or building the character assets
-(`src/poseydon/build/character_assets.py`).
+`features.reduce`) or file I/O ([io](io.md)).
 
 ## Key files and types
 
 | file | read it for |
 |---|---|
-| `src/poseydon/export/character.py` | `CharacterExporter.load(corpus, raw, rig)`; `prepared_bvh`, `original_bvh`, `prepared_fbx`, `presentation_fbx`, `original_fbx`, each with an optional `facing_from=<action>` |
+| `src/poseydon/export/character.py` | `CharacterExporter.load(corpus, raw, rig)`; `prepared_bvh`, `prepared_fbx`, `original_bvh`, `original_fbx` (the last two take `facing_from=<action>`); `calibration()`; `FbxCalibration`; `same_clip_pairs`; `world_matrices` |
 
 Representations:
 
-| representation | joints | frame | asset |
-|---|---|---|---|
-| **prepared** | reduced, exactly the model's | canonical: +Z, scaled, centred, grounded | `char-model.fbx` |
-| **presentation** | full deformation rig | canonical | `char-full.fbx` |
-| **original** | the source's own, after expanding the reduction | source units, frame, names, channels, bind | the raw vendor FBX |
+| representation | joints | frame | BVH | FBX |
+|---|---|---|---|---|
+| **prepared** | reduced, exactly the model's | canonical: +Z, scaled, centred, grounded | the animation as is | a bare skeleton, no mesh |
+| **original** | the source's own, after expanding the reduction | source units, frame, names, channels | the source's `CHANNELS` block | the vendor's own FBX asset: its nodes, mesh, skin and materials |
 
 ## How it connects
 
-Consumes `rigs/<Rig>/skeleton.npz` and `preproc.npz` through
+Consumes `rigs/<Rig>/skeleton.npz`, `preproc.npz` and `manifest.yaml` through
 `build.prepare.RigTransform` and `prepare_chain`, `features.reduce`
-(`invert_reduction`), `io.bvh.BVH`, `io.fbx.FBX` (lazily), and
+(`invert_reduction`), `io.bvh.BVH`, `io.fbx.FBX` (lazily, `fbxsdk` container
+only), the raw vendor files under `data/_raw/<dataset>/source/<Rig>/`, and
 `core.authority.ArtifactUnavailableError`.
 
-Produces BVH or FBX files. Availability per rig is recorded in the index and
-`report.json` (see [build](build.md)).
-
-Called by: `cli.py` (`poseydon export --representation prepared|presentation|original --format bvh|fbx`),
-`scripts/anim_2_fbx.py`, `scripts/build_skeleton_visual_debug_fbx.py`.
+Called by: `cli.py` (`poseydon export --representation prepared|original
+--format bvh|fbx`), `scripts/build_stage_samples.py` and
+`tests/test_roundtrip.py`.
 
 ## Why it is shaped this way
 
@@ -54,30 +52,38 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
   (`prepare_chain()`, its single definition), so export needs neither the
   channel layout nor the promotion target. Source: comment in
   `CharacterExporter.load`.
-- **Facing is explicit.** Prepared outputs always face +Z. For original
-  outputs, `facing_from=<action>` restores that clip's recorded yaw. **With no
-  argument, the rig-level facing from `preproc.npz` is restored**, which is the
-  rest pose's facing. If that facing isn't recorded, export raises instead of
-  substituting an identity. Commit `1dad7b5` removed the identity fallback
-  because it displaced reinserted roots by 22–167% of rig extent. Source:
-  `CharacterExporter._restore` in `src/poseydon/export/character.py`.
-- **Hard errors, no silent substitutes.** Mismatched topology, missing assets,
-  stray skin weights or bind-fit residuals over threshold all raise. No bare
-  armature, first-alphabetical asset or identity facing is substituted. Source: commits `1e93973`, `debe9be`.
-- **The source FBX is chosen by bind geometry**, not by taking the first vendor
-  file, because several Truebones files have locator roots or action-specific
-  bind variants. Source: comment in `CharacterExporter.load`.
+- **Facing is explicit.** For original outputs, `facing_from=<action>`
+  restores that clip's recorded yaw. With no argument, the rig-level facing
+  from `preproc.npz` is restored, which is the rest pose's facing. If that
+  facing isn't recorded, export raises instead of substituting an identity.
+  Commit `1dad7b5` removed the identity fallback because it displaced
+  reinserted roots by 22–167% of rig extent.
+- **Original FBX goes through a calibration, not an assumed bind pose.** The
+  vendor ships the same clip as BVH and FBX, and the two are the same motion
+  under one similarity (units, axes, placement) and a constant per-joint frame
+  change. `FbxCalibration.fit` solves both from one such pair, then checks
+  them against every frame; the first pair within `CALIBRATION_TOL` (1e-4 of
+  the extent) wins, the rest pose's first. All 73 Truebones rigs calibrate,
+  worst residual 5.3e-5 (Camel). The previous Blender path instead assumed the
+  FBX bind pose was the BVH rest pose and refused the 13 rigs where it is not.
+- **The manifest's `artifacts` pair is not used for calibration.** Its BVH and
+  FBX are generally different clips (Alligator: a 2-frame `__TPOSE.bvh`
+  against `AlligatorALL-BigMouth.fbx`). `same_clip_pairs` matches files by
+  action name instead.
+- **Hard errors, no silent substitutes.** Mismatched topology, a missing
+  stage parameter or no agreeing BVH/FBX pair all raise.
 
 ## Gotchas
 
 - **A facing is required only when the chain actually undoes one** (commit
   `e899592`).
-- **BVH-only rigs can't produce FBX representations.** They report
-  `source_surface_missing`. Check a rig's `report.json` or the index
-  availability before requesting one.
-- **FBX output runs only in the `fbx` container.** BVH output works anywhere.
-- **Held leading or trailing frames are dropped from FBX keys**
-  (`bake_anim_force_startend_keying=False`). The take span stays correct, but
-  key-range readers see a shorter clip. This is open.
+- **FBX export runs only in the `fbxsdk` container.** BVH export works
+  anywhere.
+- **There is no skinned canonical asset.** The prepared FBX is a bare
+  skeleton; the mesh exists only on the original representation. The
+  `char-model.fbx` / `char-full.fbx` assets and the `presentation`
+  representation were removed with the Blender FBX path.
+- **Joints only one format has.** FBX nodes with no BVH joint keep the local
+  transform they have on the asset's first frame; BVH End Sites have no node.
 - **The default facing can mismatch generated clips** that were templated on a
   non-rest clip. See [ops](ops.md).

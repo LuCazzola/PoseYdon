@@ -52,7 +52,7 @@ and the parity tools.
   steps, a float32 cumprod moved sampling by 2.5e-5 relative against the
   reference, more than the model port's own error. Keep any new schedule in
   float64.
-- **This package was the weak spot of mutation testing.** The whole diffusion
-  core survived eleven deliberate mutations, including signal and noise swapped,
-  without a test going red. Break the behaviour and watch a test fail before
-  trusting a change here. Source: [testing guide](../../guides/testing.md).
+- **No test covers this package.** It was the weak spot of mutation testing
+  even before the suite was cut to the round trip: the whole diffusion core
+  survived eleven deliberate mutations, signal and noise swapped among them.
+  Source: [testing guide](../../guides/testing.md).

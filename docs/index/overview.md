@@ -19,11 +19,11 @@ walks through it end to end.
 ```mermaid
 flowchart LR
   subgraph tooling [Tooling]
-    PS[scripts/process_dataset_truebones*.py]
+    PS[scripts/process_dataset_truebones.py]
     BF[scripts/build_features.py]
     CLI[poseydon CLI]
     CFG[configs/]
-    A2F[scripts/anim_2_fbx.py]
+    A2F[scripts/build_stage_samples.py]
   end
 
   subgraph lib [Library: src/poseydon]
@@ -83,8 +83,8 @@ goes out to `data/truebones/`. See [tooling](tooling.md) for that side.
 each raw clip, read and written through [`io`](library/io.md) and aligned by
 [`ingest`](library/ingest.md). It writes `preproc.npz` (the parameters and their
 inverse), the prepared clips and a `report.json` per rig. You drive it with
-`scripts/process_dataset_truebones.py`, or `scripts/process_dataset_truebones_fbx.py`
-for the FBX arm. `poseydon ingest` is a separate, legacy entry point whose
+`scripts/process_dataset_truebones.py`; preparation runs on the BVH only, and FBX
+enters at export. `poseydon ingest` is a separate, legacy entry point whose
 aligned output nothing reads; see [`ingest`](library/ingest.md).
 
 ### Stage 2: build (prepared → model-ready corpus)
@@ -111,7 +111,7 @@ The recipe is checked again at sampling time.
 [`features`](library/features.md) turns the generated features back into a
 skeleton, optionally refitting positions with [`solvers`](library/solvers.md) IK.
 [`export`](library/export.md) expands the reduced joints, undoes preparation and
-writes the prepared, presentation or original representation as BVH or FBX.
+writes the prepared or original representation as BVH or FBX.
 
 ## Rules that cut across packages
 
