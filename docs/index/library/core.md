@@ -97,7 +97,6 @@ tools.
 - **`MotionBatch.__post_init__` validates shapes** against the spec and masks.
   Construct a new batch, with `dataclasses.replace`, instead of mutating
   tensors in place to a different shape.
-- **The specs' `core/recipe.py` does not exist.** The data pipeline spec put the
-  recorded recipe in `core`. It lives in `src/poseydon/training/recipe.py`.
-  Likewise, the 09-15 spec's `chain_ids` lives in
+- **The recorded recipe is not in `core`.** It lives in
+  `src/poseydon/training/recipe.py`. Likewise, `chain_ids` lives in
   `src/poseydon/models/modules/masking.py`, not in `core/topology.py`.

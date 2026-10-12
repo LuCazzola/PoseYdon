@@ -38,7 +38,7 @@ Produces a `MotionBatch` (see [core](core.md)) for [training](training.md).
 `Normalizer` is also used by `build/pipeline.py` to fit `stats.npz`, and by
 retarget validation and `ops/retarget_run.py` to denormalize.
 
-Read path per item (spec §9 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`)):
+Read path per item:
 
 ```
 load clips/<Rig>/<action>.npz   prepared RigidBodyAnimation, every joint
@@ -63,13 +63,11 @@ Called by: training (`build`, `lightning`, `metrics`, `validation`), ops
   z-normalized values, where a per-channel divide is not rotation-preserving.
   Source: `src/poseydon/data/normalize.py` docstring.
 - **Normalization is declared per block in config** (`configs/dataset/truebones.yaml`),
-  with scale modes `channel`, `joint_block`, `block` and `none`. Source:
-  spec §5 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`);
-  commit `19d6e99`. The shipped policy centres every block and scales per
-  channel. See the config, not the spec's example table.
+  with scale modes `channel`, `joint_block`, `block` and `none`. Source: commit `19d6e99`. The shipped policy centres every block and scales per
+  channel. See the config.
 - **Statistics are loaded, not fitted.** Stage 2 writes `stats.npz` and the
   dataset reads it, which removed the startup cost and the in-memory clip cache.
-  Source: spec §9; commit `e6a5f2a`.
+  Source: commit `e6a5f2a`.
 - **Rig-balanced sampling.** Truebones spans 70 clips (Trex) to 4 (Chicken),
   17:1 across 73 rigs. The reference's `--balanced` sampler is mirrored. Source:
   `src/poseydon/data/sampler.py` docstring.

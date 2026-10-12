@@ -56,12 +56,10 @@ Called by: `cli.py` (`train`, and `sample`/`retarget` for recipe and builders),
   `configs/sample.yaml`, so a mismatched `features:` produces the right shapes
   with the wrong meaning. `check_recipe` compares `features`, `conditioners`,
   `model`, `process`, `dataset.reduce_tolerance` and `dataset.normalize`.
-  Source: `src/poseydon/training/recipe.py` docstring;
-  spec §8 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
+  Source: `src/poseydon/training/recipe.py` docstring.
 - **Retargeting is watched during training** because training loss says
   nothing about whether a Flamingo's semantics land on a Scorpion. Source:
   `src/poseydon/training/validation.py` docstring;
-  training-run spec (`docs/superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md`);
   [retargeting guide](../../guides/retargeting.md).
 - **Bone-length drift is measured before the IK solve.** On solved output it's
   zero by construction and would report the solver, not the model. Source:
@@ -84,6 +82,7 @@ Called by: `cli.py` (`train`, and `sample`/`retarget` for recipe and builders),
   checkpoints, but it doesn't protect them either.
 - **Both `train.yaml` and `sample.yaml` must compose the `dataset` group.**
   Otherwise the recipe check rejects every legitimate sample.
-- **The data pipeline spec says training never imports `build/`.** It does:
+- **Training imports `build/`**, despite the intent that only build-time code
+  would:
   `build.py` reads `CorpusIndex`, and `metrics.py` reads `RigTransform` for the
   prepared scale. Trust the code.

@@ -23,8 +23,7 @@ It does **not** own the transforms themselves (`build.prepare`,
 |---|---|
 | `src/poseydon/export/character.py` | `CharacterExporter.load(corpus, raw, rig)`; `prepared_bvh`, `original_bvh`, `prepared_fbx`, `presentation_fbx`, `original_fbx`, each with an optional `facing_from=<action>` |
 
-Representations
-(character export spec (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`)):
+Representations:
 
 | representation | joints | frame | asset |
 |---|---|---|---|
@@ -50,8 +49,7 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
 - **Expansion belongs to original export only.** A prepared export serializes
   the model character exactly as the model sees it. An original export expands
   the reduction and inverts preparation back to the raw character, as far as
-  the contract is invertible. Source: character export spec, "Representation
-  contract".
+  the contract is invertible.
 - **Inversion reads persisted parameters.** The chain only supplies the order
   (`prepare_chain()`, its single definition), so export needs neither the
   channel layout nor the promotion target. Source: comment in
@@ -65,9 +63,7 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
   `CharacterExporter._restore` in `src/poseydon/export/character.py`.
 - **Hard errors, no silent substitutes.** Mismatched topology, missing assets,
   stray skin weights or bind-fit residuals over threshold all raise. No bare
-  armature, first-alphabetical asset or identity facing is substituted. Source:
-  spec "Error handling and invariants" (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`);
-  commits `1e93973`, `debe9be`.
+  armature, first-alphabetical asset or identity facing is substituted. Source: commits `1e93973`, `debe9be`.
 - **The source FBX is chosen by bind geometry**, not by taking the first vendor
   file, because several Truebones files have locator roots or action-specific
   bind variants. Source: comment in `CharacterExporter.load`.
@@ -76,9 +72,6 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
 
 - **A facing is required only when the chain actually undoes one** (commit
   `e899592`).
-- **The spec's "Facing semantics" section is stale.** It says no
-  `facing_from` leaves motion at +Z. The code restores the rig facing; trust
-  the code.
 - **BVH-only rigs can't produce FBX representations.** They report
   `source_surface_missing`. Check a rig's `report.json` or the index
   availability before requesting one.

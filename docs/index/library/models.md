@@ -59,15 +59,12 @@ Called by: training (`build`, `task`, `lightning`, `metrics`), sampling
   which is fatal for retargeting. `MotionMasker` hides frames, joints and whole
   chains. `ConditionMasker` drops the whole latent so classifier-free guidance
   has an unconditional branch. They're siblings because they act on different
-  objects. Source: `src/poseydon/models/modules/masking.py` docstring;
-  CFG spec (`docs/superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md`).
+  objects. Source: `src/poseydon/models/modules/masking.py` docstring.
 - **Multi-head semantic modulation**, averaged or summed, extends the
-  reference's single gated transform. Source: commit `dfeecbc`; CFG spec.
+  reference's single gated transform. Source: commit `dfeecbc`.
 - **The temporal attention band is a model parameter**, not a conditioner.
   Attention locality belongs to the attention module, and an override replaces
-  the band but never the padding mask. Source:
-  data pipeline spec §9 "The temporal attention band" (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`);
-  commits `c004f55`, `41d3d52`.
+  the band but never the padding mask. Source: commits `c004f55`, `41d3d52`.
 
 ## Gotchas
 

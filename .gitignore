@@ -260,3 +260,6 @@ artifacts/
 out/
 /data/_raw/*
 !/data/_raw/README.md
+
+# Working notes from planning workflows (specs, plans, ledgers): never committed.
+.superpowers/

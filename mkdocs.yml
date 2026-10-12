@@ -1,13 +1,9 @@
-# Renders docs/ except superpowers/. No explicit nav: the tree is the nav, so a new
+# Renders docs/. No explicit nav: the tree is the nav, so a new
 # page appears without touching this file. Serve with
 #   uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve
 # mkdocs is pinned below 2: Material does not support MkDocs 2.0.
 site_name: PoseYdon
 docs_dir: docs
-# Specs and plans are the design record, not reading material for the site:
-# pages cite them as inline paths (tests/test_docs_index.py enforces it).
-exclude_docs: |
-  superpowers/
 theme:
   name: material
   features:

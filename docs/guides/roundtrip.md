@@ -181,7 +181,3 @@ Fixes for the first two exist as uncommitted work.
 - [features](../index/library/features.md): reduction and expansion
 - [export](../index/library/export.md): `CharacterExporter`
 - [io](../index/library/io.md): what BVH and FBX can and can't carry
-- design: data pipeline spec §1, §3 and §6
-  (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`)
-  and the character export spec
-  (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`)

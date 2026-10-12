@@ -60,10 +60,9 @@ Called by: `data/dataset.py`, `features/reduce.py`, `cli.py`,
 
 ## Gotchas
 
-- **The design spec the docstrings cite is gone.**
-  `docs/superpowers/specs/2026-09-05-poseydon-augmentation-design.md` was
-  deleted in commit `fede016`. Read it with
-  `git show b23df24:docs/superpowers/specs/2026-09-05-poseydon-augmentation-design.md`.
+- **"The design spec" the module docstrings cite no longer exists.** The
+  docstrings themselves and the comments in `configs/train.yaml` carry the
+  reasoning.
 - **`DropEndEffector` drops only leaves that are neither feet nor facing
   joints**, because dropping those would break contact features and facing.
   `drop_joints` refuses anything that isn't a leaf.

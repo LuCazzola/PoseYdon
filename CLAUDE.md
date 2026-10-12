@@ -23,10 +23,14 @@ every contract) and the **tooling** around it (`scripts/`, `tools/`,
 It cannot catch stale prose: that part is on you.
 
 Write code references in docs as inline code paths (`src/poseydon/core/spec.py`),
-not links: links leaving `docs/` fail the strict site build. Cite specs and
-plans the same way (`docs/superpowers/specs/...`): `docs/superpowers/` is left
-out of the site, so a link into it would be dead there. Never invent a
+not links: links leaving `docs/` fail the strict site build. Never invent a
 rationale; write **rationale not recorded** instead.
+
+Design specs and implementation plans from planning workflows (e.g. the
+superpowers skills) are working notes, not documentation: write them under
+`.superpowers/` (gitignored), never into `docs/`, and never cite them from the
+docs. Reasoning that matters goes into docstrings, commit messages and the
+`docs/index/` pages.
 
 ## Running things
 

@@ -67,7 +67,7 @@ docker compose run --rm test python -m poseydon.cli list
 | [Retargeting](docs/guides/retargeting.md) | cross-topology transfer, and watching it during training |
 | [Data round trip](docs/guides/roundtrip.md) | a character in, generated motion back out on that same character |
 | [Testing](docs/guides/testing.md) | what is covered, and how coverage is checked |
-| [Documents](docs/README.md) | the specs and plans behind the design |
+| [Documents](docs/README.md) | the index of the repo, and where the design reasoning lives |
 
 ## Layout
 

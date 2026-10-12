@@ -128,16 +128,14 @@ def test_every_library_package_has_a_page_with_the_fixed_sections():
     assert not problems, f"docs/index/library/: {problems}"
 
 
-def test_site_pages_do_not_link_into_superpowers():
-    """docs/superpowers/ is excluded from the site, so a link into it is a 404 there.
 
-    Specs and plans are cited as inline paths instead, like code.
+def test_docs_do_not_cite_planning_notes():
+    """Specs and plans are working notes kept out of the repo (CLAUDE.md), so
+    no page may lean on one to justify anything.
     """
-    docs = ROOT / "docs"
-    linking = sorted(
+    citing = sorted(
         str(page.relative_to(ROOT))
-        for page in docs.rglob("*.md")
-        if page.relative_to(docs).parts[0] != "superpowers"
-        and re.search(r"\]\([^)]*superpowers/", page.read_text())
+        for page in (ROOT / "docs").rglob("*.md")
+        if "superpowers/" in page.read_text()
     )
-    assert not linking, f"cite docs/superpowers/ as an inline path, not a link: {linking}"
+    assert not citing, f"cite code, docstrings or commits instead: {citing}"

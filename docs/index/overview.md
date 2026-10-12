@@ -14,8 +14,7 @@ centred) and **reduced** (degenerate joints removed, as features). Preparation
 changes geometry and keeps structure; reduction changes structure and keeps
 geometry. Both are invertible, which is what lets a generated clip go back onto
 the character the user supplied. The [round-trip guide](../guides/roundtrip.md)
-walks through it end to end
-(data pipeline spec §1 (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`)).
+walks through it end to end.
 
 ```mermaid
 flowchart LR
@@ -159,12 +158,13 @@ model change. Worked example:
 Preparation and reduction both record their inverse: `preproc.npz`, the
 reduction mapping in `skeleton.npz`, and the recipe beside each checkpoint.
 That record is what lets [`export`](library/export.md) carry a generated clip
-back to the user's original rig
-(character export spec (`docs/superpowers/specs/2026-09-19-character-aware-motion-export-design.md`)).
+back to the user's original rig (see the
+[round-trip guide](../guides/roundtrip.md)).
 
 ### Parity is measured, not claimed
 
 Where PoseYdon matches the reference implementation, it is measured: features
 to ~1e-6, and DDPM/DDIM sampling to ~1e-6 relative. Where it deliberately
-differs, the spec records the measurement behind the choice. The reference runs
+differs, the code comments and commit messages record the measurement
+behind the choice. The reference runs
 in the `compat` container, and `tools/reference/` drives it.

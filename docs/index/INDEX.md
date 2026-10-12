@@ -87,8 +87,6 @@ meant to be deleted once read.
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
 | `docs/index/` | this index, the overview, tooling and one page per library package | [overview](overview.md) |
 | `docs/guides/` | how to run things | [docs](../README.md) |
-| `docs/superpowers/specs/` | designs: problem, options, measurements, contract | [docs](../README.md) |
-| `docs/superpowers/plans/` | how each spec was sequenced into tasks | [docs](../README.md) |
 | `docker-compose.yml` | services `test`, `train`, `compat`, `fbx` | [tooling](tooling.md#containers) |
 | `Dockerfile` | the multi-stage image behind those services: OS and system packages only | [tooling](tooling.md#containers) |
 | `uv.lock` | every Python dependency, pinned; installed with `uv sync --locked` | [tooling](tooling.md#dependencies) |

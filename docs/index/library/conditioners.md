@@ -52,9 +52,7 @@ Called by: `data/dataset.py`, `data/collate.py`, `cli.py` (`list`).
   `ff64e1d`; `tools/build_joint_name_cache.py` builds the embedding cache.
 - **Dropping conditioning is not done here.** Conditioning dropout and the
   null embeddings that classifier-free guidance needs live in the model
-  (`MotionMasker`, `ConditionMasker`), not in conditioners. Source:
-  conditioning masking and CFG spec (`docs/superpowers/specs/2026-09-15-conditioning-masking-and-cfg-design.md`);
-  see [models](models.md).
+  (`MotionMasker`, `ConditionMasker`), not in conditioners. See [models](models.md).
 
 ## Gotchas
 
@@ -68,5 +66,4 @@ Called by: `data/dataset.py`, `data/collate.py`, `cli.py` (`list`).
   (`configs/model/anytop.yaml`). Without it the projection stays `None` and
   the embeddings are silently ignored. `MoDiffAE` wires names differently, and
   passing it the same key raises; see the comment in
-  `configs/model/modiffae.yaml`. Source:
-  spec §9 "Conditioners" (`docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md`).
+  `configs/model/modiffae.yaml`.

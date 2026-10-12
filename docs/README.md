@@ -5,45 +5,33 @@ the library (`src/poseydon/`) and the tooling around it, with one design page
 per package. Browse it all as a site with
 `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve`.
 
-Beyond the index, three kinds.
-
 **Guides** (`guides/`) are how to use the thing. Start here if you want to run
 something.
 
 | | |
 |---|---|
-| [Quick start](guides/quickstart.md) | ingest a corpus, train, sample |
+| [Quick start](guides/quickstart.md) | run the tests, train, sample, export |
 | [Architecture](guides/architecture.md) | how the pieces fit, and why they are separate |
-| [Sampling](guides/sampling.md) | samplers, controls, rebuilding a skeleton |
-| [Retargeting](guides/retargeting.md) | cross-topology transfer and its validation |
+| [Dataset layout](guides/truebones-layout.md) | what each prepared file holds |
 | [Data round trip](guides/roundtrip.md) | a character in, generated motion back out on that same character |
+| [Generating motion](guides/sampling.md) | samplers, controls, rebuilding a skeleton |
+| [Retargeting](guides/retargeting.md) | cross-topology transfer and its validation |
 | [Testing](guides/testing.md) | what is covered, and how coverage is checked |
 
-The other two are why it looks the way it does, and the difference between them
-matters.
+## Where the reasoning lives
 
-**Specs** (`superpowers/specs/`) argue a design. They state the problem, the options
-considered, the measurements that decided between them, and the resulting
-contract. They are written before the code and kept afterwards, because the
-measurement is the expensive part — anyone can read the code to see *what* it
-does, but not *why* the alternative was rejected.
+Why the code looks the way it does is recorded in three places, closest to the
+code first:
 
-**Plans** (`superpowers/plans/`) break one spec into tasks small enough to review
-independently. Each task names the files it touches, the interfaces it produces
-for later tasks, and the tests that prove it. They are a record of how the work
-was actually sequenced.
+- **docstrings and comments**, at the point of use, including the
+  measurements that decided between alternatives;
+- **commit messages**, which record what was measured and what was rejected,
+  not just what changed;
+- **the index pages**, whose *Why it is shaped this way* sections collect both
+  per package and cite them.
 
-## Reading them
-
-Start with the spec for the area you are changing. If it disagrees with the
-code, the code is right and the spec has drifted — say so in your change rather
-than quietly matching one to the other, because a spec nobody trusts is worse
-than no spec.
-
-| area | spec |
-|---|---|
-| features, normalization, parity with the reference | `docs/superpowers/specs/2026-09-06-data-pipeline-and-training-parity-design.md` |
-| the training recipe, retarget validation | `docs/superpowers/specs/2026-09-08-training-run-and-retarget-validation-design.md` |
+If a page disagrees with the code, the code is right. Fix the page in the same
+change and say so.
 
 ## What is deliberately not here
 
@@ -52,5 +40,4 @@ API documentation. The contracts live in the code — `core/spec.py`,
 explain the reasoning at the point of use. A separate API document would be a
 second source of truth with no mechanism keeping it honest.
 
-Nor is there a changelog. `git log` carries the reasoning: commit messages here
-record what was measured and what was rejected, not just what changed.
+Nor is there a changelog: `git log` carries it.

@@ -53,8 +53,8 @@ dataset scripts.
 - **Failures are collected, not fatal.** `ingest_corpus` keeps going and
   reports every clip that failed. Source: `ingest_corpus` docstring.
 - **Why this package still exists separately from build:** **rationale not
-  recorded.** The 09-06 spec moved the index into `build/` "unchanged" and left
-  alignment here.
+  recorded.** The corpus index moved to `build/` (commit `d8a1495`) and
+  alignment stayed here.
 
 ## Gotchas
 
