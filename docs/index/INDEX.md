@@ -83,7 +83,7 @@ meant to be deleted once read.
 | `configs/` | Hydra configs: `configs/train.yaml`, `configs/sample.yaml`, groups `configs/data/`, `configs/dataset/`, `configs/model/`, `configs/process/`, `configs/trainer/` | [tooling](tooling.md#configs) |
 | `tests/` | pytest suites mirroring `src/poseydon/` package by package; `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/testing.md) |
 | `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, meshes, report | [layout guide](../guides/truebones-layout.md) |
-| `data/truebones/clips/` | prepared motion clips per character | [layout guide](../guides/truebones-layout.md) |
+| `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/truebones-layout.md) |
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
 | `docs/index/` | this index, the overview, tooling and one page per library package | [overview](overview.md) |
 | `docs/guides/` | how to run things | [docs](../README.md) |

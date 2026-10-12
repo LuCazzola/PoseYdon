@@ -27,7 +27,9 @@ rationale; write **rationale not recorded** instead.
 
 ## Running things
 
-Nothing runs on host Python.
+The library, tests and scripts never run on host Python; they go through
+docker compose. The docs site (`uvx`) is the one exception: it needs nothing
+from `poseydon`.
 
 - Tests: `docker compose run --rm -T test python -m pytest -q`
 - Docs site: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve` (http://127.0.0.1:8000)

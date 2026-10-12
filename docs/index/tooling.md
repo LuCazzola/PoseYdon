@@ -6,7 +6,9 @@ it. A contract that a script seems to define (a file layout, a parameter
 meaning) actually belongs to a library package, and that package's page is
 where it is documented.
 
-Nothing runs on host Python. Every command goes through a compose service.
+The library, tests and scripts never run on host Python; every such command
+goes through a compose service. The one exception is the docs site (see
+[Containers](#containers)).
 
 ## Entry points
 

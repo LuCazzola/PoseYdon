@@ -79,9 +79,12 @@ nearly every probe in `tools/`.
 - **FBX bones don't all connect, and leaf bones point oddly.** This is cosmetic,
   because a bone's tail isn't stored in the format. Joint positions are exact.
   Don't file it as a bug.
-- **BVH channel order matters on write.** The writer must follow the hierarchy's
-  DFS order and each joint's declared channel interleave. Both were real
-  round-trip bugs, fixed in the 2026-09-28 audit.
+- **Open in committed code: the BVH writer ignores hierarchy order and channel
+  interleave.** It writes MOTION columns in joint-index order rather than the
+  hierarchy's DFS order, and ignores a joint's declared
+  rotations-before-positions interleave. Both were found in the 2026-09-28
+  audit. Fixes exist only as uncommitted work as of 2026-10-12. Update this
+  bullet when they land.
 - **`FBX.write` settings are load-bearing.** If baking keeps constant curves, the
   exporter writes a keyframed object transform, and the armature then snaps back
   on every frame change. Read `FBX.write` before changing export options.

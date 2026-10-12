@@ -107,9 +107,13 @@ Called by: `scripts/process_dataset_truebones.py` (stage 1),
   2026-10-12, `poseydon sample` and the retarget template still pick the
   first-indexed clip rather than the rest clip, which is an open issue.
 - **`PromoteRoot`'s target table lives in a script**: `PROMOTE_ROOT` in
-  `scripts/process_dataset_truebones.py`, keyed by rig name. After promotion,
-  stage indices must be re-resolved (`_rebind`). Stale source indices once
-  faced 13 of 14 promoted rigs by the wrong joints.
+  `scripts/process_dataset_truebones.py`, keyed by rig name.
+- **Open in committed code: stages after `PromoteRoot` receive source-resolved
+  joint indices.** `PrepareChain.fit_rig`/`apply` pass the pre-promotion
+  `resolved`, so facing on promoted rigs is computed from the wrong joints
+  (13 of 14 promoted rigs in the 2026-09-28 audit). A re-resolving fix exists
+  only as uncommitted work as of 2026-10-12. Update this bullet when it
+  lands.
 - **One rigid geometry per rig is a lossy, deliberate choice.** Per-clip bone
   vectors are replaced by the rest clip's. Up to 25% of extent is lost on some
   attack clips. That loss is by design, not a round-trip bug.

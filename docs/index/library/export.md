@@ -54,10 +54,12 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
   channel layout nor the promotion target. Source: comment in
   `CharacterExporter.load`.
 - **Facing is explicit.** Prepared outputs always face +Z. For original
-  outputs, `facing_from=<action>` restores that clip's recorded yaw, and no
-  argument leaves generated motion facing +Z. The exporter never invents a
-  historical direction. Source:
-  [spec "Facing semantics"](../../superpowers/specs/2026-09-19-character-aware-motion-export-design.md#facing-semantics).
+  outputs, `facing_from=<action>` restores that clip's recorded yaw. **With no
+  argument, the rig-level facing from `preproc.npz` is restored**, which is the
+  rest pose's facing. If that facing isn't recorded, export raises instead of
+  substituting an identity. Commit `1dad7b5` removed the identity fallback
+  because it displaced reinserted roots by 22–167% of rig extent. Source:
+  `CharacterExporter._restore` in `src/poseydon/export/character.py`.
 - **Hard errors, no silent substitutes.** Mismatched topology, missing assets,
   stray skin weights or bind-fit residuals over threshold all raise. No bare
   armature, first-alphabetical asset or identity facing is substituted. Source:
@@ -71,6 +73,9 @@ Called by: `cli.py` (`poseydon export --representation prepared|presentation|ori
 
 - **A facing is required only when the chain actually undoes one** (commit
   `e899592`).
+- **The spec's "Facing semantics" section is stale.** It says no
+  `facing_from` leaves motion at +Z. The code restores the rig facing; trust
+  the code.
 - **BVH-only rigs can't produce FBX representations.** They report
   `source_surface_missing`. Check a rig's `report.json` or the index
   availability before requesting one.
