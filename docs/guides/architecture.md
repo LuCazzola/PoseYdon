@@ -1,4 +1,4 @@
-# How it fits together
+# Architecture: how the pieces fit, and why they are separate
 
 ```
 ingest:  BVH + manifest -> parse -> align -> Anim (.npz) + corpus index

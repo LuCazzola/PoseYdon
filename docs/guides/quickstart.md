@@ -1,4 +1,4 @@
-# Quick start
+# Quick start: run the tests, train, sample, export
 
 The only host requirement is Docker. No Python, pip or uv installation.
 

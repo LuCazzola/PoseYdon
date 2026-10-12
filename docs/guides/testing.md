@@ -1,4 +1,4 @@
-# Testing
+# Testing: what is covered, and how to trust it
 
 Real data is primary. The suite runs against seven Truebones clips spanning
 bipeds, quadrupeds and millipeds at 31 to 63 joints.

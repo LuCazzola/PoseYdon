@@ -1,4 +1,4 @@
-# Truebones prepared-data layout
+# Dataset layout: what each prepared file holds
 
 Each character has one directory under `data/truebones/rigs/<Character>/`.
 The raw licensed vendor files are kept separately under `data/_raw/truebones/`

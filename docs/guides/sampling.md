@@ -1,4 +1,4 @@
-# Sampling, and rebuilding a skeleton
+# Generating motion from a trained model
 
 Everything after the flags is a Hydra override into `configs/sample.yaml`,
 which selects the operation, the sampler, and how the skeleton is rebuilt

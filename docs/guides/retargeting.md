@@ -1,4 +1,4 @@
-# Retargeting, and watching it during training
+# Retargeting motion between different skeletons
 
 Cross-topology transfer is the capability the architecture exists for: a semantic
 latent is pooled over joints, so a 40-joint encode decodes onto a 63-joint rig

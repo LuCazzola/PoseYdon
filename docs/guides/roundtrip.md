@@ -1,4 +1,4 @@
-# The data round trip
+# Data round trip: from the user's rig and back onto it
 
 A character goes in as the vendor or user authored it. It comes back out, after
 the model has generated or retargeted motion for it, **on that same
