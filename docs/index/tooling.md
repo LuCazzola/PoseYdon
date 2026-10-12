@@ -13,7 +13,8 @@ Nothing runs on host Python. Every command goes through a compose service.
 There are two kinds, and the split is deliberate:
 
 - **`poseydon` CLI** (`src/poseydon/cli.py`): the user-facing verbs on a corpus
-  that already exists. `ingest` aligns a BVH corpus and builds its index;
+  that already exists. `ingest` aligns a BVH corpus and builds its index (legacy:
+  nothing reads its output, so build corpora with the scripts below);
   `train` trains from a composed Hydra config; `sample` generates motion and
   writes BVH (with `--render` for MP4); `retarget` carries one clip onto another
   rig; `export` writes the prepared, presentation or original representation;
@@ -139,4 +140,4 @@ in the same directories.
 All four bind-mount the repo and run as the host user, so source edits need no
 rebuild. Only a `pyproject.toml` change needs one.
 
-The docs site needs no container: `uvx --with mkdocs-material mkdocs serve`.
+The docs site needs no container: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve`.

@@ -1,0 +1,33 @@
+# Renders all of docs/. No explicit nav: the tree is the nav, so a new spec or
+# plan appears without touching this file. Serve with
+#   uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve
+# mkdocs is pinned below 2: Material does not support MkDocs 2.0.
+site_name: PoseYdon
+docs_dir: docs
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/brightness-7, name: Dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/brightness-4, name: Light mode}
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+# Broken #anchors are only INFO by default, so --strict would not catch them.
+validation:
+  anchors: warn

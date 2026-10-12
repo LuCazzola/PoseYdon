@@ -84,8 +84,8 @@ each raw clip, read and written through [`io`](library/io.md) and aligned by
 [`ingest`](library/ingest.md). It writes `preproc.npz` (the parameters and their
 inverse), the prepared clips and a `report.json` per rig. You drive it with
 `scripts/process_dataset_truebones.py`, or `scripts/process_dataset_truebones_fbx.py`
-for the FBX arm. `poseydon ingest` is a separate entry point that aligns a BVH
-corpus and writes its index; see [`ingest`](library/ingest.md).
+for the FBX arm. `poseydon ingest` is a separate, legacy entry point whose
+aligned output nothing reads; see [`ingest`](library/ingest.md).
 
 ### Stage 2: build (prepared → model-ready corpus)
 

@@ -91,4 +91,5 @@ meant to be deleted once read.
 | `docs/superpowers/plans/` | how each spec was sequenced into tasks | [docs](../README.md) |
 | `docker-compose.yml` | services `test`, `train`, `compat`, `fbx` | [tooling](tooling.md#containers) |
 | `Dockerfile` | the multi-stage image behind those services | [tooling](tooling.md#containers) |
-| `mkdocs.yml` | the docs site: `uvx --with mkdocs-material mkdocs serve` | [docs](../README.md) |
+| `CLAUDE.md` | instructions for agents: start here, and keep `docs/index/` current | [index](INDEX.md) |
+| `mkdocs.yml` | the docs site: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve` | [docs](../README.md) |

@@ -1,6 +1,11 @@
 # Documents
 
-Three kinds.
+**Start at [the index](index/INDEX.md)**: where everything lives, split into
+the library (`src/poseydon/`) and the tooling around it, with one design page
+per package. Browse it all as a site with
+`uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve`.
+
+Beyond the index, three kinds.
 
 **Guides** (`guides/`) are how to use the thing. Start here if you want to run
 something.
