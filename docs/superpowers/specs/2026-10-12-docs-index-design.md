@@ -40,17 +40,35 @@ specs drift from code.
 docs/index/
   INDEX.md        path → what lives there → page that explains it
   overview.md     pipeline as a whole (Mermaid flowchart) and cross-cutting rules
-  <pkg>.md        one per src/poseydon/<pkg>: core, build, io, features, ...
+  library/<pkg>.md  one per src/poseydon/<pkg>: core, build, io, features, ...
+  tooling.md      everything built around the library: scripts/, tools/,
+                  configs/, tests/, data/ layout, docker services
 mkdocs.yml        site config at repo root, docs_dir: docs
 CLAUDE.md         points agents at INDEX.md; states the upkeep rule
 ```
 
+### Library versus tooling
+
+The one distinction every page keeps explicit: **the library** is
+`src/poseydon/`, the importable package that owns every contract. **Tooling** is
+what is built around it (entry-point scripts, probes, Hydra configs, tests,
+the data layout, containers), which uses the library and owns no contract of its
+own. A reader must always be able to tell which side a file is on, because the
+two change under different rules: a library change can break every caller, a
+probe in `tools/` can be deleted without consequence.
+
+This shows up three times: `INDEX.md` has two top-level parts, *Library* and
+*Tooling*; library pages live in `docs/index/library/` and tooling in
+`docs/index/tooling.md`, so the site nav splits the same way; and the overview
+diagram draws tooling outside the library boundary.
+
 ### INDEX.md
 
-Plain tables, grouped: `src/poseydon/` (every subpackage and top-level module),
-`scripts/`, `tools/`, `configs/`, `tests/`, `data/` layout, `docs/`. Each row:
-path, one-line responsibility, link to the explaining page (package page, guide
-or spec). Paths are written as inline code so the check below can find them.
+Plain tables in two parts. **Library:** every `src/poseydon/` subpackage and
+top-level module. **Tooling:** `scripts/`, `tools/`, `configs/`, `tests/`, the
+`data/` layout, `docs/`. Each row: path, one-line responsibility, link to the
+explaining page (package page, tooling page, guide or spec). Paths are written
+as inline code so the check below can find them.
 
 ### Package pages
 
@@ -66,7 +84,8 @@ Fixed headings so agents can jump straight to a section:
 ### overview.md
 
 A Mermaid flowchart of ingest → build → train → sample → export with the
-package that owns each step, then the cross-cutting rules (skeleton knowledge
+package that owns each step, the library drawn as one boundary and the scripts
+and configs that drive it outside that boundary, then the cross-cutting rules (skeleton knowledge
 is data, features composed at read time, only declared conditioning is loaded,
 ...). It links to `guides/architecture.md` for the worked examples rather than
 copying them.
@@ -79,9 +98,10 @@ fails when:
 
 1. a `src/poseydon/` subpackage or top-level module, `scripts/*.py` or
    `tools/*.py` is not mentioned in `INDEX.md`;
-2. `INDEX.md` mentions a repo path (inline code containing `/` or ending in
-   `.py`) that does not exist; or
-3. a `src/poseydon/` subpackage has no `docs/index/<pkg>.md`.
+2. `INDEX.md` mentions a repo path (inline code containing `/`) that does not
+   exist; or
+3. a `src/poseydon/` subpackage has no `docs/index/library/<pkg>.md` carrying
+   the five fixed headings.
 
 `__init__.py` and `__pycache__` are excluded.
 
