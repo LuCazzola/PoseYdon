@@ -51,9 +51,9 @@ def required_paths(root: Path) -> set[str]:
 
 
 def test_mentioned_paths_normalises_suffixes():
-    text = "`src/poseydon/core/` `core/spec.py:42` `a/b.py:3-9` `docs/index/library/core.md#purpose`"
+    text = "`src/poseydon/core/` `core/spec.py:42` `a/b.py:3-9` `docs/api/core/index.md#limitations`"
     assert mentioned_paths(text) == {
-        "src/poseydon/core", "core/spec.py", "a/b.py", "docs/index/library/core.md",
+        "src/poseydon/core", "core/spec.py", "a/b.py", "docs/api/core/index.md",
     }
 
 
@@ -93,42 +93,6 @@ def test_index_names_only_existing_paths():
     assert not stale, f"docs/index/INDEX.md names paths that do not exist: {stale}"
 
 
-LIBRARY_PAGES = ROOT / "docs" / "index" / "library"
-SECTIONS = ("Purpose", "Key files and types", "How it connects",
-            "Why it is shaped this way", "Gotchas")
-
-
-def missing_sections(text: str) -> list[str]:
-    """Fixed headings that are absent or out of order, so agents can jump to them."""
-    found = [h for h in re.findall(r"^## (.+?)\s*$", text, re.MULTILINE) if h in SECTIONS]
-    return [s for s in SECTIONS if s not in found] or (
-        [] if found == list(SECTIONS) else ["order: " + ", ".join(found)]
-    )
-
-
-def test_missing_sections_reports_absent_and_misordered():
-    full = "\n".join(f"## {s}" for s in SECTIONS)
-    assert missing_sections(full) == []
-    assert missing_sections(full.replace("## Gotchas", "## Gotcha")) == ["Gotchas"]
-    swapped = full.replace("## Purpose", "## X").replace("## Gotchas", "## Purpose")
-    assert missing_sections(swapped + "\n## Gotchas") == [
-        "order: Key files and types, How it connects, Why it is shaped this way, Purpose, Gotchas"
-    ]
-
-
-def test_every_library_package_has_a_page_with_the_fixed_sections():
-    lib = ROOT / "src" / "poseydon"
-    problems = {}
-    for pkg in sorted(p.name for p in lib.iterdir() if (p / "__init__.py").exists()):
-        page = LIBRARY_PAGES / f"{pkg}.md"
-        if not page.exists():
-            problems[pkg] = "no page"
-        elif gaps := missing_sections(page.read_text()):
-            problems[pkg] = gaps
-    assert not problems, f"docs/index/library/: {problems}"
-
-
-
 def test_docs_do_not_cite_planning_notes():
     """Specs and plans are working notes kept out of the repo (CLAUDE.md), so
     no page may lean on one to justify anything.
@@ -139,3 +103,43 @@ def test_docs_do_not_cite_planning_notes():
         if "superpowers/" in page.read_text()
     )
     assert not citing, f"cite code, docstrings or commits instead: {citing}"
+
+
+def test_every_library_package_has_an_api_page():
+    """The API reference is generated, but each package's page is a stub that
+    names it, so a new package or subpackage needs one (and a line in
+    mkdocs.yml's nav). The pages follow the package tree:
+    `poseydon.models.modules` is `docs/api/models/modules/index.md`.
+    """
+    lib = ROOT / "src" / "poseydon"
+    missing = []
+    for init in sorted(lib.rglob("*/__init__.py")):
+        rel = init.parent.relative_to(lib)
+        page = ROOT / "docs" / "api" / rel / "index.md"
+        dotted = "poseydon." + ".".join(rel.parts)
+        if not page.exists() or f"::: {dotted}\n" not in page.read_text():
+            missing.append(dotted)
+    assert not missing, (
+        f"add docs/api/<pkg/as/path>/index.md containing `::: poseydon.<pkg>`: {missing}"
+    )
+
+
+def test_every_library_module_is_on_exactly_one_api_page():
+    """Pages name their modules one `:::` line each (a package page renders only
+    its docstring), so a new module must be added to a page, and a module moved
+    to its own page in the dropdown must leave the package page.
+    """
+    lib = ROOT / "src" / "poseydon"
+    modules = {
+        "poseydon." + ".".join(p.relative_to(lib).with_suffix("").parts)
+        for p in lib.rglob("*.py")
+        if p.parent != lib and p.name != "__init__.py" and not p.stem.startswith("_")
+    }
+    named: dict[str, list[str]] = {}
+    for page in (ROOT / "docs" / "api").rglob("*.md"):
+        for name in re.findall(r"^::: (poseydon\.[\w.]+)$", page.read_text(), re.M):
+            named.setdefault(name, []).append(str(page.relative_to(ROOT)))
+    unlisted = sorted(modules - named.keys())
+    twice = {name: pages for name, pages in named.items() if len(pages) > 1}
+    assert not unlisted, f"name each on an API page as `::: <module>`: {unlisted}"
+    assert not twice, f"render each module on one page only: {twice}"

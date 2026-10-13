@@ -27,7 +27,7 @@ docker compose build test
 docker compose run --rm -T test python -m pytest -q
 ```
 
-The suite checks the [data round trip](../data/roundtrip.md) on every clip of
+The suite checks the [data round trip](../../concepts/data/roundtrip.md) on every clip of
 the dataset, so it needs the dataset built first (see
 [the next tutorial](build-a-corpus.md)). On a machine without it, the
 round-trip tests have nothing to run. The whole BVH half takes about two

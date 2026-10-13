@@ -15,22 +15,22 @@ See [overview](overview.md) for how the pipeline fits together.
 
 | path | owns | read |
 |---|---|---|
-| `src/poseydon/augment/` | data augmentation applied to training windows | [augment](library/augment.md) |
-| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation, skeleton, statistics, index, reports | [build](library/build.md) |
-| `src/poseydon/conditioners/` | declared conditioning: the only extra data a batch carries | [conditioners](library/conditioners.md) |
-| `src/poseydon/core/` | the contracts: animation containers, skeleton manifests, `FeatureSpec`, `MotionBatch`, kinematics, rotations, registry | [core](library/core.md) |
-| `src/poseydon/data/` | reading a prepared corpus into feature windows, normalization, rig-balanced sampling, collation | [data](library/data.md) |
-| `src/poseydon/export/` | `RigRecord`: a rig's recorded reduction, preparation and FBX calibrations; moves model output to the prepared character or the user's source rig, for `BVH`/`FBX.from_animation` to write | [export](library/export.md) |
-| `src/poseydon/features/` | composable motion feature representations, extraction and recovery | [features](library/features.md) |
-| `src/poseydon/ingest/` | BVH corpus to aligned animations plus a corpus index | [ingest](library/ingest.md) |
-| `src/poseydon/io/` | BVH and FBX reading and writing (FBX through the Autodesk FBX SDK), shot framing, stick-figure rendering | [io](library/io.md) |
-| `src/poseydon/losses/` | composable loss terms | [losses](library/losses.md) |
-| `src/poseydon/models/` | denoising models (AnyTop, MoDiffAE) | [models](library/models.md) |
-| `src/poseydon/ops/` | motion tasks run with a trained model: generate, in-between, blend, retarget | [ops](library/ops.md) |
-| `src/poseydon/process/` | generative processes: corruption, parameterization and their inverses | [process](library/process.md) |
-| `src/poseydon/sampling/` | samplers and step-level controls (guidance) | [sampling](library/sampling.md) |
-| `src/poseydon/solvers/` | inverse kinematics: fitting rotations to desired positions | [solvers](library/solvers.md) |
-| `src/poseydon/training/` | turning a config into a trained checkpoint: task, Lightning wrappers, recipe, retarget validation | [training](library/training.md) |
+| `src/poseydon/augment/` | data augmentation applied to training windows | [augment](../api/augment/index.md) |
+| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation, skeleton, statistics, index, reports | [build](../api/build/index.md) |
+| `src/poseydon/conditioners/` | declared conditioning: the only extra data a batch carries | [conditioners](../api/conditioners/index.md) |
+| `src/poseydon/core/` | the contracts: animation containers, skeleton manifests, `FeatureSpec`, `MotionBatch`, kinematics, rotations, registry | [core](../api/core/index.md) |
+| `src/poseydon/data/` | reading a prepared corpus into feature windows, normalization, rig-balanced sampling, collation | [data](../api/data/index.md) |
+| `src/poseydon/export/` | `RigRecord`: a rig's recorded reduction, preparation and FBX calibrations; moves model output to the prepared character or the user's source rig, for `BVH`/`FBX.from_animation` to write | [export](../api/export/index.md) |
+| `src/poseydon/features/` | composable motion feature representations, extraction and recovery | [features](../api/features/index.md) |
+| `src/poseydon/ingest/` | BVH corpus to aligned animations plus a corpus index | [ingest](../api/ingest/index.md) |
+| `src/poseydon/io/` | BVH and FBX reading and writing (FBX through the Autodesk FBX SDK), shot framing, stick-figure rendering | [io](../api/io/index.md) |
+| `src/poseydon/losses/` | composable loss terms | [losses](../api/losses/index.md) |
+| `src/poseydon/models/` | denoising models (AnyTop, MoDiffAE) | [models](../api/models/index.md) |
+| `src/poseydon/ops/` | motion tasks run with a trained model: generate, in-between, blend, retarget | [ops](../api/ops/index.md) |
+| `src/poseydon/process/` | generative processes: corruption, parameterization and their inverses | [process](../api/process/index.md) |
+| `src/poseydon/sampling/` | samplers and step-level controls (guidance) | [sampling](../api/sampling/index.md) |
+| `src/poseydon/solvers/` | inverse kinematics: fitting rotations to desired positions | [solvers](../api/solvers/index.md) |
+| `src/poseydon/training/` | turning a config into a trained checkpoint: task, Lightning wrappers, recipe, retarget validation | [training](../api/training/index.md) |
 | `src/poseydon/cli.py` | the `poseydon` command: `ingest`, `train`, `sample`, `retarget`, `export`, `list` | [tooling](tooling.md#entry-points) |
 
 ## Tooling
@@ -75,17 +75,19 @@ meant to be deleted once read.
 | path | holds | read |
 |---|---|---|
 | `configs/` | Hydra configs: `configs/train.yaml`, `configs/sample.yaml`, groups `configs/data/`, `configs/dataset/`, `configs/model/`, `configs/process/`, `configs/trainer/` | [tooling](tooling.md#configs) |
-| `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/testing.md) |
-| `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/truebones-layout.md) |
-| `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/truebones-layout.md) |
+| `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/how-to/testing.md) |
+| `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/concepts/data/layout.md) |
+| `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/concepts/data/layout.md) |
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
-| `docs/index/` | this index, the overview, tooling and one page per library package | [overview](overview.md) |
-| `docs/guides/` | how to run things | [docs](../README.md) |
-| `docker-compose.yml` | services `test`, `train`, `compat`, `fbxsdk` (FBX I/O), `fbx` (Blender, rendering only) | [tooling](tooling.md#containers) |
+| `docs/index/` | this index, the overview, tooling and the open-work list; each library package is documented on its API page | [overview](overview.md) |
+| `docs/guides/` | the guides: `docs/guides/concepts/` (design rationale, data) to read, `docs/guides/how-to/` (tutorials, how-tos) to follow; the nav is in `mkdocs.yml` | [docs](../README.md) |
+| `docker-compose.yml` | services `test`, `train`, `compat`, `fbxsdk` (FBX I/O), `fbx` (Blender, rendering only), `docs` (the docs site, kept running) | [tooling](tooling.md#containers) |
 | `Dockerfile` | the multi-stage image behind those services: OS and system packages only | [tooling](tooling.md#containers) |
 | `uv.lock` | every Python dependency, pinned; installed with `uv sync --locked` | [tooling](tooling.md#dependencies) |
 | `CLAUDE.md` | instructions for agents: start here, and keep `docs/index/` current | [index](INDEX.md) |
-| `mkdocs.yml` | the docs site: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve` | [docs](../README.md) |
+| `docs/api/` | one page per library package and subpackage, following the package tree (`docs/api/models/modules/index.md`), plus a page per separate design inside a package (`docs/api/build/preparation.md`, `docs/api/features/reconstruction.md`, `docs/api/features/reduction.md`) in its dropdown: one class diagram, then the reference generated from the docstrings at build time, the package docstring and one `:::` line per module (each module on exactly one page); `docs/api/index.md` is the diagram legend, `docs/api/retargeting.md` the one cross-package overview | [API](../api/index.md) |
+| `docs/javascripts/diagrams.js` | draws every Mermaid fence in the page itself (not Material's integration, whose shadow DOM breaks class-diagram markers in dark mode), colours classes by role, and opens a clicked diagram full-screen with pan and zoom; styles in `docs/stylesheets/diagrams.css` | [API](../api/index.md) |
+| `mkdocs.yml` | the docs site and its explicit nav (a page left out fails the strict build): `uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve` | [docs](../README.md) |
 
 ## Open work
 

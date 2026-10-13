@@ -75,12 +75,12 @@ emulation registration was lost (it does not survive a reboot): rerun the
 
 | | |
 |---|---|
-| [Quick start](docs/guides/quickstart.md) | ingest a corpus, train, sample |
-| [Architecture](docs/guides/architecture.md) | how the pieces fit, and why they are separate |
-| [Sampling](docs/guides/sampling.md) | samplers, controls, and rebuilding a skeleton |
-| [Retargeting](docs/guides/retargeting.md) | cross-topology transfer, and watching it during training |
-| [Data round trip](docs/guides/roundtrip.md) | a character in, generated motion back out on that same character |
-| [Testing](docs/guides/testing.md) | what is covered, and how coverage is checked |
+| [Tutorials](docs/guides/how-to/tutorials/setup.md) | set up, build the dataset, train, generate, export |
+| [Design rationale](docs/guides/concepts/rationale.md) | how the pieces fit, and why they are separate |
+| [Notation](docs/guides/concepts/data/notation.md) | the words, shapes and axes the code and docs use |
+| [Data round trip](docs/guides/concepts/data/roundtrip.md) | a character in, generated motion back out on that same character |
+| [Motion tasks](docs/guides/how-to/tasks/overview.md) | generate, in-between, blend and retarget with one trained model |
+| [Testing](docs/guides/how-to/testing.md) | what is covered, and how coverage is checked |
 | [Documents](docs/README.md) | the index of the repo, and where the design reasoning lives |
 
 ## Layout

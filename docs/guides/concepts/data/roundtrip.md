@@ -36,7 +36,7 @@ invertible on its own.
 
 ## Going in: preparation
 
-`prepare_chain()` in `src/poseydon/build/prepare.py` is the single definition
+[`prepare_chain()`][poseydon.build.prepare.prepare_chain] in `src/poseydon/build/prepare.py` is the single definition
 of the stage order, used both for preparing and for undoing. Each stage
 implements `fit`, `apply` and `invert`, and what it fitted is saved to
 `rigs/<Rig>/preproc.npz`. Inversion reads those saved parameters and never
@@ -44,13 +44,15 @@ refits.
 
 | # | stage | scope | what it does | what undoing it needs |
 |---|---|---|---|---|
-| 1 | `RestRelative` | rig | removes the per-joint bind rotation Biped exporters bake into every clip, so identity means the rest pose | the rest pose's bind rotations |
-| 2 | `PromoteRoot` | rig | moves the root off a ground locator onto the first body joint (14 of 73 Truebones rigs) | the removed chain above the new root |
-| 3 | `FaceAxis` | **clip** | turns the clip so its frame-0 facing points along +Z | that clip's yaw, which can't be recovered from the prepared file |
-| 4 | `EnforceRigid` | rig | drops non-root translation so bone lengths are constant | the source's channel declaration, which the writer restores |
-| 5 | `CentreXZ` | rig | puts the root at the XZ origin on the rest pose's first frame | the offset |
-| 6 | `ScaleToMeanBoneLength` | rig | scales so the mean bone length matches the reference's SMPL mean | the scale factor |
-| 7 | `PutOnGround` | rig | puts the rest pose's lowest joint at y = 0 | the offset |
+| 1 | [`UpAxis`][poseydon.build.UpAxis] | rig | turns the manifest's `up_axis:` (default +Y) to +Y | the declared axis |
+| 2 | [`RestRelative`][poseydon.build.RestRelative] | rig | removes the per-joint bind rotation Biped exporters bake into every clip, so identity means the rest pose | the rest pose's bind rotations |
+| 3 | [`PromoteRoot`][poseydon.build.prepare.PromoteRoot] | rig | moves the root off a ground locator onto the first body joint (14 of 73 Truebones rigs) | the removed chain above the new root |
+| 4 | [`EnforceRigid`][poseydon.build.EnforceRigid] | rig | drops non-root translation so bone lengths are constant | the source's channel declaration, which the writer restores |
+| 5 | [`FaceRestAxis`][poseydon.build.FaceRestAxis] | rig | turns the whole rig so its rest skeleton faces +Z | the rest pose's yaw |
+| 6 | [`FaceAxis`][poseydon.build.FaceAxis] | **clip** | turns the clip's root so its frame-0 facing points along +Z; offsets and every other joint's rotation are left alone | that clip's yaw, which can't be recovered from the prepared file |
+| 7 | [`CentreXZ`][poseydon.build.CentreXZ] | rig | puts the root at the XZ origin on the rest pose's first frame | the offset |
+| 8 | [`ScaleToMeanBoneLength`][poseydon.build.ScaleToMeanBoneLength] | rig | scales so the mean bone length matches the reference's SMPL mean | the scale factor |
+| 9 | [`PutOnGround`][poseydon.build.PutOnGround] | rig | puts the rest pose's lowest joint at y = 0 | the offset |
 
 **Rig scope versus clip scope** decides what survives. Rig stages fit once on
 the rest pose and are shared by every clip of the character. Fitting
@@ -60,7 +62,7 @@ stage, so it is the only parameter recorded per clip.
 
 You run preparation with `scripts/process_dataset_truebones.py`. It runs on
 the BVH only; FBX enters at the two ends, at export. Each rig also gets a
-`report.json` recording what was done and why. See [build](../index/library/build.md).
+`report.json` recording what was done and why. See [build: preparation](../../../api/build/preparation.md).
 
 ## The model's view: reduction
 
@@ -76,8 +78,8 @@ handles them in two ways:
 Reduction is applied **when features are read, never written into the
 corpus**. Skin weights are indexed by the original joint order, so the corpus
 has to keep every joint for a generated clip to land back on the rig. The
-recorded `JointReduction` is replayed in reverse by `invert_reduction`. See
-[features](../index/library/features.md).
+recorded [`JointReduction`][poseydon.features.reduce.JointReduction] is replayed in reverse by [`invert_reduction`][poseydon.features.reduce.invert_reduction]. See
+[features: reduction](../../../api/features/reduction.md).
 
 ## Coming back: export
 
@@ -111,7 +113,7 @@ axes, placement) and a constant per-joint change of frame. The exporter
 measures both from one such pair and checks them on every frame, then writes
 the restored clip onto that FBX through the Autodesk FBX SDK. Nothing assumes
 the FBX bind pose equals the BVH rest pose, so all 73 Truebones rigs export;
-the old Blender path refused 13. See [export](../index/library/export.md).
+the old Blender path refused 13. See [export](../../../api/export/index.md).
 
 `poseydon export` takes a generated clip as `.anim.npz` or `.bvh`. Prefer the
 `.anim.npz` that `sample` and `retarget` write beside each BVH: it is the
@@ -175,29 +177,35 @@ nothing.
 
 ## Open issues
 
-As of 2026-10-12, these are not fixed. Update this section when they land.
+None open as of 2026-10-13. Update this section when one is found.
 
-- A model view written as BVH has no rotation for its leaves (a BVH leaf has
-  no channels): Dog's ears, tail tip and toes, for instance. Export from the
-  `.anim.npz` beside it. See [export](../index/library/export.md).
-- `poseydon sample` and retargeting borrow the target rig's conditioning from
-  its first-indexed clip, not its rest clip. Because `FaceAxis` rotates
-  offsets per clip, exporting with the rig's facing can then come back
-  rotated or distorted.
+By design: a model view written as BVH has no rotation for its leaves (a BVH
+leaf has no channels): Dog's ears, tail tip and toes, for instance. The model
+sees those rotations and `RigRecord.restore` brings them back, so only the
+model-view `.bvh`, a debug output, lacks them; export from the `.anim.npz`
+beside it. See [export](../../../api/export/index.md).
 
-Fixed on 2026-10-13: the model now sees every rotation it can be asked to
+Fixed on 2026-10-13: facing is two stages. `FaceRestAxis` turns each rig
+once so its rest skeleton faces +Z, and `FaceAxis` turns each clip's root so
+frame 0 faces +Z. `FaceAxis` used to turn the whole rig per clip, which gave
+each clip its own offsets and its own frame for every local rotation, so the
+same pose had different rotation features in different clips. Both now run
+after `EnforceRigid`; measured before it, frame 0 of some Biped clips came
+out up to ~90° off +Z.
+
+Also fixed on 2026-10-13: the model now sees every rotation it can be asked to
 generate. The default `rot6d_joint` layout stores each joint's own rotation,
 and under `rot6d_bone` the reduction keeps the End Site that carries a
-parent's rotation ([features](../index/library/features.md)).
+parent's rotation ([features: reduction](../../../api/features/reduction.md)).
 
 The `PromoteRoot` joint-index fix and the BVH writer's depth-first and
-channel-layout fixes landed on 2026-10-12; see [build](../index/library/build.md)
-and [io](../index/library/io.md).
+channel-layout fixes landed on 2026-10-12; see [build: preparation](../../../api/build/preparation.md)
+and [io](../../../api/io/index.md).
 
 ## Where to read further
 
-- [build](../index/library/build.md): the stages, `RigTransform`,
+- [build: preparation](../../../api/build/preparation.md): the stages, [`RigTransform`][poseydon.build.prepare.RigTransform],
   `preproc.npz`
-- [features](../index/library/features.md): reduction and expansion
-- [export](../index/library/export.md): `RigRecord`
-- [io](../index/library/io.md): what BVH and FBX can and can't carry
+- [features: reduction](../../../api/features/reduction.md): reduction and expansion
+- [export](../../../api/export/index.md): [`RigRecord`][poseydon.export.rig.RigRecord]
+- [io](../../../api/io/index.md): what BVH and FBX can and can't carry

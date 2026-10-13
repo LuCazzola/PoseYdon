@@ -22,7 +22,7 @@ data/
 
 Only the hand-written files are in git: the manifests, `_base.yaml` and the
 clip `.yaml` files. Everything else is rebuilt by the two steps in
-[Building the dataset](../tutorials/build-a-corpus.md).
+[Building the dataset](../../how-to/tutorials/build-a-corpus.md).
 
 ## The raw files
 
@@ -42,6 +42,7 @@ an error instead of silently using the wrong ones.
 base: ../_base.yaml          # inherit the shared settings
 skeleton: Dog
 rest_pose: __Idle.bvh        # the clip whose first frame is the rest pose
+up_axis: +Y                  # the source's up axis (default +Y; a BVH doesn't record it)
 facing:                      # left/right pairs used to find which way it faces
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}

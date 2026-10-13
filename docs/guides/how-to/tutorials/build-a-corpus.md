@@ -24,7 +24,7 @@ Each character also needs a hand-written description of itself,
 `data/truebones/rigs/<Rig>/manifest.yaml`: which joints are the hips and
 shoulders (to work out which way it faces), which are feet, which clip holds
 its rest pose. These are checked into git. See
-[Dataset layout](../data/layout.md) for what each field means.
+[Dataset layout](../../concepts/data/layout.md) for what each field means.
 
 ## Step 1: prepare every clip
 
@@ -37,7 +37,7 @@ ground, centred, scaled to a common size, with bones that don't stretch. It
 writes the prepared clips to `data/truebones/clips/<Rig>/` and, for each
 character, a `preproc.npz` that records exactly how to undo it. That record is
 what later lets generated motion go back onto the original character; the
-[round trip](../data/roundtrip.md) explains how.
+[round trip](../../concepts/data/roundtrip.md) explains how.
 
 Add `--rigs Dog Flamingo` to prepare only some characters.
 
@@ -55,7 +55,7 @@ What gets computed is set in `configs/dataset/truebones.yaml`.
 If you change only the feature list, add `--stats-only`: the statistics are the
 only thing that depends on it. The exception is switching the rotation layout,
 which also changes the skeleton, so it needs the full run (see
-[Notation](../data/notation.md#rotation-layouts)).
+[Notation](../../concepts/data/notation.md#rotation-layouts)).
 
 ## Check it
 

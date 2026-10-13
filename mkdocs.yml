@@ -1,6 +1,6 @@
-# Renders docs/. No explicit nav: the tree is the nav, so a new
-# page appears without touching this file. Serve with
-#   uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve
+# Renders docs/. The nav is explicit so the guides read in order; a page
+# left out of it fails `mkdocs build --strict` (omitted_files below). Serve with
+#   uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve
 # mkdocs is pinned below 2: Material does not support MkDocs 2.0.
 site_name: PoseYdon
 docs_dir: docs
@@ -18,6 +18,24 @@ theme:
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       toggle: {icon: material/brightness-4, name: Light mode}
+plugins:
+  - search
+  # API reference, generated from the docstrings by static analysis: nothing
+  # is imported, so the site still builds without poseydon's dependencies.
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_submodules: true
+            show_source: false
+            members_order: source
+            # Each page names its modules one `:::` line at a time, so each
+            # module gets its own heading (and the package's re-exports in
+            # `__all__` are not rendered a second time).
+            show_root_heading: true
+            heading_level: 2
 markdown_extensions:
   - admonition
   - tables
@@ -25,9 +43,85 @@ markdown_extensions:
       permalink: true
   - pymdownx.superfences:
       custom_fences:
+        # Class `diagram`, not `mermaid`: Material's own Mermaid integration
+        # stays out of it, and javascripts/diagrams.js draws them instead
+        # (why: the comment at the top of that file).
         - name: mermaid
-          class: mermaid
+          class: diagram
           format: !!python/name:pymdownx.superfences.fence_code_format
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js
+  - https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js
+  - javascripts/diagrams.js
+extra_css:
+  - stylesheets/diagrams.css
 # Broken #anchors are only INFO by default, so --strict would not catch them.
 validation:
   anchors: warn
+  nav:
+    omitted_files: warn
+nav:
+  - Home: README.md
+  - Concepts:
+      - Design rationale: guides/concepts/rationale.md
+      - Data:
+          - Notation and conventions: guides/concepts/data/notation.md
+          - Dataset layout: guides/concepts/data/layout.md
+          - The round trip: guides/concepts/data/roundtrip.md
+  - How-to:
+      - Tutorials:
+          - 1. Setting up: guides/how-to/tutorials/setup.md
+          - 2. Building the dataset: guides/how-to/tutorials/build-a-corpus.md
+          - 3. Train, generate, export: guides/how-to/tutorials/train-and-generate.md
+      - Tasks:
+          - Overview: guides/how-to/tasks/overview.md
+          - Generate: guides/how-to/tasks/generate.md
+          - In-between: guides/how-to/tasks/inbetween.md
+          - Blend: guides/how-to/tasks/blend.md
+          - Retarget: guides/how-to/tasks/retarget.md
+      - Testing: guides/how-to/testing.md
+  - Index:
+      - Where things live: index/INDEX.md
+      - Overview: index/overview.md
+      - Tooling: index/tooling.md
+      - Open work: index/todo.md
+  - API:
+      - api/index.md
+      - Retargeting: api/retargeting.md
+      - augment:
+          - api/augment/index.md
+      - build:
+          - api/build/index.md
+          - preparation: api/build/preparation.md
+      - conditioners:
+          - api/conditioners/index.md
+      - core:
+          - api/core/index.md
+      - data:
+          - api/data/index.md
+      - export:
+          - api/export/index.md
+      - features:
+          - api/features/index.md
+          - reconstruction: api/features/reconstruction.md
+          - reduction: api/features/reduction.md
+      - ingest:
+          - api/ingest/index.md
+      - io:
+          - api/io/index.md
+      - losses:
+          - api/losses/index.md
+      - models:
+          - api/models/index.md
+          - models.modules: api/models/modules/index.md
+      - ops:
+          - api/ops/index.md
+      - process:
+          - api/process/index.md
+      - sampling:
+          - api/sampling/index.md
+          - sampling.controls: api/sampling/controls/index.md
+      - solvers:
+          - api/solvers/index.md
+      - training:
+          - api/training/index.md

@@ -173,3 +173,15 @@ RUN cd /tmp/fbxsdk && tar xzf fbx2020311_fbxpythonsdk_linux.tar.gz \
     && rm -rf /tmp/fbxsdk
 
 CMD ["pytest", "-v"]
+
+# ---------------------------------------------------------------------------
+# docs -- serves the docs site. Only Python and uv: the site needs nothing from
+# poseydon (the API reference is read from source, not imported), and mkdocs
+# is fetched by `uvx` at start, cached in the `docs-cache` volume, exactly as
+# on the host.
+FROM python:3.12-slim-bookworm AS docs
+COPY --from=ghcr.io/astral-sh/uv:0.13.0 /uv /uvx /bin/
+# A new named volume takes this directory's permissions, and the service runs
+# as the host user, who must be able to write the cache.
+RUN mkdir /cache && chmod 777 /cache
+WORKDIR /app

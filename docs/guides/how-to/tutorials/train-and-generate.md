@@ -37,8 +37,9 @@ This makes four new clips for the Goat. Each one is written to `samples/` as:
   hold every joint's rotation, so don't use it as the source for an export.
 - `.mp4` (with `--render`), a stick-figure video.
 
-[Generating motion](../using/sampling.md) covers the other operations
-(in-betweening, blending), the samplers and how the skeleton is rebuilt.
+This is the **generate** task. [Motion tasks](../tasks/overview.md) covers the
+other three (in-between, blend, retarget), the samplers and how the skeleton
+is rebuilt.
 
 ## Retarget
 
@@ -49,7 +50,7 @@ docker compose run --rm test python -m poseydon.cli retarget \
 
 This takes the Flamingo's *onelegbent* clip and performs it on the Scorpion,
 a character with a completely different skeleton. See
-[Retargeting](../using/retargeting.md).
+[Retargeting](../tasks/retarget.md).
 
 ## Export onto the real character
 
@@ -67,7 +68,7 @@ docker compose run --rm fbxsdk python -m poseydon.cli export \
 ```
 
 `--representation prepared` keeps the motion in the shared frame instead.
-[The round trip](../data/roundtrip.md) explains what each choice gives you and
+[The round trip](../../concepts/data/roundtrip.md) explains what each choice gives you and
 what is lost on the way.
 
 ## Watch it
@@ -80,6 +81,6 @@ docker compose run --rm fbx blender -b --python scripts/render_fbx.py -- \
 This renders the FBX, skinned, to a video. Blender is used only as a renderer
 here; it never reads or writes the FBX data itself.
 
-**Where next:** the [Data](../data/notation.md) pages if you want to
-understand what the model actually sees, the [Design](../design/rationale.md)
+**Where next:** the [Data](../../concepts/data/notation.md) pages if you want to
+understand what the model actually sees, the [Design](../../concepts/rationale.md)
 pages if you want to change how it works.

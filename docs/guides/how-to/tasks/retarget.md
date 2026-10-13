@@ -1,20 +1,41 @@
-# Retargeting motion between different skeletons
+# Retarget
 
-Cross-topology transfer is the capability the architecture exists for: a semantic
-latent is pooled over joints, so a 40-joint encode decodes onto a 63-joint rig
-with nothing reshaped and no per-pair training.
+Take one character's clip and perform it on a different skeleton: a
+flamingo's one-legged stand, done by a scorpion. This is the task the
+architecture exists for.
+
+It works because the model's **semantic latent** describes *what* a clip is
+doing while leaving out which skeleton does it: it is pooled over joints. A
+40-joint clip encodes to a latent that decodes onto a 63-joint rig with
+nothing reshaped and no training per pair of characters. The task encodes the
+content clip once, then holds that latent fixed
+([`LatentPin`][poseydon.sampling.controls.LatentPin]) while the target rig's
+own conditioning drives the generation. It needs a model with such a latent
+(`modiffae`).
 
 ```bash
-poseydon retarget --content Flamingo/onelegbent --target Scorpion
+docker compose run --rm test python -m poseydon.cli retarget \
+    --checkpoint runs/<run>/checkpoints/last.ckpt \
+    --content Flamingo/onelegbent --target Scorpion
 ```
 
-`LatentPin` holds the content clip's latent fixed while the target rig's
-conditioning drives the decode. Because it is a Control rather than model code,
-the same mechanism serves blending and in-betweening.
+| flag | means |
+|---|---|
+| `--content <Rig>/<action>` | the clip to take the motion from |
+| `--target <Rig>` | the character to perform it on |
+| `--guidance-scale` | how strongly to follow the content clip; see [the guidance scale](overview.md#the-guidance-scale) |
+| `--out` | where to write the results (default `retargets/`) |
 
-Training can watch it. A `validation:` block retargets fixed pairs on an
-interval, writes `.npz` + `.anim.npz` + `.bvh` + `.mp4` for each, and logs six scalars plus one
-wandb artifact per firing:
+The output is as long as the content clip, because the latent has one entry
+per frame. To put it on the target's real character, mesh and all, export the
+`.anim.npz` as in
+[Train, generate, export](../tutorials/train-and-generate.md#export-onto-the-real-character).
+
+## Watching it during training
+
+Training loss says the model denoises. It says nothing about whether a
+flamingo's motion lands on a scorpion, and that is the task. So training can
+retarget fixed pairs on an interval, through the same code as the command:
 
 ```yaml
 validation:
@@ -25,28 +46,13 @@ validation:
     - {content: {rig: Goat,     action: headbutt},   target: Raptor}
 ```
 
-`guidance_scales` samples each pair once per scale, all from the same starting
-noise, so the videos differ by the guidance and nothing else. Metrics are keyed
-`retarget/<pair>/g<scale>/<metric>` with a per-scale mean beside them.
+Each firing writes `.npz`, `.anim.npz`, `.bvh` and `.mp4` for every pair and
+logs six scalars plus one wandb artifact.
 
-The scale is the standard `uncond + w * (cond - uncond)`, so it means one thing
-across its whole range: `0.0` is the unconditional branch (the content clip
-ignored), `1.0` is the model as trained, `(0, 1)` weakens the conditioning and
-above `1.0` extrapolates. **`1.0` is the identity and the default** -- it skips
-the wrapper entirely, so it costs one forward pass, and it is all a run without
-`model.cond_drop > 0` can measure. `0.0` is not a spelling of "off"; asking for
-it gets you output with the conditioning discarded. The content clip is also rendered on its own
-rig and pushed **once**, on the first firing, as `retarget/<pair>/source`: every
-other video is model output, and without it there is nothing saying what the
-retarget was asked to reproduce.
-
-Training loss says the model denoises. It says nothing about whether a
-Flamingo's semantics land on a Scorpion, and that is the task.
-
-### Representation-aware export
-
-Exports default to the strict prepared representation. Select `--representation prepared|source` and `--format bvh|fbx`:
-
-    poseydon export samples/Rig__clip.anim.npz --rig Rig --representation prepared --format bvh --out prepared.bvh
-
-Every FBX is the clip on the vendor's own skinned asset, a prepared one in canonical space, a source one in the source rig's own; FBX needs the `fbxsdk` container (see [export](../index/library/export.md)).
+- **One sample per guidance scale**, all from the same starting noise, so the
+  videos differ by the guidance and nothing else. Metrics are keyed
+  `retarget/<pair>/g<scale>/<metric>`, with a per-scale mean beside them.
+  A run without `model.cond_drop > 0` can only measure `1.0`.
+- **The content clip itself** is rendered on its own rig and logged once, on
+  the first firing, as `retarget/<pair>/source`. Every other video is model
+  output; without it, nothing shows what the retarget was asked to reproduce.

@@ -7,8 +7,9 @@ meaning) actually belongs to a library package, and that package's page is
 where it is documented.
 
 The library, tests and scripts never run on host Python; every such command
-goes through a compose service. The one exception is the docs site (see
-[Containers](#containers)).
+goes through a compose service. The docs site has a service too (`docs`), but
+needs nothing from `poseydon`, so it can also run straight from the host with
+`uvx` (see [Containers](#containers)).
 
 ## Entry points
 
@@ -40,6 +41,10 @@ docker compose run --rm test python -m poseydon.cli list
   raw BVH clips under `--raw-root/<Rig>/`, runs each through
   `PrepareChain`, and writes `clips/<Rig>/<action>.bvh` plus
   `rigs/<Rig>/preproc.npz`, which holds the fitted transform and its inverse.
+  It then checks each rig's written rest clip and warns, without failing, if
+  frame 0 or the rest skeleton does not face +Z, if a non-root joint is not
+  identity at the rest frame, or if the rest skeleton is not upright (a
+  wrong `up_axis:` or a facing pair that is not left/right).
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) from `configs/dataset/<name>.yaml`.
 
@@ -119,12 +124,12 @@ docker compose run --rm -T fbxsdk python -m pytest -q -k Camel      # BVH + FBX,
 
 Under QEMU the FBX half costs about 11 s a clip, a few hours for the whole
 corpus. What is covered and what is not:
-[testing guide](../guides/testing.md).
+[testing guide](../guides/how-to/testing.md).
 
 ## Data
 
 The prepared layout (`data/truebones/rigs/<Rig>/`, `data/truebones/clips/<Rig>/`)
-is described file by file in the [layout guide](../guides/truebones-layout.md).
+is described file by file in the [layout guide](../guides/concepts/data/layout.md).
 Raw licensed vendor files live under `data/_raw/` and never mix into the
 prepared layout. Everything derived (`*.npz`, `*.bvh`, `*.fbx`, `index.jsonl`)
 is gitignored by extension, because authored and derived files sit side by side
@@ -139,8 +144,9 @@ in the same directories.
 | `compat` | running the reference implementation for parity, pinned CPU torch |
 | `fbxsdk` | FBX read/write through the Autodesk FBX SDK, and the FBX half of the tests. x86-64 under QEMU on the GB10 |
 | `fbx` | headless Blender, for `scripts/render_fbx.py` only |
+| `docs` | the docs site at http://127.0.0.1:8019, live-reloading; `restart: unless-stopped`, so after one `docker compose up -d docs` it comes back with the Docker daemon. Python and uv only: mkdocs is fetched by `uvx` and cached in the `docs-cache` volume |
 
-All five bind-mount the repo and run as the host user, so source edits need no
+All six bind-mount the repo and run as the host user, so source edits need no
 rebuild. Only a `pyproject.toml` or `uv.lock` change needs one.
 
 ## Dependencies
@@ -193,4 +199,5 @@ docker compose build test train compat
 Commit `uv.lock` with the `pyproject.toml` change. `uv sync --locked` refuses
 to build an image from a lock that disagrees with `pyproject.toml`.
 
-The docs site needs no container: `uvx --from 'mkdocs<2' --with mkdocs-material mkdocs serve`.
+The docs site runs as the `docs` service (`docker compose up -d docs`), or
+without a container: `uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve`.

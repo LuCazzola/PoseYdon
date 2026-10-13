@@ -1,0 +1,48 @@
+/* Diagrams drawn by javascripts/diagrams.js: centred at natural size, shrunk
+   to the column when wider; a click opens the full-screen overlay below. */
+.diagram-svg {
+  margin: 1em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.diagram-svg {
+  cursor: zoom-in;
+}
+.diagram-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  padding: 2rem;
+  background: rgb(0 0 0 / 60%);
+}
+.diagram-overlay__panel {
+  flex: 1;
+  border-radius: 0.4rem;
+  background: var(--md-default-bg-color);
+  cursor: grab;
+}
+.diagram-overlay__panel:active {
+  cursor: grabbing;
+}
+@media (max-width: 600px) {
+  .diagram-overlay {
+    padding: 0.5rem;
+  }
+}
+.diagram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem 1.2rem;
+  margin: -0.5em 0 1em;
+  font-size: 0.7rem;
+  color: var(--md-default-fg-color--light);
+}
+.diagram-legend__swatch {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.4em;
+  vertical-align: -0.1em;
+}

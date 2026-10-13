@@ -119,5 +119,28 @@ services:
       MPLCONFIGDIR: /tmp/matplotlib
     command: pytest -v
 
+  # The docs site, live-reloading at http://127.0.0.1:8019. Start it once with
+  # `docker compose up -d docs`; `restart` brings it back with the Docker
+  # daemon until `docker compose stop docs`.
+  docs:
+    build:
+      context: .
+      target: docs
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/app
+      - docs-cache:/cache
+    environment:
+      UV_CACHE_DIR: /cache
+      # The host user has no home in the container; uv needs one for its tools.
+      HOME: /tmp
+    ports:
+      - "127.0.0.1:8019:8000"
+    restart: unless-stopped
+    command: >
+      uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]'
+      mkdocs serve -a 0.0.0.0:8000
+
 volumes:
   hf-cache:
+  docs-cache:

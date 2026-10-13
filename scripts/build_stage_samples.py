@@ -10,7 +10,7 @@ Every FBX is the rig's own skinned asset; 2_ and 3_ show it in canonical space.
 The clip is the first one, other than the rest pose, that exists as a vendor
 BVH, a vendor FBX and a prepared clip, so both ends have an independent
 reference: open 1_ and 4_ side by side and they should agree up to the losses
-the round trip makes by design (docs/guides/roundtrip.md). Every FBX is written
+the round trip makes by design (docs/guides/concepts/data/roundtrip.md). Every FBX is written
 onto the asset the rig was calibrated on, the same character and mesh.
 Needs the Autodesk FBX SDK:
 

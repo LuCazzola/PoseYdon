@@ -19,6 +19,7 @@ place.
 | **corpus** | a prepared dataset: clips, per-rig records and an index |
 | **manifest** | `manifest.yaml`, the hand-written description of a rig: facing joints, feet, rest pose |
 | **recipe** | the record saved beside a checkpoint of what the model was trained with, checked again when sampling |
+| **reference** | the code of [Neural Motion Blending](https://mmlab-cv.github.io/neural_motion_blending/), which PoseYdon started from and is measured against; it runs in the `compat` container |
 | **conditioner** | one named kind of extra input a model is given besides the motion, such as the rig's topology or its joint names |
 
 ## The three levels
@@ -41,9 +42,10 @@ each is undone.
 After preparation every character is in the same frame:
 
 - **Y is up.** The ground is the plane `y = 0`, with the rest pose's lowest
-  joint on it.
-- **Facing +Z.** Each clip is turned so that on its first frame the character
-  faces +Z.
+  joint on it. A rig authored with another up axis declares it (`up_axis:` in
+  the manifest) and is turned to Y-up first; export turns it back.
+- **Facing +Z.** Every rig's rest skeleton faces +Z, and each clip is turned
+  (by its root) so that on its first frame the character faces +Z too.
 - **Centred.** The root sits at the X/Z origin on the rest pose's first frame.
 - **One size.** The rig is scaled so its mean bone length is 0.209, the
   reference implementation's average human bone length (`HML_AVG_BONELEN`,
@@ -60,7 +62,7 @@ After preparation every character is in the same frame:
 - **6D rotations** are two of the three basis vectors of a rotation matrix.
   The feature blocks take the first two **columns**, which is what the
   reference's stored data uses. The general helper,
-  `matrix_to_rot6d` in `src/poseydon/core/rotations.py`, takes rows by
+  [`matrix_to_rot6d`][poseydon.core.rotations.matrix_to_rot6d] in `src/poseydon/core/rotations.py`, takes rows by
   default (PyTorch3D's convention). The two differ by a transpose, so mixing
   them gives you the inverse rotation without an error.
 
@@ -81,7 +83,7 @@ After preparation every character is in the same frame:
 | offsets | `(J, 3)` | |
 | parents | `(J,)` | `-1` for the root; a parent always comes before its children |
 | features | `(F, J, D)` | channels last |
-| a `MotionBatch`'s `x` | `(B, J, D, T)` | channels at axis 2, **not** last |
+| a [`MotionBatch`][poseydon.core.batch.MotionBatch]'s `x` | `(B, J, D, T)` | channels at axis 2, **not** last |
 | normalisation statistics | `(J, D)` | |
 
 Because the channel axis moves, code reads a feature block by name, through
@@ -125,7 +127,7 @@ Both recover every rotation that moves something. Switching between them
 changes which joints the model view keeps, so it means rebuilding the
 skeleton (`scripts/build_features.py` without `--stats-only`) and passing the
 same `--layout` to `poseydon export`. Details:
-[features](../../index/library/features.md#two-rotation-layouts).
+[features](../../../api/features/index.md#two-rotation-layouts).
 
 ## File extensions
 
