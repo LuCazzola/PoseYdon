@@ -10,6 +10,7 @@ because ``poseydon list`` should be able to enumerate them.
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 
 from hydra.utils import instantiate
@@ -132,6 +133,22 @@ def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | Non
     from poseydon.sampling.diffusion import DDPM
     from poseydon.training.validation import RetargetValidation
 
+    # `is None`, not `or`: an empty list stays empty and is refused downstream.
+    configured = block.get("guidance_scales")
+    scales = [1.0] if configured is None else [float(g) for g in configured]
+    # Any scale but 1 samples the unconditional branch, which needs the null
+    # latent only `cond_drop > 0` trains. Asked of a model without one, every
+    # such scale raised and took its whole pair down with it, the 1.0 baseline
+    # included, so the default config observed nothing. Keep what this model
+    # can answer, and say what was dropped.
+    if float(config.model.get("cond_drop", 0.0)) == 0.0 and any(g != 1.0 for g in scales):
+        warnings.warn(
+            f"validation.guidance_scales {scales}: model.cond_drop is 0, so the "
+            "model has no unconditional branch to guide with; sampling only 1.0",
+            stacklevel=2,
+        )
+        scales = [1.0]
+
     return RetargetValidation(
         pairs=OmegaConf.to_container(block.pairs, resolve=True),
         dataset=dataset,
@@ -144,8 +161,7 @@ def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | Non
         # `[1.0]` unless asked for. Scale 1 is the IDENTITY -- the model
         # sampled as trained -- so this is one unwrapped conditional retarget
         # per pair, which is all a run with no trained null latent can measure
-        # and the baseline every other scale is read against. `is None`, not
-        # `or`: a configured `[1.0]` is a deliberate request for that baseline.
+        # and the baseline every other scale is read against.
         #
         # MEASURED on this project's own 25k checkpoint (cond_drop 0.1): a
         # scale of 2.5 made 9 of 10 retarget metrics WORSE and 1.25 made 7 of
@@ -154,11 +170,7 @@ def build_validation(config: DictConfig, run_dir: Path, dataset) -> object | Non
         # latent had seen gradient from ~10% of samples, and the question is
         # whether the ordering survives training, which one scalar per firing
         # cannot answer and several can.
-        guidance_scales=(
-            [float(g) for g in _scales]
-            if (_scales := block.get("guidance_scales")) is not None
-            else [1.0]
-        ),
+        guidance_scales=scales,
     )
 
 

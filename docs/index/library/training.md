@@ -71,6 +71,11 @@ Called by: `cli.py` (`train`, and `sample`/`retarget` for recipe and builders),
 
 ## Gotchas
 
+- **Guidance scales need `model.cond_drop > 0`.** Any scale but 1.0 samples
+  the unconditional branch, whose null latent only `cond_drop > 0` trains.
+  With the default `cond_drop: 0.0`, `build_validation` keeps only 1.0 and
+  warns. Before 2026-10-13 it tried every scale, each one raised, and the
+  failure skipped the whole pair, so the default config observed nothing.
 - **Validation must never kill the run, use its own RNG, and restore `train()`.**
   The firing is wrapped, a dedicated generator is seeded from the step (so
   resumes are reproducible and the training stream is untouched), and leaving
