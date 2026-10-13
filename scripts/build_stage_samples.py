@@ -1,15 +1,17 @@
 """One clip per rig at every stage of the round trip, as BVH and as FBX.
 
     <out>/<Rig>/1_source.{bvh,fbx}      the vendor's own files
-    <out>/<Rig>/2_prepared.{bvh,fbx}    canonical, every joint (FBX: bare skeleton)
-    <out>/<Rig>/3_model.{bvh,fbx}       what the model sees, reduced (FBX: bare skeleton)
-    <out>/<Rig>/4_roundtrip.{bvh,fbx}   back on the user's rig (FBX: their skinned asset)
+    <out>/<Rig>/2_prepared.{bvh,fbx}    canonical, every joint
+    <out>/<Rig>/3_model.{bvh,fbx}       what the model sees, reduced (FBX: expanded to drive the mesh)
+    <out>/<Rig>/4_roundtrip.{bvh,fbx}   back on the user's rig
+
+Every FBX is the rig's own skinned asset; 2_ and 3_ show it in canonical space.
 
 The clip is the first one, other than the rest pose, that exists as a vendor
 BVH, a vendor FBX and a prepared clip, so both ends have an independent
 reference: open 1_ and 4_ side by side and they should agree up to the losses
-the round trip makes by design (docs/guides/roundtrip.md). The FBX round trip is
-written onto the asset the rig was calibrated on, the same character and mesh.
+the round trip makes by design (docs/guides/roundtrip.md). Every FBX is written
+onto the asset the rig was calibrated on, the same character and mesh.
 Needs the Autodesk FBX SDK:
 
     docker compose run --rm -T fbxsdk python scripts/build_stage_samples.py [--rigs Camel Flamingo]
@@ -23,16 +25,16 @@ from pathlib import Path
 
 from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.core.animation import RigidBodyAnimation
-from poseydon.export import CharacterExporter
-from poseydon.export.character import same_clip_pairs
+from poseydon.export import RigRecord
+from poseydon.export.rig import same_clip_pairs
 from poseydon.features.reduce import apply_reduction
 from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX
 
 
 def build(corpus: Path, raw: Path, rig: str, out: Path) -> str:
-    exporter = CharacterExporter.load(corpus, raw, rig)
-    calibration = exporter.calibration()
+    record = RigRecord.load(corpus, raw, rig)
+    calibration = record.calibration("source")
     pairs = same_clip_pairs(raw / "source" / rig, rig, None)
     pairs.sort(key=lambda pair: pair[0] == calibration.clip)  # rest pose last
     for source_bvh, source_fbx in pairs:
@@ -45,18 +47,20 @@ def build(corpus: Path, raw: Path, rig: str, out: Path) -> str:
     else:
         raise LookupError("no clip exists as vendor BVH, vendor FBX and prepared clip")
     prepared = RigidBodyAnimation.load(clip).as_rigid_body(joint_translation="drop")
-    model = apply_reduction(prepared, exporter.reduction)
+    model = apply_reduction(prepared, record.reduction)
+    restored = record.restore(model, facing_from=action)
 
     dest = out / rig
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_bvh, dest / "1_source.bvh")
     shutil.copy2(source_fbx, dest / "1_source.fbx")
     shutil.copy2(clip.with_suffix(".bvh"), dest / "2_prepared.bvh")
-    FBX.from_animation(prepared).write(dest / "2_prepared.fbx")
-    exporter.prepared_bvh(model).write(dest / "3_model.bvh")
-    exporter.prepared_fbx(model).write(dest / "3_model.fbx")
-    exporter.original_bvh(model, facing_from=action).write(dest / "4_roundtrip.bvh")
-    exporter.original_fbx(model, facing_from=action).write(dest / "4_roundtrip.fbx", embed_textures=True)
+    in_prepared = record.calibration("prepared")
+    FBX.from_animation(prepared, in_prepared).write(dest / "2_prepared.fbx", embed_textures=True)
+    BVH.from_animation(model).write(dest / "3_model.bvh")
+    FBX.from_animation(record.expand(model), in_prepared).write(dest / "3_model.fbx", embed_textures=True)
+    BVH.from_animation(restored, channels=record.source_channels).write(dest / "4_roundtrip.bvh")
+    FBX.from_animation(restored, calibration).write(dest / "4_roundtrip.fbx", embed_textures=True)
     return action
 
 

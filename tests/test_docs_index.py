@@ -100,7 +100,7 @@ SECTIONS = ("Purpose", "Key files and types", "How it connects",
 
 def missing_sections(text: str) -> list[str]:
     """Fixed headings that are absent or out of order, so agents can jump to them."""
-    found = [h for h in re.findall(r"^## (.+?)\s*$", text, re.M) if h in SECTIONS]
+    found = [h for h in re.findall(r"^## (.+?)\s*$", text, re.MULTILINE) if h in SECTIONS]
     return [s for s in SECTIONS if s not in found] or (
         [] if found == list(SECTIONS) else ["order: " + ", ".join(found)]
     )

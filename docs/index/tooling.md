@@ -18,8 +18,8 @@ There are two kinds, and the split is deliberate:
   that already exists. `ingest` aligns a BVH corpus and builds its index (legacy:
   nothing reads its output, so build corpora with the scripts below);
   `train` trains from a composed Hydra config; `sample` generates motion and
-  writes BVH (with `--render` for MP4); `retarget` carries one clip onto another
-  rig; `export` writes the prepared or original representation, as BVH or FBX;
+  writes each sample as `.anim.npz` (lossless, what `export` should be given) and `.bvh` (with `--render` for MP4); `retarget` carries one clip onto another
+  rig; `export` writes the prepared or source representation, as BVH or FBX;
   `list` shows the components registered by name. It lives in the library
   because it is installed as the `poseydon` console script.
 - **`scripts/`**: corpus construction and verification, one-shot and
@@ -48,7 +48,7 @@ only at the two ends, through `poseydon export --format fbx`.
 
 **Export and viewing**:
 
-- `poseydon export <clip> --rig <Rig> --representation original --format fbx`
+- `poseydon export <clip> --rig <Rig> --representation source --format fbx`
   (`fbxsdk` container): a generated clip onto the user's own FBX asset, with
   its mesh and skin. `--format bvh` runs in `test`.
 - `scripts/render_fbx.py` (`fbx` container): any FBX → MP4 with EEVEE. Blender
@@ -60,9 +60,9 @@ only at the two ends, through `poseydon export --format fbx`.
 
 - `scripts/build_stage_samples.py` (`fbxsdk` container): one clip per rig under
   `tmp/truebones/<Rig>/` at every stage, `1_source`, `2_prepared`, `3_model`,
-  `4_roundtrip`, each as `.bvh` and `.fbx`, for side-by-side inspection. The
-  prepared and model FBX are bare skeletons; source and roundtrip FBX are the
-  vendor's skinned asset.
+  `4_roundtrip`, each as `.bvh` and `.fbx`, for side-by-side inspection. Every
+  FBX is the vendor's skinned asset; the prepared and model ones sit in
+  canonical space.
 
 ## Tools and probes
 

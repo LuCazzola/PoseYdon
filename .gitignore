@@ -226,11 +226,11 @@ data/*/aligned/
 
 # Raw corpora and preprocessing output. All derived or downloaded, and large
 # (source 2.9G, fbx 1.7G, bvh 275M): regenerate with
-# `scripts/process_dataset_truebones.py` and `scripts/process_dataset_truebones_fbx.py`.
+# `scripts/process_dataset_truebones.py`.
 #
 # Matched by EXTENSION, not by directory: authored files (manifest.yaml,
-# <action>.yaml) and derived ones (prepare.npz, mesh.npz, the prepared
-# BVH/FBX, index.jsonl) interleave under rigs/<Rig>/ and clips/<Rig>/, so a
+# <action>.yaml) and derived ones (preproc.npz, report.json, the prepared
+# BVH, index.jsonl) interleave under rigs/<Rig>/ and clips/<Rig>/, so a
 # directory-level rule either tracks derived binaries or ignores authored
 # ones depending on which files happen to exist when the rule was written.
 data/*/source/
@@ -238,6 +238,7 @@ data/**/*.npz
 data/**/*.bvh
 data/**/*.fbx
 data/**/index.jsonl
+data/**/report.json
 
 # Legacy pre-migration output (Truebone_Z-OO/, translated/): predates the
 # rigs/<Rig>/, clips/<Rig>/ layout above and holds formats (.obj) the
@@ -267,3 +268,7 @@ out/
 # Autodesk FBX SDK: proprietary, fetched per user by scripts/fetch_fbx_sdk.sh, never committed.
 third_party/fbxsdk/
 fbx*_fbx*sdk*.tar.gz
+
+# Scratch output: stage samples, renders and checks. Holds vendor assets and
+# textures (tmp/truebones/), which must never be committed.
+tmp/

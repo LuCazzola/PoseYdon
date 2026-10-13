@@ -1,8 +1,9 @@
 # export
 
-`src/poseydon/export/`, library. `CharacterExporter` takes a model-space
-animation and writes it as the prepared or original representation, in BVH or
-FBX.
+`src/poseydon/export/`, library. `RigRecord` holds everything the corpus
+recorded about one rig and moves a clip between the model view, prepared space
+and source space. Writing the result is the file format's job:
+`BVH.from_animation` or `FBX.from_animation` ([io](io.md)).
 
 ## Purpose
 
@@ -10,9 +11,10 @@ See the [round-trip guide](../../guides/roundtrip.md) for the whole loop this
 closes.
 
 `export` owns the last arrow of the pipeline: reduced canonical motion →
-a file on a character. It loads a rig's recorded transforms and exposes one
-method per representation and format. It also owns `FbxCalibration`, the
-measured mapping between a rig's BVH joints and its vendor FBX nodes.
+motion on a character. `RigRecord` loads a rig's reduction, preparation
+parameters and FBX calibrations; `expand` and `restore` return plain
+animations. It also owns `FbxCalibration`, the measured mapping between a
+rig's BVH joints and its vendor FBX nodes.
 
 It does **not** own the transforms themselves (`build.prepare`,
 `features.reduce`) or file I/O ([io](io.md)).
@@ -21,14 +23,15 @@ It does **not** own the transforms themselves (`build.prepare`,
 
 | file | read it for |
 |---|---|
-| `src/poseydon/export/character.py` | `CharacterExporter.load(corpus, raw, rig)`; `prepared_bvh`, `prepared_fbx`, `original_bvh`, `original_fbx` (the last two take `facing_from=<action>`); `calibration()`; `FbxCalibration`; `same_clip_pairs`; `world_matrices` |
+| `src/poseydon/export/rig.py` | `RigRecord.load(corpus, raw, rig)`; `expand(model)` (model view → prepared); `restore(anim, facing_from=<action>)` (model view or prepared → source); `source_channels` (the source BVH's CHANNELS layout); `calibration("source" or "prepared")`; `FbxCalibration` (`fit`, `drive`, `inverse`, `to_source`, `placement`); `same_clip_pairs`; `world_matrices` |
 
-Representations:
+Spaces, and how each is written:
 
-| representation | joints | frame | BVH | FBX |
-|---|---|---|---|---|
-| **prepared** | reduced, exactly the model's | canonical: +Z, scaled, centred, grounded | the animation as is | a bare skeleton, no mesh |
-| **original** | the source's own, after expanding the reduction | source units, frame, names, channels | the source's `CHANNELS` block | the vendor's own FBX asset: its nodes, mesh, skin and materials |
+| space | joints | frame | get it with | BVH | FBX |
+|---|---|---|---|---|---|
+| **model view** | reduced, exactly the model's | canonical: +Z, scaled, centred, grounded | the model's output | `BVH.from_animation(anim)` | expand first: the mesh needs every node |
+| **prepared** | every joint | canonical | `record.expand(model)`, or a corpus clip | `BVH.from_animation(anim)` | `FBX.from_animation(anim, record.calibration("prepared"))`: the vendor asset, mesh and skin, placed in canonical space |
+| **source** | the source's own | source units, frame, names | `record.restore(anim, facing_from=...)` | `BVH.from_animation(anim, channels=record.source_channels)` | `FBX.from_animation(anim, record.calibration("source"))`: the vendor asset in its own space |
 
 ## How it connects
 
@@ -38,27 +41,39 @@ Consumes `rigs/<Rig>/skeleton.npz`, `preproc.npz` and `manifest.yaml` through
 only), the raw vendor files under `data/_raw/<dataset>/source/<Rig>/`, and
 `core.authority.ArtifactUnavailableError`.
 
-Called by: `cli.py` (`poseydon export --representation prepared|original
+Called by: `cli.py` (`poseydon export --representation prepared|source
 --format bvh|fbx`), `scripts/build_stage_samples.py` and
 `tests/test_roundtrip.py`.
 
 ## Why it is shaped this way
 
-- **Expansion belongs to original export only.** A prepared export serializes
-  the model character exactly as the model sees it. An original export expands
-  the reduction and inverts preparation back to the raw character, as far as
-  the contract is invertible.
+- **Transforming and writing are separate.** `RigRecord` only returns
+  animations; a file is written from whatever animation it is given, so the
+  space a clip is in decides what the file holds. The rename from
+  `CharacterExporter` and the split followed from the project owner asking
+  for exactly that: the class writes nothing, it is a record of the rig.
+- **A file needs two things a clip doesn't carry.** A source BVH's CHANNELS
+  layout (`source_channels`) and an FBX's asset and calibration
+  (`calibration(space)`). The space is stated by the caller, not stored on
+  the animation: nothing in a clip reliably tells prepared from source
+  (their joints nearly coincide), and a stored label that went stale would
+  pick the wrong calibration silently. `FbxCalibration.drive` raises on
+  missing joints, but a clip in the wrong space with the right joints writes
+  at the wrong place and scale.
+- **The prepared-space FBX expansion belongs to FBX only.** A prepared BVH of
+  the model view is the model character exactly as the model sees it; the FBX
+  has to expand it because the mesh needs every node.
 - **Inversion reads persisted parameters.** The chain only supplies the order
   (`prepare_chain()`, its single definition), so export needs neither the
   channel layout nor the promotion target. Source: comment in
-  `CharacterExporter.load`.
-- **Facing is explicit.** For original outputs, `facing_from=<action>`
+  `RigRecord.load`.
+- **Facing is explicit.** For `restore`, `facing_from=<action>`
   restores that clip's recorded yaw. With no argument, the rig-level facing
   from `preproc.npz` is restored, which is the rest pose's facing. If that
   facing isn't recorded, export raises instead of substituting an identity.
   Commit `1dad7b5` removed the identity fallback because it displaced
   reinserted roots by 22–167% of rig extent.
-- **Original FBX goes through a calibration, not an assumed bind pose.** The
+- **FBX goes through a calibration, not an assumed bind pose.** The
   vendor ships the same clip as BVH and FBX, and the two are the same motion
   under one similarity (units, axes, placement) and a constant per-joint frame
   change. `FbxCalibration.fit` solves both from one such pair, then checks
@@ -79,10 +94,29 @@ Called by: `cli.py` (`poseydon export --representation prepared|original
   `e899592`).
 - **FBX export runs only in the `fbxsdk` container.** BVH export works
   anywhere.
-- **There is no skinned canonical asset.** The prepared FBX is a bare
-  skeleton; the mesh exists only on the original representation. The
-  `char-model.fbx` / `char-full.fbx` assets and the `presentation`
-  representation were removed with the Blender FBX path.
+- **Every FBX carries the rig's mesh.** The prepared FBX is the vendor asset
+  driven through `calibration("prepared")`, the calibration refitted on the
+  calibration clip as the corpus prepared it (`clips/<Rig>/<action>.bvh`),
+  whose `placement` (`FbxCalibration.inverse()`) moves the whole scene into
+  canonical space through `FBX.animate(space=...)`. Its residual is not gated, because
+  `EnforceRigid` changes bone lengths by design. There is no bare-skeleton
+  FBX (`poseydon export --bare-skeleton` writes BVH only). Reason, as
+  the project owner gave it: seeing the mesh on every FBX is what shows the
+  whole pipeline is consistent.
+- **The model FBX shows the expansion.** Joints the reduction dropped are
+  driven by `invert_reduction`'s reconstruction, since the mesh needs every
+  node.
+- **A model view written as BVH loses the rotation of every joint the
+  reduction turned into a leaf.** Reduction drops End Sites, so e.g. Dog's
+  `Bip01_Ponytail21` (an ear) is a leaf in the model view, and a BVH leaf has
+  no channels. Its last-bone orientation is then gone from `3_model.bvh`, and
+  an FBX made from that file turns those nodes (and the mesh they skin)
+  differently from one made from the in-memory clip or a `.npz`. Measured on
+  Dog's `attack`: positions identical, those nodes' frames off by up to 0.97
+  (matrix entries). Worked around: `sample` and `retarget` also write the
+  lossless `<stem>.anim.npz`, and an export from it matches the in-memory
+  clip exactly (measured on the same clip: 0.0). Still open in the BVH
+  itself.
 - **Joints only one format has.** FBX nodes with no BVH joint keep the local
   transform they have on the asset's first frame; BVH End Sites have no node.
 - **The default facing can mismatch generated clips** that were templated on a

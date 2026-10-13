@@ -20,7 +20,7 @@ See [overview](overview.md) for how the pipeline fits together.
 | `src/poseydon/conditioners/` | declared conditioning: the only extra data a batch carries | [conditioners](library/conditioners.md) |
 | `src/poseydon/core/` | the contracts: animation containers, skeleton manifests, `FeatureSpec`, `MotionBatch`, kinematics, rotations, registry | [core](library/core.md) |
 | `src/poseydon/data/` | reading a prepared corpus into feature windows, normalization, rig-balanced sampling, collation | [data](library/data.md) |
-| `src/poseydon/export/` | `CharacterExporter`: model output back onto the prepared character or the user's original rig, as BVH or FBX; FBX via a per-rig calibration | [export](library/export.md) |
+| `src/poseydon/export/` | `RigRecord`: a rig's recorded reduction, preparation and FBX calibrations; moves model output to the prepared character or the user's source rig, for `BVH`/`FBX.from_animation` to write | [export](library/export.md) |
 | `src/poseydon/features/` | composable motion feature representations, extraction and recovery | [features](library/features.md) |
 | `src/poseydon/ingest/` | BVH corpus to aligned animations plus a corpus index | [ingest](library/ingest.md) |
 | `src/poseydon/io/` | BVH and FBX reading and writing (FBX through the Autodesk FBX SDK), shot framing, stick-figure rendering | [io](library/io.md) |

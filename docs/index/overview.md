@@ -42,7 +42,7 @@ flowchart LR
     ops[ops: generate, inbetween, blend, retarget]
     sampling
     solvers[solvers: IK]
-    export[export: CharacterExporter]
+    export[export: RigRecord]
     core[(core: contracts)]
 
     io --> build
@@ -111,7 +111,7 @@ The recipe is checked again at sampling time.
 [`features`](library/features.md) turns the generated features back into a
 skeleton, optionally refitting positions with [`solvers`](library/solvers.md) IK.
 [`export`](library/export.md) expands the reduced joints, undoes preparation and
-writes the prepared or original representation as BVH or FBX.
+hands the prepared or source clip to the BVH or FBX writer.
 
 ## Rules that cut across packages
 

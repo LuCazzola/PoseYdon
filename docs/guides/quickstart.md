@@ -15,7 +15,7 @@ FBX needs the Autodesk FBX SDK, fetched once (see
 ```bash
 docker compose run --rm fbxsdk python -m poseydon.cli export \
     runs/<run>/retargets/step-75000/Flamingo_onelegbent__to__Scorpion.npz \
-    --rig Scorpion --representation original --format fbx --out out/scorpion.fbx
+    --rig Scorpion --representation source --format fbx --out out/scorpion.fbx
 docker compose run --rm fbx blender -b --python scripts/render_fbx.py -- \
     out/scorpion.fbx --out out/scorpion.mp4 --threads 4
 ```
@@ -30,8 +30,8 @@ poseydon sample --checkpoint runs/**/last.ckpt skeleton=Goat n_samples=4 --rende
 
 ### Representation-aware export
 
-Exports default to the strict prepared representation. Select `--representation prepared|original` and `--format bvh|fbx`:
+Exports default to the strict prepared representation. Select `--representation prepared|source` and `--format bvh|fbx`:
 
-    poseydon export samples/Rig__clip.bvh --rig Rig --representation prepared --format bvh --out prepared.bvh
+    poseydon export samples/Rig__clip.anim.npz --rig Rig --representation prepared --format bvh --out prepared.bvh
 
-A prepared FBX is a bare skeleton; an original FBX is the clip on the vendor's own skinned asset (`fbxsdk` container).
+Every FBX is the clip on the vendor's own skinned asset (`fbxsdk` container): a prepared one in canonical space, a source one in the source rig's own.

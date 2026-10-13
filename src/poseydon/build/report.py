@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Protocol, TypeAlias
+from typing import Any, Protocol, TypeAlias
 
 import numpy as np
 
@@ -83,7 +84,7 @@ class PreparationReport:
     skinning_decisions: list[SkinningDecision] = field(default_factory=list)
 
     @classmethod
-    def start(cls, dataset: str, rig: str, policy: AuthorityPolicy) -> "PreparationReport":
+    def start(cls, dataset: str, rig: str, policy: AuthorityPolicy) -> PreparationReport:
         return cls(dataset=dataset, rig=rig, policy=policy)
 
     def record_transform(self, *, stage: str, direction: str, scope: str,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import difflib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -81,8 +81,8 @@ class SkeletonManifest:
     fps: float | None = None
     mean_bone_length: float | None = None
     tags: tuple[str, ...] = ()
-    authority: AuthorityPolicy = AuthorityPolicy()
-    artifacts: SourceArtifacts = SourceArtifacts()
+    authority: AuthorityPolicy = field(default_factory=AuthorityPolicy)
+    artifacts: SourceArtifacts = field(default_factory=SourceArtifacts)
 
     @classmethod
     def load(cls, path: str | Path) -> SkeletonManifest:

@@ -295,7 +295,7 @@ class RetargetValidation(L.Callback):
         import wandb
 
         if artifact is not None:
-            for path in (result.npz, result.bvh, result.mp4):
+            for path in result.paths:
                 artifact.add_file(str(path), name=f"{pair.slug}/{_tag(scale)}/{Path(path).name}")
         experiment.log(
             {f"retarget/{pair.slug}/{_tag(scale)}/video": wandb.Video(str(result.mp4))},

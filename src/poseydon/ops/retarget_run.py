@@ -63,6 +63,7 @@ class RetargetResult:
     """
 
     npz: Path
+    anim: Path  # the generated animation itself, lossless (`Animation.load`)
     bvh: Path
     mp4: Path
 
@@ -74,8 +75,8 @@ class RetargetResult:
     reconstruct: str                  # the method actually used
 
     @property
-    def paths(self) -> tuple[Path, Path, Path]:
-        return self.npz, self.bvh, self.mp4
+    def paths(self) -> tuple[Path, Path, Path, Path]:
+        return self.npz, self.anim, self.bvh, self.mp4
 
 
 def find_clip(dataset: MotionDataset, rig: str, action: str) -> ClipRecord:
@@ -247,6 +248,11 @@ def run_retarget(
         target_rig=np.array(target_rig),
     )
 
+    # The BVH is for viewing: a joint the reduction left as a leaf has no
+    # channels there, so its rotation (an ear, a tail tip) is lost. Export
+    # from this instead.
+    anim_path = stem.parent / f"{stem.name}.anim.npz"
+    anim.save(anim_path)
     bvh = stem.with_suffix(".bvh")
     BVH.from_animation(anim).write(bvh)
 
@@ -269,6 +275,7 @@ def run_retarget(
 
     return RetargetResult(
         npz=npz,
+        anim=anim_path,
         bvh=bvh,
         mp4=mp4,
         predicted_positions=predicted,

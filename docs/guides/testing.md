@@ -26,7 +26,7 @@ clip, with id `<Rig>/<action>`.
 ## The round-trip test
 
 Each clip goes prepared `.npz` → reduced model view → features → `fk` → back,
-then `CharacterExporter.original_bvh` → a file on disk → read back. The file
+then `RigRecord.restore` and `BVH.from_animation` → a file on disk → read back. The file
 is compared against the **raw source BVH**, the one reference the pipeline did
 not produce. It asserts:
 
@@ -38,9 +38,10 @@ not produce. It asserts:
 
 The FBX test proves a chain of equalities. The rig's vendor FBX and raw BVH of
 one clip calibrate to within 1e-4 of the extent, checked on every frame. The
-written `original_fbx`, read back, holds exactly the restored clip on the
+restored clip written as FBX, read back, holds exactly the restored clip on the
 vendor's node hierarchy, to 1e-4 (FBX keys are float32, and their rounding adds up along a long chain: 1.35e-5 at the tip of Anaconda's 27-joint spine). The prepared clip and the model view, written
-as skeleton FBX, read back as themselves. With the BVH test showing that the
+onto the same asset in canonical space, read back with every joint where the
+prepared clip (for the model view, its expansion) has it. With the BVH test showing that the
 restored clip is the source, that puts the source back into the user's FBX.
 
 Neither test asserts the losses the round trip makes by design: per-joint

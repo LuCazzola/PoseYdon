@@ -13,7 +13,7 @@ conditioning drives the decode. Because it is a Control rather than model code,
 the same mechanism serves blending and in-betweening.
 
 Training can watch it. A `validation:` block retargets fixed pairs on an
-interval, writes `.npz` + `.bvh` + `.mp4` for each, and logs six scalars plus one
+interval, writes `.npz` + `.anim.npz` + `.bvh` + `.mp4` for each, and logs six scalars plus one
 wandb artifact per firing:
 
 ```yaml
@@ -45,8 +45,8 @@ Flamingo's semantics land on a Scorpion, and that is the task.
 
 ### Representation-aware export
 
-Exports default to the strict prepared representation. Select `--representation prepared|original` and `--format bvh|fbx`:
+Exports default to the strict prepared representation. Select `--representation prepared|source` and `--format bvh|fbx`:
 
-    poseydon export samples/Rig__clip.bvh --rig Rig --representation prepared --format bvh --out prepared.bvh
+    poseydon export samples/Rig__clip.anim.npz --rig Rig --representation prepared --format bvh --out prepared.bvh
 
-A prepared FBX is a bare skeleton; an original FBX is the clip on the vendor's own skinned asset, and needs the `fbxsdk` container (see [export](../index/library/export.md)).
+Every FBX is the clip on the vendor's own skinned asset, a prepared one in canonical space, a source one in the source rig's own; FBX needs the `fbxsdk` container (see [export](../index/library/export.md)).

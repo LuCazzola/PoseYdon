@@ -8,11 +8,11 @@ re-runs one pass over already-prepared motion rather than rebuilding a corpus.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import json
 
 from poseydon.build.corpus import PerRigDirectory, read_labels, rest_action, write_labels
 from poseydon.build.index import ClipRecord, CorpusIndex, clip_id

@@ -65,9 +65,13 @@ may not be redistributed. Read Autodesk's license
 
 ```bash
 scripts/fetch_fbx_sdk.sh --accept-license                          # curl into third_party/fbxsdk/ (gitignored)
-docker run --privileged --rm tonistiigi/binfmt --install amd64,386  # ARM hosts only: the SDK is x86-64
+docker run --privileged --rm tonistiigi/binfmt --install amd64,386  # ARM hosts only, and again after every reboot
 docker compose build fbxsdk
 ```
+
+On an ARM host, `exec format error` from the `fbxsdk` container means the
+emulation registration was lost (it does not survive a reboot): rerun the
+`binfmt` line.
 
 | | |
 |---|---|

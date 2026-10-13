@@ -216,8 +216,11 @@ def _sample(args: argparse.Namespace) -> int:
         if anim is None:
             print(f"wrote {stem}.positions.npy  (`{method}` yields no rotations, so no BVH)")
         else:
+            # Lossless; the BVH drops the rotation of every joint the
+            # reduction left as a leaf. Export from the .anim.npz.
+            anim.save(f"{stem}.anim.npz")
             BVH.from_animation(anim).write(f"{stem}.bvh")
-            print(f"wrote {stem}.bvh  (reconstruct={method})")
+            print(f"wrote {stem}.anim.npz, {stem}.bvh  (reconstruct={method})")
 
         if args.render:
             from poseydon.io.render import render_skeleton
@@ -311,36 +314,37 @@ def _tile(value, times: int):
 
 
 def _export(args: argparse.Namespace) -> int:
-    import numpy as np
-    from poseydon.export import CharacterExporter
+    from poseydon.core.animation import Animation
+    from poseydon.export import RigRecord
     from poseydon.io.bvh import BVH
     path = Path(args.input)
-    anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else __import__("poseydon.core.animation", fromlist=["Animation"]).Animation.load(path)
+    # A `.anim.npz` (what `sample`/`retarget` write beside the BVH) is lossless;
+    # a BVH has lost the rotation of every joint the reduction left as a leaf.
+    anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else Animation.load(path)
     if args.bare_skeleton:
-        if args.format == "bvh":
-            artifact = BVH.from_animation(anim)
-        else:
-            from poseydon.io.fbx import FBX
-            artifact = FBX.from_animation(anim)
-        if args.format == "bvh":
-            artifact.write(args.out)
-        else:
-            artifact.write(args.out, embed_textures=True)
+        # An FBX always carries the rig's mesh, so there is no bare FBX.
+        if args.format != "bvh":
+            print("--bare-skeleton writes BVH only", file=sys.stderr)
+            return 2
+        BVH.from_animation(anim).write(args.out)
         print(f"wrote {args.out}")
         return 0
-    exporter = CharacterExporter.load(args.corpus, args.raw, args.rig)
-    method = getattr(exporter, f"{args.representation}_{args.format}")
+    record = RigRecord.load(args.corpus, args.raw, args.rig)
     try:
-        # `prepared` stays in canonical space, so it has no frame to be
-        # restored into.
-        artifact = method(anim) if args.representation == "prepared" else method(anim, facing_from=args.facing_from)
-    except Exception as error:
+        if args.representation == "source":
+            anim = record.restore(anim, facing_from=args.facing_from)
+        if args.format == "bvh":
+            channels = record.source_channels if args.representation == "source" else None
+            BVH.from_animation(anim, channels=channels).write(args.out)
+        else:
+            from poseydon.io.fbx import FBX
+            if args.representation == "prepared" and tuple(anim.names) != tuple(record.reduction.source_names):
+                anim = record.expand(anim)  # the model view: the mesh needs every node driven
+            calibration = record.calibration(args.representation)
+            FBX.from_animation(anim, calibration).write(args.out, embed_textures=True)
+    except (LookupError, ValueError, RuntimeError, OSError) as error:
         print(str(error), file=sys.stderr)
         return 2
-    if args.format == "bvh":
-        artifact.write(args.out)
-    else:
-        artifact.write(args.out, embed_textures=True)
     print(f"wrote {args.out}")
     return 0
 
@@ -447,13 +451,13 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("--raw", default="data/_raw/truebones")
     export.add_argument("--rig", required=True)
     export.add_argument("--out", required=True)
-    export.add_argument("--representation", choices=("prepared", "original"), default="prepared")
+    export.add_argument("--representation", choices=("prepared", "source"), default="prepared")
     export.add_argument("--format", choices=("bvh", "fbx"), default="bvh")
     export.add_argument("--facing-from", default=None)
     export.add_argument(
         "--bare-skeleton",
         action="store_true",
-        help="write a mesh-free skeleton directly from the input animation",
+        help="write the input animation as a BVH skeleton, without a rig",
     )
     export.set_defaults(func=_export)
 

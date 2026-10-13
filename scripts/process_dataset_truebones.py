@@ -22,8 +22,8 @@ import numpy as np
 
 from poseydon.build.corpus import rest_action, rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
-from poseydon.build.report import PreparationReport
 from poseydon.build.prepare import CLIP, PrepareChain, RigTransform, prepare_chain
+from poseydon.build.report import PreparationReport
 from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.ingest.pipeline import available_rigs

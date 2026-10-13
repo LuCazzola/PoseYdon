@@ -1,3 +1,3 @@
-from .character import CharacterExporter
+from .rig import RigRecord
 
-__all__ = ["CharacterExporter"]
+__all__ = ["RigRecord"]

@@ -23,9 +23,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.spatial.transform import Rotation
+
+if TYPE_CHECKING:
+    from poseydon.core.animation import Animation
+    from poseydon.export.rig import FbxCalibration
 
 try:
     import fbx
@@ -35,8 +40,6 @@ except ImportError as error:  # pragma: no cover - depends on the image
         "container has: docker compose run --rm fbxsdk ..."
     ) from error
 
-from poseydon.core.animation import Animation
-from poseydon.core.rotations import quat_to_matrix
 
 
 def _matrix(m) -> np.ndarray:
@@ -112,6 +115,18 @@ class FBX:
         walk(scene.GetRootNode(), -1)
         return cls(manager, scene, nodes, np.array(parents, dtype=np.int32))
 
+    @classmethod
+    def from_animation(cls, anim: Animation, calibration: FbxCalibration) -> FBX:
+        """``anim`` on the calibration's asset: its nodes, mesh, skin and materials.
+
+        ``calibration`` must be the one fitted for ``anim``'s space
+        (`RigRecord.calibration`); a clip in another space still writes, at the
+        wrong place and scale, which nothing in the clip can reveal.
+        """
+        asset = cls.read(calibration.asset)
+        asset.animate(calibration.drive(anim), anim.fps, space=calibration.placement)
+        return asset
+
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(node.GetName() for node in self.nodes)
@@ -173,7 +188,9 @@ class FBX:
             if np.abs(np.array(list(prop.Get()))).max() > 1e-9:
                 raise ValueError(f"{node.GetName()}: non-zero {prop.GetName()} is not supported")
 
-    def animate(self, world: dict[str, np.ndarray], fps: float) -> None:
+    def animate(
+        self, world: dict[str, np.ndarray], fps: float, space: np.ndarray | None = None
+    ) -> None:
         """Replace the scene's animation so the named nodes follow ``world``.
 
         ``world`` maps node name -> ``(F, 4, 4)`` world matrices. Every other
@@ -181,12 +198,17 @@ class FBX:
         helper bone rides along with its parent. Every take is removed and one
         is written, keyed on every frame, rotations as Euler angles solved in
         float64.
+
+        ``space`` (4x4, a similarity) moves the whole scene, mesh included:
+        every world matrix, given or kept, is composed onto it.
         """
+        space = np.eye(4) if space is None else space
+        world = {name: space @ matrices for name, matrices in world.items()}
         n_frames = len(next(iter(world.values())))
         first = self.world(self.frames()[:1])[0]
         local0 = np.empty_like(first)
         for j, parent in enumerate(self.parents):
-            local0[j] = first[j] if parent < 0 else np.linalg.inv(first[parent]) @ first[j]
+            local0[j] = space @ first[j] if parent < 0 else np.linalg.inv(first[parent]) @ first[j]
 
         # Forward kinematics over the whole hierarchy: driven nodes take their
         # target, the rest compose their fixed local transform on the parent.
@@ -282,37 +304,3 @@ class FBX:
         if not exporter.Export(self.scene):
             raise ValueError(f"{path}: {exporter.GetStatus().GetErrorString()}")
         exporter.Destroy()
-
-
-    @classmethod
-    def from_animation(cls, anim: Animation) -> FBX:
-        """A bare skeleton, no mesh, performing ``anim`` in its own units and Y-up axes.
-
-        One node per joint, End Sites included, named as in ``anim``. Each node's
-        rest translation is its offset, so the file opens as the skeleton the
-        animation was built on.
-        """
-        manager = fbx.FbxManager.Create()
-        manager.SetIOSettings(fbx.FbxIOSettings.Create(manager, fbx.IOSROOT))
-        scene = fbx.FbxScene.Create(manager, "")
-        fbx.FbxAxisSystem.MayaYUp.ConvertScene(scene)
-        nodes = []
-        for j, name in enumerate(anim.names):
-            node = fbx.FbxNode.Create(scene, name)
-            skeleton = fbx.FbxSkeleton.Create(scene, name)
-            skeleton.SetSkeletonType(
-                fbx.FbxSkeleton.EType.eRoot if anim.parents[j] < 0 else fbx.FbxSkeleton.EType.eLimbNode
-            )
-            node.SetNodeAttribute(skeleton)
-            node.LclTranslation.Set(fbx.FbxDouble3(*map(float, anim.offsets[j])))
-            parent = scene.GetRootNode() if anim.parents[j] < 0 else nodes[anim.parents[j]]
-            parent.AddChild(node)
-            nodes.append(node)
-        file = cls._wrap(manager, scene)
-        positions, rotations = anim.global_transforms()
-        world = np.zeros((anim.n_frames, anim.n_joints, 4, 4))
-        world[..., :3, :3] = quat_to_matrix(rotations)
-        world[..., :3, 3] = positions
-        world[..., 3, 3] = 1.0
-        file.animate({name: world[:, j] for j, name in enumerate(anim.names)}, anim.fps)
-        return file

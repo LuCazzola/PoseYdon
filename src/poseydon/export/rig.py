@@ -1,6 +1,18 @@
+"""Everything recorded about one rig, and moving its clips between spaces.
+
+A clip lives in one of three spaces: the model view (reduced, canonical),
+prepared (every joint, canonical) and source (the user's rig, as supplied).
+`RigRecord.expand` and `RigRecord.restore` move a clip between them; writing
+it is then the file format's job, `BVH.from_animation` or
+`FBX.from_animation`. The two things a file needs that a clip does not carry
+come from the record too: a source BVH's CHANNELS layout
+(`RigRecord.source_channels`) and an FBX's asset and calibration
+(`RigRecord.calibration(space)`).
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +72,9 @@ class FbxCalibration:
     translation: np.ndarray
     offsets: np.ndarray  # (J, 3, 3): BVH joint frame -> FBX node linear part
     residual: float  # worst world-position disagreement, fraction of extent
+    # 4x4 applied to the whole driven scene, mesh included: identity leaves
+    # the asset in its own space, `inverse()` puts it in the clip's.
+    placement: np.ndarray = field(default_factory=lambda: np.eye(4))
 
     @classmethod
     def fit(cls, bvh_path: Path, fbx_path: Path) -> FbxCalibration:
@@ -89,12 +104,25 @@ class FbxCalibration:
 
     def drive(self, anim: Animation) -> dict[str, np.ndarray]:
         """World matrices, in the asset's space, that pose its nodes as ``anim``."""
+        missing = [n for n in self.joints if n not in anim.names]
+        if missing:
+            raise ValueError(
+                f"the clip lacks {len(missing)} joint(s) the asset is calibrated on, "
+                f"e.g. {missing[:3]}; is it in the space this calibration was fitted for?"
+            )
         world = world_matrices(anim)[:, [anim.names.index(n) for n in self.joints]]
         out = np.zeros_like(world)
         out[..., :3, :3] = self.scale * self.rotation @ world[..., :3, :3] @ self.offsets
         out[..., :3, 3] = self.scale * world[..., :3, 3] @ self.rotation.T + self.translation
         out[..., 3, 3] = 1.0
         return {name: out[:, j] for j, name in enumerate(self.joints)}
+
+    def inverse(self) -> np.ndarray:
+        """4x4 similarity taking the asset's space back into the BVH's."""
+        out = np.eye(4)
+        out[:3, :3] = self.rotation.T / self.scale
+        out[:3, 3] = -self.rotation.T @ self.translation / self.scale
+        return out
 
     def to_source(self, world: np.ndarray) -> np.ndarray:
         """Asset-space world positions ``(..., 3)`` mapped back into the BVH's space."""
@@ -129,7 +157,14 @@ def same_clip_pairs(source: Path, rig: str, first: str | None) -> list[tuple[Pat
 
 
 @dataclass
-class CharacterExporter:
+class RigRecord:
+    """One rig as the corpus recorded it: its reduction, its preparation
+    parameters and, for FBX, its vendor asset and calibrations.
+
+    It holds no file: ``expand`` and ``restore`` return plain animations, and
+    `BVH.from_animation` / `FBX.from_animation` write them.
+    """
+
     corpus: Path
     raw: Path
     rig: str
@@ -137,10 +172,10 @@ class CharacterExporter:
     params: dict
     reduction: object
     clip_params: dict = field(default_factory=dict)
-    _calibration: FbxCalibration | None = None
+    _calibrations: dict = field(default_factory=dict)
 
     @classmethod
-    def load(cls, corpus: str | Path, raw: str | Path, rig: str):
+    def load(cls, corpus: str | Path, raw: str | Path, rig: str) -> RigRecord:
         corpus, raw = Path(corpus), Path(raw)
         skeleton = corpus / "rigs" / rig / "skeleton.npz"
         if not skeleton.is_file():
@@ -164,11 +199,28 @@ class CharacterExporter:
         # which `prepare_chain` is the single definition of.
         return cls(corpus, raw, rig, prepare_chain(), params, reduction, clip_params)
 
-    def _restore(self, anim: Animation, facing_from: str | None = None):
-        expected = tuple(self.reduction.source_names[i] for i in self.reduction.source_of)
-        if tuple(anim.names) != expected:
-            raise ValueError(f"{self.rig}: generated animation does not match reduced model topology")
-        current = invert_reduction(anim, self.reduction)
+    @property
+    def _model_names(self) -> tuple[str, ...]:
+        return tuple(self.reduction.source_names[i] for i in self.reduction.source_of)
+
+    def expand(self, anim: Animation) -> Animation:
+        """The model view -> the prepared clip, every joint, still canonical."""
+        if tuple(anim.names) != self._model_names:
+            raise ValueError(f"{self.rig}: animation does not match the reduced model topology")
+        return invert_reduction(anim, self.reduction)
+
+    def restore(self, anim: Animation, facing_from: str | None = None) -> Animation:
+        """The model view or a prepared clip -> the source rig, in source space.
+
+        ``facing_from=<action>`` restores that clip's recorded yaw; without it,
+        the rig-level facing (the rest pose's).
+        """
+        if tuple(anim.names) == self._model_names:
+            current = self.expand(anim)
+        elif tuple(anim.names) == tuple(self.reduction.source_names):
+            current = anim
+        else:
+            raise ValueError(f"{self.rig}: animation is neither the model view nor the prepared rig")
         params = {name: dict(value) for name, value in self.params.items()}
         if facing_from is not None:
             if facing_from not in self.clip_params:
@@ -199,68 +251,69 @@ class CharacterExporter:
             current = stage.invert(current, params[stage.name])
         return current
 
-    def prepared_bvh(self, anim): return BVH.from_animation(anim)
+    @property
+    def source_channels(self) -> tuple[tuple[str, ...], ...] | None:
+        """The source BVH's CHANNELS layout, for writing a restored clip.
 
-    def original_bvh(self, anim, facing_from: str | None = None):
-        """The clip on the source rig, in the source file's own layout.
-
-        The CHANNELS block comes back too. `EnforceRigid.invert` is the
-        identity on the animation precisely because the declaration is the
-        writer's job, and the source layout was recorded for this: a joint the
-        source gave position channels gets them back, carrying its rest offset,
-        so the file is structurally the rig the user supplied and the bones
-        still do not stretch.
+        `EnforceRigid.invert` is the identity on the animation precisely
+        because the declaration is the writer's job: a joint the source gave
+        position channels gets them back, carrying its rest offset, so the file
+        is structurally the rig the user supplied and the bones still do not
+        stretch.
         """
-        return BVH.from_animation(
-            self._restore(anim, facing_from=facing_from),
-            channels=self._source_channels(),
-        )
-
-    def _source_channels(self):
         recorded = self.params.get("enforce_rigid", {}).get("source_channels")
         return None if recorded is None else tuple(tuple(spec) for spec in recorded)
 
-    def prepared_fbx(self, anim):
-        """The model character as a bare skeleton FBX, exactly as the model sees it."""
-        from poseydon.io.fbx import FBX
+    def calibration(self, space: str = "source") -> FbxCalibration:
+        """The rig's FBX calibration for clips in ``space``, "source" or "prepared".
 
-        return FBX.from_animation(anim)
+        Source: fitted once from a vendor BVH/FBX pair of one clip; the first
+        pair whose two files agree on every frame wins, trying the rest pose's
+        first. The manifest's `artifacts` pair is not used, because its two
+        files are generally different clips.
 
-    def calibration(self) -> FbxCalibration:
-        """The rig's FBX calibration, fitted once from a vendor BVH/FBX pair of one clip.
-
-        The first pair whose two files agree on every frame wins, trying the
-        rest pose's first; the manifest's `artifacts` pair is not used, because
-        its two files are generally different clips.
+        Prepared: refitted on that clip as the corpus prepared it. Preparation
+        re-frames every joint (`RestRelative`) and moves, turns and scales the
+        whole clip, so the asset's nodes sit in a prepared clip under their own
+        constant frame changes. Its placement puts the asset, mesh included, in
+        canonical space. Its residual is not gated: `EnforceRigid` changes bone
+        lengths by design, which the similarity can't absorb.
         """
-        if self._calibration is None:
-            manifest = SkeletonManifest.load(self.corpus / "rigs" / self.rig / "manifest.yaml")
-            source = self.raw / "source" / self.rig
-            tried = []
-            for bvh, fbx in same_clip_pairs(source, self.rig, manifest.rest_pose):
-                try:
-                    calibration = FbxCalibration.fit(bvh, fbx)
-                except ValueError as error:
-                    tried.append(f"{fbx.name}: {error}")
-                    continue
-                if calibration.residual <= CALIBRATION_TOL:
-                    self._calibration = calibration
-                    break
-                tried.append(f"{fbx.name}: off by {calibration.residual:.2e} of the extent")
-            else:
-                raise ArtifactUnavailableError(
-                    "corpus", self.rig, "original", "fbx",
-                    "no vendor BVH/FBX pair of one clip agrees"
-                    + (f" ({'; '.join(tried[:3])})" if tried else " (no pair found)"),
-                )
-        return self._calibration
+        if space not in ("source", "prepared"):
+            raise ValueError(f"space must be 'source' or 'prepared', not {space!r}")
+        if space not in self._calibrations:
+            self._calibrations[space] = (
+                self._fit_source() if space == "source" else self._fit_prepared()
+            )
+        return self._calibrations[space]
 
-    def original_fbx(self, anim, facing_from: str | None = None):
-        """The clip on the user's own FBX asset: their mesh, skin and node frames."""
-        from poseydon.io.fbx import FBX
+    def _fit_source(self) -> FbxCalibration:
+        manifest = SkeletonManifest.load(self.corpus / "rigs" / self.rig / "manifest.yaml")
+        source = self.raw / "source" / self.rig
+        tried = []
+        for bvh, fbx in same_clip_pairs(source, self.rig, manifest.rest_pose):
+            try:
+                calibration = FbxCalibration.fit(bvh, fbx)
+            except ValueError as error:
+                tried.append(f"{fbx.name}: {error}")
+                continue
+            if calibration.residual <= CALIBRATION_TOL:
+                return calibration
+            tried.append(f"{fbx.name}: off by {calibration.residual:.2e} of the extent")
+        raise ArtifactUnavailableError(
+            "corpus", self.rig, "source", "fbx",
+            "no vendor BVH/FBX pair of one clip agrees"
+            + (f" ({'; '.join(tried[:3])})" if tried else " (no pair found)"),
+        )
 
-        calibration = self.calibration()
-        restored = self._restore(anim, facing_from=facing_from)
-        asset = FBX.read(calibration.asset)
-        asset.animate(calibration.drive(restored), restored.fps)
-        return asset
+    def _fit_prepared(self) -> FbxCalibration:
+        source = self.calibration("source")
+        action = strip_skeleton_prefix(action_slug(source.clip.stem), self.rig)
+        clip = self.corpus / "clips" / self.rig / f"{action}.bvh"
+        if not clip.is_file():
+            raise ArtifactUnavailableError(
+                "corpus", self.rig, "prepared", "fbx",
+                f"the calibration clip `{action}` was not prepared ({clip} missing)",
+            )
+        fitted = FbxCalibration.fit(clip, source.asset)
+        return replace(fitted, placement=fitted.inverse())

@@ -33,7 +33,8 @@ conditioning), [features](features.md) (reduction and reconstruction),
 [build](build.md) (index lookups), [io](io.md) (BVH, render) and
 `training.recipe`.
 
-Produces generated features and, through `run_retarget`, `.npz`, `.bvh` and
+Produces generated features and, through `run_retarget`, `.npz` (positions
+and latent), `.anim.npz` (the generated animation, lossless), `.bvh` and
 `.mp4` files plus a `RetargetResult` that `training/metrics.py` scores.
 Selected in `configs/sample.yaml` under `operation:`.
 

@@ -17,7 +17,7 @@ representation to export; that's [export](export.md).
 | file | read it for |
 |---|---|
 | `src/poseydon/io/bvh.py` | `BVH`: `read`, `to_animation`, `from_animation`, `write`; `BvhParseError` |
-| `src/poseydon/io/fbx.py` | `FBX`: `read`, `names` / `parents` (every node), `world()` (per-frame world matrices, in the file's own units and axes), `animate()` (re-key named nodes from world matrices, keeping mesh and skin), `from_animation` (a bare skeleton), `write`. **Autodesk FBX SDK only** (`fbxsdk` container). |
+| `src/poseydon/io/fbx.py` | `FBX`: `read`, `names` / `parents` (every node), `world()` (per-frame world matrices, in the file's own units and axes), `from_animation(anim, calibration)` (the clip on the calibration's vendor asset, mesh included; the calibration must match the clip's space), `animate()` (re-key named nodes from world matrices, keeping mesh and skin; `space=` moves the whole scene), `write`. There is no bare-skeleton writer: every FBX is written onto a vendor asset. **Autodesk FBX SDK only** (`fbxsdk` container). |
 | `src/poseydon/io/framing.py` | `camera()` and `to_view()`: one framing implementation shared by both renderers |
 | `src/poseydon/io/render.py` | `render_skeleton` (MP4) and `render_frame` (PNG) stick figures, via matplotlib |
 

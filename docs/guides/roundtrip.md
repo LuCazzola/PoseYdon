@@ -81,19 +81,31 @@ recorded `JointReduction` is replayed in reverse by `invert_reduction`. See
 
 ## Coming back: export
 
-`CharacterExporter` in `src/poseydon/export/character.py` takes a model-space
-animation and writes one of two representations, each as BVH or FBX:
+`RigRecord` in `src/poseydon/export/rig.py` holds what the corpus recorded
+about one rig and moves a clip between spaces; the file format then writes
+whatever clip it is given:
 
-| representation | joints | frame | BVH | FBX |
+```python
+record = RigRecord.load(corpus, raw, "Dog")
+prepared = record.expand(model)                       # every joint, canonical
+source = record.restore(model, facing_from="attack")  # the user's rig
+
+BVH.from_animation(source, channels=record.source_channels).write("dog.bvh")
+FBX.from_animation(source, record.calibration("source")).write("dog.fbx")
+FBX.from_animation(prepared, record.calibration("prepared")).write("dog_prepared.fbx")
+```
+
+| space | joints | frame | BVH | FBX |
 |---|---|---|---|---|
-| **prepared** | exactly the model's | canonical (+Z, scaled, centred, grounded) | the animation | a bare skeleton |
-| **original** | the source's own, after expansion | source units, frame, names, channels | the source's `CHANNELS` block | the vendor's own asset: nodes, mesh, skin, materials |
+| **model view** | exactly the model's | canonical (+Z, scaled, centred, grounded) | the animation | expand first |
+| **prepared** | every joint | canonical | the animation | the vendor's own asset in canonical space, mesh included |
+| **source** | the source's own | source units, frame, names, channels | with the source's `CHANNELS` block | the vendor's own asset: nodes, mesh, skin, materials |
 
-Only the original representation expands the reduction and inverts
-preparation. A prepared export is the model character exactly as the model
-sees it.
+Every FBX carries the vendor's mesh. A source BVH needs `source_channels` and
+an FBX needs the calibration for its clip's space, because neither is in an
+animation.
 
-**Original FBX goes through a calibration.** The vendor ships the same clip as
+**FBX goes through a calibration.** The vendor ships the same clip as
 BVH and as FBX, and the two are the same motion under one similarity (units,
 axes, placement) and a constant per-joint change of frame. The exporter
 measures both from one such pair and checks them on every frame, then writes
@@ -101,14 +113,16 @@ the restored clip onto that FBX through the Autodesk FBX SDK. Nothing assumes
 the FBX bind pose equals the BVH rest pose, so all 73 Truebones rigs export;
 the old Blender path refused 13. See [export](../index/library/export.md).
 
-`poseydon export` takes a generated clip as `.bvh` or `.npz`. BVH output runs
-anywhere; FBX output needs the `fbxsdk` container.
+`poseydon export` takes a generated clip as `.anim.npz` or `.bvh`. Prefer the
+`.anim.npz` that `sample` and `retarget` write beside each BVH: it is lossless,
+while the BVH has dropped the rotation of every joint the reduction left as a
+leaf. BVH output runs anywhere; FBX output needs the `fbxsdk` container.
 
 ```bash
-docker compose run --rm test python -m poseydon.cli export samples/Scorpion__clip.bvh \
-    --rig Scorpion --representation original --format bvh --out scorpion.bvh
-docker compose run --rm fbxsdk python -m poseydon.cli export samples/Scorpion__clip.bvh \
-    --rig Scorpion --representation original --format fbx --out scorpion.fbx
+docker compose run --rm test python -m poseydon.cli export samples/Scorpion__clip.anim.npz \
+    --rig Scorpion --representation source --format bvh --out scorpion.bvh
+docker compose run --rm fbxsdk python -m poseydon.cli export samples/Scorpion__clip.anim.npz \
+    --rig Scorpion --representation source --format fbx --out scorpion.fbx
 ```
 
 **Facing.** A generated clip never had a facing of its own. With no
@@ -144,8 +158,8 @@ places by design. All numbers below come from the 2026-09-28 audit.
 
 | check | what it proves |
 |---|---|
-| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset: features rebuild the model view, and `original_bvh` written to disk matches the **raw source file** in names, hierarchy, `CHANNELS`, frames, offsets, root trajectory and every observable world rotation, with rigid bones |
-| `tests/test_roundtrip.py::test_round_trip_fbx` | the rig's vendor FBX and raw BVH calibrate to within 1e-4 of the extent; `original_fbx` written to disk holds exactly the restored clip on the vendor's node hierarchy; prepared and model skeleton FBX read back as themselves (`fbxsdk` container) |
+| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset: features rebuild the model view, and the restored clip written to disk matches the **raw source file** in names, hierarchy, `CHANNELS`, frames, offsets, root trajectory and every observable world rotation, with rigid bones |
+| `tests/test_roundtrip.py::test_round_trip_fbx` | the rig's vendor FBX and raw BVH calibrate to within 1e-4 of the extent; the restored clip written as FBX holds exactly the restored clip on the vendor's node hierarchy; prepared and model FBX, on the same asset in canonical space, read back with the prepared joint positions (`fbxsdk` container) |
 | `scripts/build_stage_samples.py` | one clip per rig at every stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/<Rig>/`, to open side by side |
 
 ```bash
@@ -161,8 +175,14 @@ nothing.
 
 ## Open issues
 
-As of 2026-10-12, this is not fixed. Update this section when it lands.
+As of 2026-10-12, these are not fixed. Update this section when they land.
 
+- A model view written as BVH loses the rotation of every joint the
+  reduction turned into a leaf (End Sites are dropped, and a BVH leaf has no
+  channels): Dog's ears and tail tip, for one. Worked around, not fixed:
+  `sample` and `retarget` also write a lossless `.anim.npz`, and export from
+  it matches the in-memory clip exactly. See
+  [export](../index/library/export.md).
 - `poseydon sample` and retargeting borrow the target rig's conditioning from
   its first-indexed clip, not its rest clip. Because `FaceAxis` rotates
   offsets per clip, exporting with the rig's facing can then come back
@@ -177,5 +197,5 @@ and [io](../index/library/io.md).
 - [build](../index/library/build.md): the stages, `RigTransform`,
   `preproc.npz`
 - [features](../index/library/features.md): reduction and expansion
-- [export](../index/library/export.md): `CharacterExporter`
+- [export](../index/library/export.md): `RigRecord`
 - [io](../index/library/io.md): what BVH and FBX can and can't carry

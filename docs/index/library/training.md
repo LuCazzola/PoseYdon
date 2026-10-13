@@ -33,7 +33,7 @@ Consumes almost every library package: [data](data.md), [models](models.md),
 [sampling](sampling.md) for validation.
 
 Produces `runs/<run>/` with checkpoints, `recipe.yaml` and, when validation is
-declared, retarget `.npz`/`.bvh`/`.mp4` files logged to wandb as one artifact
+declared, retarget `.npz`/`.anim.npz`/`.bvh`/`.mp4` files logged to wandb as one artifact
 per firing. The recipe is read back by `poseydon sample`, `poseydon retarget`
 and `ops/retarget_run.py`.
 
