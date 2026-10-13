@@ -248,9 +248,8 @@ def run_retarget(
         target_rig=np.array(target_rig),
     )
 
-    # The BVH is for viewing: a joint the reduction left as a leaf has no
-    # channels there, so its rotation (an ear, a tail tip) is lost. Export
-    # from this instead.
+    # The animation exactly as generated: the BVH rounds to 6 decimals and
+    # has no channels for a joint the reduction left as a leaf.
     anim_path = stem.parent / f"{stem.name}.anim.npz"
     anim.save(anim_path)
     bvh = stem.with_suffix(".bvh")

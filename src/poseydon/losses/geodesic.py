@@ -7,7 +7,7 @@ from typing import Any
 import torch
 
 from poseydon.core.batch import MotionBatch
-from poseydon.core.spec import Block
+from poseydon.core.spec import FeatureSpec
 from poseydon.losses.base import (
     LOSSES,
     LossTerm,
@@ -60,15 +60,23 @@ class GeodesicLoss(LossTerm):
     """
 
     name = "geodesic"
-    needs = (Block("rot6d", space="raw"),)
+    # Either rotation layout: the angle between two rotations in the same slot
+    # means the same thing in both.
+
+    def validate(self, spec: FeatureSpec) -> None:
+        try:
+            spec.rotation_block()
+        except KeyError as error:
+            raise ValueError(f"loss `{self.name}` needs a rotation block: {error}") from None
 
     @staticmethod
     def _angles_and_mask(
         x0_hat: torch.Tensor, x0: torch.Tensor, batch: MotionBatch
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Shared by `__call__` and `per_sample`, so the two cannot drift."""
-        predicted = raw_block(batch, x0_hat, "rot6d").permute(0, 1, 3, 2)
-        target = raw_block(batch, x0, "rot6d").permute(0, 1, 3, 2)
+        name = batch.spec.rotation_block()
+        predicted = raw_block(batch, x0_hat, name).permute(0, 1, 3, 2)
+        target = raw_block(batch, x0, name).permute(0, 1, 3, 2)
 
         angles = geodesic_distance(rot6d_to_matrix(predicted), rot6d_to_matrix(target))
         mask = (

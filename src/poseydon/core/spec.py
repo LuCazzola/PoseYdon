@@ -1,7 +1,7 @@
 """Feature layout.
 
 A ``FeatureSpec`` names every block's slice into the last axis of a motion
-tensor. It exists so a loss can ask for ``spec.slice("rot6d")`` and fail loudly
+tensor. It exists so a loss can ask for ``spec.slice("rot6d_joint")`` and fail loudly
 against a representation that has no rotations, instead of a magic ``[..., 3:9]``
 silently reading whatever happens to sit there.
 """
@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 Space = Literal["raw", "normalized"]
+
+#: The rotation layouts a feature set can carry, exactly one at a time
+#: (defined in `features/kinematics.py`): each joint's own rotation, or the
+#: HumanML3D per-bone layout.
+ROTATION_BLOCKS = ("rot6d_joint", "rot6d_bone")
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,16 @@ class FeatureSpec:
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(name for name, _ in self.blocks)
+
+    def rotation_block(self) -> str:
+        """Which rotation layout this representation carries."""
+        present = [name for name in ROTATION_BLOCKS if name in self.names]
+        if len(present) != 1:
+            raise KeyError(
+                f"expected exactly one rotation block of {', '.join(ROTATION_BLOCKS)}; "
+                f"present: {', '.join(self.names) or '(none)'}"
+            )
+        return present[0]
 
     def slice(self, name: str) -> slice:
         start = 0

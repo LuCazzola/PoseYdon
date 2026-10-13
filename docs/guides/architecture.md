@@ -36,8 +36,8 @@ Disk stores the canonical **aligned animation**, not features. Extraction happen
 when data is read, so changing the representation never re-runs preprocessing:
 
 ```yaml
-features: [ric_pos, rot6d, local_vel, foot_contact]   # 13 dims
-features: [rot6d, local_vel]                          # 9 dims, same files
+features: [ric_pos, rot6d_joint, heading, local_vel, foot_contact]   # 15 dims
+features: [ric_pos, rot6d_bone, local_vel, foot_contact]             # 13 dims, HumanML3D layout, same files
 ```
 
 A `FeatureSpec` owns the layout, so a loss asks for the block by name and fails
@@ -45,8 +45,8 @@ loudly against a representation without rotations — rather than a magic
 `[..., 3:9]` reading whatever sits there:
 
 ```python
-spec.take(features, "rot6d")                  # (F, J, 6)
-spec.take(batch.x, "rot6d", axis=2)           # (B, J, 6, T) — channels are not last here
+spec.take(features, "rot6d_joint")            # (F, J, 6)
+spec.take(batch.x, "rot6d_joint", axis=2)     # (B, J, 6, T) — channels are not last here
 spec.take(features, "foot_contact", drop=True)  # (F, J), refuses on a wider block
 ```
 

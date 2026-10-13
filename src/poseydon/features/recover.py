@@ -14,7 +14,14 @@ from __future__ import annotations
 import numpy as np
 
 from poseydon.core.animation import RigidBodyAnimation
-from poseydon.core.rotations import QUAT_IDENTITY, matrix_to_quat, quat_apply, rot6d_to_matrix
+from poseydon.core.rotations import (
+    QUAT_IDENTITY,
+    matrix_to_quat,
+    quat_apply,
+    quat_inverse,
+    quat_mul,
+    rot6d_to_matrix,
+)
 from poseydon.core.spec import FeatureSpec
 
 _REFERENCE_6D_LAYOUT = "columns"
@@ -33,17 +40,43 @@ def _require(spec: FeatureSpec, *names: str) -> None:
         )
 
 
-def local_rotations(features: np.ndarray, spec: FeatureSpec, parents: np.ndarray) -> np.ndarray:
-    """Undo the parent re-slotting, returning ``(F, J, 4)`` local rotations.
+def heading(features: np.ndarray, spec: FeatureSpec) -> np.ndarray:
+    """The per-frame heading ``(F, 4)`` the features are expressed in.
 
-    The rot6d block stores each joint's PARENT's rotation, so a joint's own
-    rotation is read from any of its children. Leaves appear in no slot, which
-    is harmless: they are End Sites and carry no rotation.
+    From the `heading` block if present, else from `rot6d_bone`'s root slot,
+    which is where that layout keeps it.
     """
-    _require(spec, "rot6d")
-    block = spec.take(features, "rot6d")
-    matrices = rot6d_to_matrix(block, layout=_REFERENCE_6D_LAYOUT)
-    quats = matrix_to_quat(matrices)
+    if "heading" in spec:
+        cos_sin = spec.take(features[:, 0], "heading")
+        half = 0.5 * np.arctan2(cos_sin[:, 1], cos_sin[:, 0])
+        out = np.zeros((features.shape[0], 4))
+        out[:, 1], out[:, 3] = np.sin(half), np.cos(half)
+        return out
+    if "rot6d_bone" in spec:
+        return matrix_to_quat(
+            rot6d_to_matrix(spec.take(features[:, 0], "rot6d_bone"), layout=_REFERENCE_6D_LAYOUT)
+        )
+    raise RecoveryError(
+        "cannot place the clip without its heading: add the `heading` block "
+        f"(or use `rot6d_bone`); this representation has {', '.join(spec.names)}"
+    )
+
+
+def local_rotations(features: np.ndarray, spec: FeatureSpec, parents: np.ndarray) -> np.ndarray:
+    """Every joint's ``(F, J, 4)`` local rotation, from either layout.
+
+    `rot6d_joint` stores them as they are, the root's in the heading frame.
+    `rot6d_bone` stores each joint's PARENT's rotation, so a joint's own is
+    read from any of its children; a leaf appears in no slot and comes back
+    as the identity.
+    """
+    name = spec.rotation_block()
+    quats = matrix_to_quat(
+        rot6d_to_matrix(spec.take(features, name), layout=_REFERENCE_6D_LAYOUT)
+    )
+    if name == "rot6d_joint":
+        quats[:, 0] = quat_mul(quat_inverse(heading(features, spec)), quats[:, 0])
+        return quats
 
     n_frames, n_joints = quats.shape[:2]
     out = np.broadcast_to(QUAT_IDENTITY, (n_frames, n_joints, 4)).copy()
@@ -123,12 +156,10 @@ def positions_from_features(
     visually appealing" -- but it needs 150 iterations of IK to get back to a
     BVH, because a BVH stores rotations.
     """
-    _require(spec, "ric_pos", "local_vel", "rot6d")
+    _require(spec, "ric_pos", "local_vel")
     ric = spec.take(features, "ric_pos")
 
-    facing = matrix_to_quat(
-        rot6d_to_matrix(spec.take(features[:, 0], "rot6d"), layout=_REFERENCE_6D_LAYOUT)
-    )
+    facing = heading(features, spec)
     root = root_trajectory(features, spec, facing)
 
     # Undo the per-frame de-rotation, then put the trajectory back underneath.
@@ -160,10 +191,7 @@ def features_to_anim(
 
     rotations = local_rotations(features, spec, template.parents)
 
-    facing = matrix_to_quat(
-        rot6d_to_matrix(spec.take(features[:, 0], "rot6d"), layout=_REFERENCE_6D_LAYOUT)
-    )
-    root_pos = root_trajectory(features, spec, facing)
+    root_pos = root_trajectory(features, spec, heading(features, spec))
 
     return RigidBodyAnimation.from_root_motion(
         rotations=rotations,

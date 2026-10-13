@@ -114,9 +114,9 @@ the FBX bind pose equals the BVH rest pose, so all 73 Truebones rigs export;
 the old Blender path refused 13. See [export](../index/library/export.md).
 
 `poseydon export` takes a generated clip as `.anim.npz` or `.bvh`. Prefer the
-`.anim.npz` that `sample` and `retarget` write beside each BVH: it is lossless,
-while the BVH has dropped the rotation of every joint the reduction left as a
-leaf. BVH output runs anywhere; FBX output needs the `fbxsdk` container.
+`.anim.npz` that `sample` and `retarget` write beside each BVH: it is the
+animation exactly as generated, while the BVH rounds to 6 decimals and has no
+rotation for a leaf of the model view. BVH output runs anywhere; FBX output needs the `fbxsdk` container.
 
 ```bash
 docker compose run --rm test python -m poseydon.cli export samples/Scorpion__clip.anim.npz \
@@ -158,7 +158,7 @@ places by design. All numbers below come from the 2026-09-28 audit.
 
 | check | what it proves |
 |---|---|
-| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset: features rebuild the model view, and the restored clip written to disk matches the **raw source file** in names, hierarchy, `CHANNELS`, frames, offsets, root trajectory and every observable world rotation, with rigid bones |
+| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset: features rebuild the model view in both rotation layouts, and the restored clip written to disk matches the **raw source file** in names, hierarchy, `CHANNELS`, frames, offsets, root trajectory and every observable world rotation, with rigid bones |
 | `tests/test_roundtrip.py::test_round_trip_fbx` | the rig's vendor FBX and raw BVH calibrate to within 1e-4 of the extent; the restored clip written as FBX holds exactly the restored clip on the vendor's node hierarchy; prepared and model FBX, on the same asset in canonical space, read back with the prepared joint positions (`fbxsdk` container) |
 | `scripts/build_stage_samples.py` | one clip per rig at every stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/<Rig>/`, to open side by side |
 
@@ -177,16 +177,18 @@ nothing.
 
 As of 2026-10-12, these are not fixed. Update this section when they land.
 
-- A model view written as BVH loses the rotation of every joint the
-  reduction turned into a leaf (End Sites are dropped, and a BVH leaf has no
-  channels): Dog's ears and tail tip, for one. Worked around, not fixed:
-  `sample` and `retarget` also write a lossless `.anim.npz`, and export from
-  it matches the in-memory clip exactly. See
-  [export](../index/library/export.md).
+- A model view written as BVH has no rotation for its leaves (a BVH leaf has
+  no channels): Dog's ears, tail tip and toes, for instance. Export from the
+  `.anim.npz` beside it. See [export](../index/library/export.md).
 - `poseydon sample` and retargeting borrow the target rig's conditioning from
   its first-indexed clip, not its rest clip. Because `FaceAxis` rotates
   offsets per clip, exporting with the rig's facing can then come back
   rotated or distorted.
+
+Fixed on 2026-10-13: the model now sees every rotation it can be asked to
+generate. The default `rot6d_joint` layout stores each joint's own rotation,
+and under `rot6d_bone` the reduction keeps the End Site that carries a
+parent's rotation ([features](../index/library/features.md)).
 
 The `PromoteRoot` joint-index fix and the BVH writer's depth-first and
 channel-layout fixes landed on 2026-10-12; see [build](../index/library/build.md)

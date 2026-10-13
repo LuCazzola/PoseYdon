@@ -24,15 +24,40 @@ It does **not** own normalization ([data](data.md)), the feature layout type
 | file | read it for |
 |---|---|
 | `src/poseydon/features/base.py` | `Feature` (one named block), `FeatureContext` (shared per-clip work), the `FEATURES` registry |
-| `src/poseydon/features/kinematics.py` | `ric_pos` (`RootInvariantPositions`, 3), `rot6d` (`Rotation6D`, 6), `local_vel` (`LocalVelocity`, 3) |
+| `src/poseydon/features/kinematics.py` | `ric_pos` (`RootInvariantPositions`, 3), `rot6d_joint` (`JointRotation6D`, 6), `heading` (`Heading`, 2), `rot6d_bone` (`BoneRotation6D`, 6), `local_vel` (`LocalVelocity`, 3) |
 | `src/poseydon/features/contact.py` | `foot_contact` (`FootContact`, 1): binary planted flag |
 | `src/poseydon/features/extract.py` | `extract_features(anim, ...)` → array + `FeatureSpec` |
-| `src/poseydon/features/reduce.py` | `JointReduction`, `RemovalOp`, `build_reduction`, `apply_reduction`, `invert_reduction`, `DropDegenerateJoints` |
-| `src/poseydon/features/recover.py` | `features_to_anim`, `local_rotations`, `root_trajectory`, `positions_from_features`, `contact_flags_from` |
+| `src/poseydon/features/reduce.py` | `JointReduction`, `RemovalOp`, `build_reduction(anim, tolerance, layout)`, `reduction_layout(features)`, `apply_reduction`, `invert_reduction`, `DropDegenerateJoints` |
+| `src/poseydon/features/recover.py` | `features_to_anim`, `local_rotations` (either layout), `heading`, `root_trajectory`, `positions_from_features`, `contact_flags_from` |
 | `src/poseydon/features/reconstruct.py` | `reconstruct(name, ...)` with the `RECONSTRUCTORS` `fk`, `positions`, `positions_ik` |
 
-The default schema `[ric_pos, rot6d, local_vel, foot_contact]` is 13 dims per
-joint, the reference's representation.
+The default schema `[ric_pos, rot6d_joint, heading, local_vel, foot_contact]`
+is 15 dims per joint.
+
+### Two rotation layouts
+
+The rotation layout is chosen by naming one rotation block in the dataset's
+`schema:` (`configs/dataset/<name>.yaml`) and the same blocks in `features:`
+(`configs/train.yaml`, `configs/sample.yaml`):
+
+| block | slot `j` holds | root slot | heading | leaves the reduction may drop |
+|---|---|---|---|---|
+| **`rot6d_joint`** (default) | joint `j`'s own local rotation | the root's rotation, in the heading frame | the `heading` block (cos, sin of the yaw, on the root) | every zero-length leaf |
+| **`rot6d_bone`** (HumanML3D) | `parent(j)`'s rotation, orienting the bone that ends at `j` | the heading | in the root slot | a zero-length leaf only if it has a sibling |
+
+Every rotation that orients something is recoverable in both. The reduction
+differs because `rot6d_bone` keeps a joint's rotation in its children's slots:
+a zero-length End Site that is its parent's only child holds the only copy of
+the parent's rotation, so `build_reduction(layout="rot6d_bone")` keeps it.
+Measured on Truebones, `rot6d_joint` drops 23% of the corpus's joints and
+`rot6d_bone` only 1% (Dog: 53 against 65 of 65).
+
+Switching layouts changes the reduction, which `skeleton.npz` records, so run
+`scripts/build_features.py` in full, not `--stats-only`, then pass the same
+layout to `RigRecord.load(..., layout=...)` / `poseydon export --layout`.
+Checkpoints trained on the old `rot6d` block are the `rot6d_bone` layout:
+their recipe names `rot6d`, which no longer exists, so loading one fails with
+an "unknown feature" error until the recipe says `rot6d_bone`.
 
 ## How it connects
 
@@ -50,12 +75,21 @@ and the IK and reference-comparison tools.
 ## Why it is shaped this way
 
 - **Features are pure functions of the canonical animation**, named in a
-  registry, so `features: [rot6d, local_vel]` needs no re-preparation. A new
+  registry, so `features: [rot6d_joint, heading, local_vel]` needs no re-preparation. A new
   representation is one class plus a decorator. Source:
   `src/poseydon/features/base.py` docstring;
   [architecture guide](../../guides/architecture.md#features-are-composed-at-read-time).
+- **`rot6d_joint` is the default because `rot6d_bone` loses rotations it
+  needn't.** `rot6d_bone` is the HumanML3D layout, where rotations are solved
+  from positions by IK, one per bone, so a leaf's own rotation never existed
+  to store. Truebones BVH records real rotations for every joint, and under
+  `rot6d_bone` plus the old reduction the model never saw an ear's or a tail
+  tip's (72 of 73 rigs animate such a joint more than 5 degrees within a
+  clip). The project owner chose the default and asked for both to stay
+  selectable; `rot6d_bone` is kept for parity with the reference.
 - **Golden parity.** Every block reproduced the reference's own arrays for
-  seven rigs to ~1e-6, with foot contact bit-exact, when last checked. No test
+  seven rigs to ~1e-6, with foot contact bit-exact, when last checked
+  (the rotation block as `rot6d_bone`, the reference's layout). No test
   re-checks it since the suite was cut to the round trip. Source: commit
   `1edbcab`; [testing guide](../../guides/testing.md).
 - **Reduction happens at extraction time and is never baked into the corpus.**

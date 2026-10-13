@@ -106,17 +106,16 @@ Called by: `cli.py` (`poseydon export --representation prepared|source
 - **The model FBX shows the expansion.** Joints the reduction dropped are
   driven by `invert_reduction`'s reconstruction, since the mesh needs every
   node.
-- **A model view written as BVH loses the rotation of every joint the
-  reduction turned into a leaf.** Reduction drops End Sites, so e.g. Dog's
-  `Bip01_Ponytail21` (an ear) is a leaf in the model view, and a BVH leaf has
-  no channels. Its last-bone orientation is then gone from `3_model.bvh`, and
-  an FBX made from that file turns those nodes (and the mesh they skin)
-  differently from one made from the in-memory clip or a `.npz`. Measured on
-  Dog's `attack`: positions identical, those nodes' frames off by up to 0.97
-  (matrix entries). Worked around: `sample` and `retarget` also write the
-  lossless `<stem>.anim.npz`, and an export from it matches the in-memory
-  clip exactly (measured on the same clip: 0.0). Still open in the BVH
-  itself.
+- **A model view written as BVH has no rotation for its leaves.** Under the
+  default `rot6d_joint` layout the reduction drops zero-length End Sites, so
+  e.g. Dog's ear `Bip01_Ponytail21` is a leaf of the model view: the model
+  generates its rotation, but a BVH leaf has no channels. Export from the
+  `.anim.npz` that `sample` and `retarget` write beside the BVH, which keeps
+  it; an FBX made from the BVH holds those nodes, and the mesh they skin, at
+  rest. Until 2026-10-13 the model never saw these rotations at all: the only
+  layout was `rot6d_bone`, whose slot for them belonged to the dropped End
+  Site (72 of 73 rigs animate such a joint more than 5 degrees within a clip).
+  See [features](features.md).
 - **Joints only one format has.** FBX nodes with no BVH joint keep the local
   transform they have on the asset's first frame; BVH End Sites have no node.
 - **The default facing can mismatch generated clips** that were templated on a

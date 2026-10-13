@@ -18,7 +18,12 @@ from poseydon.core.spec import FeatureSpec
 from poseydon.data.normalize import Normalizer
 from poseydon.data.window import RandomCrop, Window
 from poseydon.features import DEFAULT_FEATURES, extract_features
-from poseydon.features.reduce import JointReduction, apply_reduction, build_reduction
+from poseydon.features.reduce import (
+    JointReduction,
+    apply_reduction,
+    build_reduction,
+    reduction_layout,
+)
 
 
 @dataclass(frozen=True)
@@ -175,7 +180,9 @@ class MotionDataset:
             ) as data:
                 stored = tuple(int(i) for i in data["reduction_source_of"])
             rest = self._rest_clip(skeleton)
-            reduction = build_reduction(rest, tolerance=self.reduce_tolerance)
+            reduction = build_reduction(
+                rest, tolerance=self.reduce_tolerance, layout=reduction_layout(self.features)
+            )
             if reduction.source_of != stored:
                 raise ValueError(
                     f"{skeleton}: the reduction built here does not match the one "

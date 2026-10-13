@@ -129,12 +129,14 @@ class Normalizer:
         if policy is None:
             return cls(mean=mean, std=_unscale_constants(std), spec=spec)
 
+        from poseydon.features import FEATURES
+
         known = set(spec.names)
         for entry in policy:
-            if entry.name not in known:
+            if entry.name not in FEATURES:
                 raise ValueError(
-                    f"policy names block `{entry.name}`, which the spec does not "
-                    f"declare. Available: {', '.join(sorted(known))}"
+                    f"policy names block `{entry.name}`, which is not a feature. "
+                    f"Available: {', '.join(FEATURES.names())}"
                 )
             if entry.scale not in _SCALE_MODES:
                 raise ValueError(
@@ -142,7 +144,9 @@ class Normalizer:
                     f"Available: {', '.join(_SCALE_MODES)}"
                 )
 
-        for entry in policy:
+        # A policy may name a feature this spec doesn't use, so one dataset
+        # config can carry policies for both rotation layouts.
+        for entry in (entry for entry in policy if entry.name in known):
             block = spec.slice(entry.name)
             if not entry.center:
                 mean[:, block] = 0.0

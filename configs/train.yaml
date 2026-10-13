@@ -1,5 +1,5 @@
 # Compose with CLI overrides, e.g.
-#   poseydon train model=anytop process=flow features=[rot6d,local_vel]
+#   poseydon train model=anytop process=flow features=[rot6d_joint,heading,local_vel]
 defaults:
   - data: truebones
   # The stage-2 build group. Composed here so the recipe records the reduction
@@ -19,7 +19,7 @@ seed: 0
 
 # Feature blocks, in order. Changing this needs no re-ingest: ingest stores the
 # canonical animation, and features are composed when the data is read.
-features: [ric_pos, rot6d, local_vel, foot_contact]
+features: [ric_pos, rot6d_joint, heading, local_vel, foot_contact]
 
 # Only declared conditioning is loaded, collated and moved to device.
 conditioners: [topology, tpose, norm_stats, joint_names]

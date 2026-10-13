@@ -29,7 +29,7 @@ from poseydon.io.render import render_skeleton
 from poseydon.solvers import IK_TERMS, GradientIK, SolverSkeleton
 from poseydon.training.metrics import foot_skate
 
-SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_contact", 1)))
+SPEC = FeatureSpec((("ric_pos", 3), ("rot6d_bone", 6), ("local_vel", 3), ("foot_contact", 1)))
 FEATURES = "artifacts/headtohead-full/truebones_attnpool/ddpm/reference_Flamingo_to_Scorpion.npy"
 TEMPLATE = "external/neural_motion_blending/assets/truebones/Scorpion___SlowForward_839.bvh"
 OUT = "artifacts/contact"

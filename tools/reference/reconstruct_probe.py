@@ -36,7 +36,7 @@ from poseydon.models.modiffae import JOINT_NAMES, TEMPORAL_VALID, Z_SEM, MoDiffA
 from poseydon.process import GaussianDiffusion
 from poseydon.sampling import DDIM, DDPM
 
-SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_contact", 1)))
+SPEC = FeatureSpec((("ric_pos", 3), ("rot6d_bone", 6), ("local_vel", 3), ("foot_contact", 1)))
 REF_DIR = Path("data/truebones/reference")
 CLIPS = {
     "BrownBear": "BrownBear___RiseSwat_132",

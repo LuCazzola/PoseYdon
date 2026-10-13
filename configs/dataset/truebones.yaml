@@ -1,6 +1,10 @@
 # Stage 2. Each pluggable behaviour is a `_target_`; each value is a plain key.
 root: data/truebones
-schema: [ric_pos, rot6d, local_vel, foot_contact]
+# The rotation layout is chosen here by block name: `rot6d_joint` (default:
+# each joint its own rotation, plus the `heading` block it is expressed in) or
+# `rot6d_bone` (HumanML3D: each bone's rotation at its child, heading in the
+# root slot). `train.yaml`/`sample.yaml` `features:` must name the same blocks.
+schema: [ric_pos, rot6d_joint, heading, local_vel, foot_contact]
 
 corpus: {_target_: poseydon.build.corpus.PerRigDirectory, pattern: "*.bvh"}
 names:  {_target_: poseydon.build.names.Humanize, lowercase: true, expand_sides: true}
@@ -68,6 +72,8 @@ reduce_tolerance: 1.0e-8
 # at load time with a clear message instead.
 normalize:
   - {_target_: poseydon.data.normalize.BlockPolicy, name: ric_pos,      center: true,  scale: channel}
-  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d,        center: true,  scale: channel}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d_joint,  center: true,  scale: channel}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: rot6d_bone,   center: true,  scale: channel}
+  - {_target_: poseydon.data.normalize.BlockPolicy, name: heading,      center: true,  scale: channel}
   - {_target_: poseydon.data.normalize.BlockPolicy, name: local_vel,    center: true,  scale: channel}
   - {_target_: poseydon.data.normalize.BlockPolicy, name: foot_contact, center: false, scale: none}

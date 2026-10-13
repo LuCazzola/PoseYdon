@@ -21,7 +21,7 @@ It does **not** own writing the corpus ([build](build.md)), what a feature is
 | file | read it for |
 |---|---|
 | `src/poseydon/data/dataset.py` | `MotionDataset` (index + manifests → `Item`); `ClipView` (what a conditioner sees for one item); `Item` |
-| `src/poseydon/data/normalize.py` | `Normalizer` (per-skeleton, invertible statistics for the active `FeatureSpec`); `BlockPolicy` (`center`, `scale` per block); `STD_CONSTANT_THRESHOLD`; `spec_hash` |
+| `src/poseydon/data/normalize.py` | `Normalizer` (per-skeleton, invertible statistics for the active `FeatureSpec`); `BlockPolicy` (`center`, `scale` per block; a policy naming a registered feature the spec doesn't use is skipped, so one config carries both rotation layouts' policies, and a name that is no feature still raises); `STD_CONSTANT_THRESHOLD`; `spec_hash` |
 | `src/poseydon/data/window.py` | `Window` policies: `RandomCrop` (training), `SlidingWindow` (evaluation), `FullClip` |
 | `src/poseydon/data/collate.py` | `collate`: pad to the batch's own maxima and build `Masks` |
 | `src/poseydon/data/sampler.py` | `balanced_weights`: every rig gets an equal share of samples |

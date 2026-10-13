@@ -13,7 +13,7 @@ from poseydon.features import contact as _contact  # noqa: F401  (registers feat
 from poseydon.features import kinematics as _kinematics  # noqa: F401
 from poseydon.features.base import FEATURES, FeatureContext
 
-DEFAULT_FEATURES: tuple[str, ...] = ("ric_pos", "rot6d", "local_vel", "foot_contact")
+DEFAULT_FEATURES: tuple[str, ...] = ("ric_pos", "rot6d_joint", "heading", "local_vel", "foot_contact")
 
 
 def extract_features(

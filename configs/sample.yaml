@@ -14,7 +14,7 @@ defaults:
   - _self_
 
 seed: 0
-features: [ric_pos, rot6d, local_vel, foot_contact]
+features: [ric_pos, rot6d_joint, heading, local_vel, foot_contact]
 # Sampling must declare the SAME conditioning the checkpoint trained under.
 # `MoDiffAE` treats `joint_names` as optional and skips the term in silence
 # when it is absent, so a checkpoint trained with names and sampled without

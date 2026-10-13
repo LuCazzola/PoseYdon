@@ -38,7 +38,7 @@ from poseydon.sampling.diffusion import DDPM
 
 CHECKPOINT = Path("external/neural_motion_blending/save/truebones_attnpool/model000599998.pt")
 REFERENCE = Path("data/truebones/reference")
-FEATURES = ["ric_pos", "rot6d", "local_vel", "foot_contact"]
+FEATURES = ["ric_pos", "rot6d_bone", "local_vel", "foot_contact"]
 OUT = Path("runs/reference-retarget")
 
 #: The one joint whose name PoseYdon and the reference disagree on. Everything

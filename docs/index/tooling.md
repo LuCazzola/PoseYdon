@@ -18,7 +18,7 @@ There are two kinds, and the split is deliberate:
   that already exists. `ingest` aligns a BVH corpus and builds its index (legacy:
   nothing reads its output, so build corpora with the scripts below);
   `train` trains from a composed Hydra config; `sample` generates motion and
-  writes each sample as `.anim.npz` (lossless, what `export` should be given) and `.bvh` (with `--render` for MP4); `retarget` carries one clip onto another
+  writes each sample as `.anim.npz` (the animation exactly as generated, leaf rotations included: what `export` should be given) and `.bvh` (with `--render` for MP4); `retarget` carries one clip onto another
   rig; `export` writes the prepared or source representation, as BVH or FBX;
   `list` shows the components registered by name. It lives in the library
   because it is installed as the `poseydon` console script.
@@ -48,7 +48,7 @@ only at the two ends, through `poseydon export --format fbx`.
 
 **Export and viewing**:
 
-- `poseydon export <clip> --rig <Rig> --representation source --format fbx`
+- `poseydon export <clip> --rig <Rig> --representation source --format fbx [--layout rot6d_joint|rot6d_bone]`
   (`fbxsdk` container): a generated clip onto the user's own FBX asset, with
   its mesh and skin. `--format bvh` runs in `test`.
 - `scripts/render_fbx.py` (`fbx` container): any FBX → MP4 with EEVEE. Blender

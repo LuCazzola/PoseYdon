@@ -34,7 +34,10 @@ not produce. It asserts:
   block all match the source;
 - the root's world trajectory matches (the promoted root, on promoted rigs);
 - every observable joint's world rotation matches, to 1e-3 degrees;
-- non-root joints don't translate.
+- non-root joints don't translate;
+- in both rotation layouts (`rot6d_joint` and `rot6d_bone`), features rebuild
+  the model view's positions and every rotation that orients something, and
+  the `rot6d_bone` reduction makes no real joint a leaf.
 
 The FBX test proves a chain of equalities. The rig's vendor FBX and raw BVH of
 one clip calibrate to within 1e-4 of the extent, checked on every frame. The

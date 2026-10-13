@@ -24,7 +24,9 @@ structure exact, root trajectory exact, every observable world rotation exact,
 bones rigid. What it loses by design is not asserted: per-joint translation
 (`EnforceRigid`, one rigid geometry per rig), the locator chain above a
 promoted root and its dead subtree (constant pose), and the rotation of
-joints the reduction removed or folded into their parent.
+joints the reduction removed or folded into their parent. The features leg
+checks both rotation layouts; only `rot6d_joint` brings every joint's own
+rotation back (`rot6d_bone` has no slot for a leaf's).
 """
 
 from __future__ import annotations
@@ -41,7 +43,13 @@ from poseydon.core.rotations import quat_inverse, quat_mul
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.export.rig import RigRecord
 from poseydon.features import extract_features, reconstruct
-from poseydon.features.reduce import COLLAPSE, DROP, apply_reduction, invert_reduction
+from poseydon.features.reduce import (
+    COLLAPSE,
+    DROP,
+    apply_reduction,
+    invert_reduction,
+    reduction_layout,
+)
 from poseydon.io.bvh import BVH
 
 # BVH stores six decimals, so a write/read cycle is exact only to that.
@@ -63,13 +71,13 @@ def pytest_generate_tests(metafunc):
     )
 
 
-_records: dict[str, RigRecord] = {}
+_records: dict[tuple[str, str], RigRecord] = {}
 
 
-def _record(corpus: Path, raw: Path, rig: str) -> RigRecord:
-    if rig not in _records:
-        _records[rig] = RigRecord.load(corpus, raw, rig)
-    return _records[rig]
+def _record(corpus: Path, raw: Path, rig: str, layout: str = "rot6d_joint") -> RigRecord:
+    if (rig, layout) not in _records:
+        _records[rig, layout] = RigRecord.load(corpus, raw, rig, layout=layout)
+    return _records[rig, layout]
 
 
 def _raw_source(raw: Path, rig: str, action: str) -> Path:
@@ -113,18 +121,36 @@ def test_round_trip(clip: Path, tmp_path, request):
     # Features leg: extracting and rebuilding (the model as identity) gives the
     # model view back. Features are root-invariant in XZ and a velocity block
     # costs the last frame; both are by design, so they are factored out.
+    # Both rotation layouts are checked, the dataset's and the other one, so
+    # switching `schema:` can't break recovery unnoticed.
     schema = yaml.safe_load(Path(f"configs/dataset/{dataset}.yaml").read_text())["schema"]
+    swap = {"rot6d_joint": ["rot6d_bone"], "rot6d_bone": ["rot6d_joint", "heading"], "heading": []}
     manifest = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml")
-    features, spec = extract_features(model, resolve(manifest, model.names), schema)
-    _, rebuilt = reconstruct("fk", features, spec, model)
-    want = model.global_positions()[: len(features)]
-    got = rebuilt.global_positions()
-    scale = np.ptp(want[0], axis=0).max()
-    shift = want[0, 0] - got[0, 0]
-    assert abs(shift[1]) <= POS_TOL * scale, "features leg: root height did not come back"
-    shift[1] = 0.0
-    err = np.abs(got + shift - want).max() / scale
-    assert err <= POS_TOL, f"features leg: joints off by {err:.2e} of extent"
+    for names in (schema, [m for n in schema for m in swap.get(n, [n])]):
+        layout = reduction_layout(names)
+        view = apply_reduction(prepared, _record(corpus, raw, rig, layout).reduction)
+        features, spec = extract_features(view, resolve(manifest, view.names), names)
+        _, rebuilt = reconstruct("fk", features, spec, view)
+        want = view.global_positions()[: len(features)]
+        got = rebuilt.global_positions()
+        scale = np.ptp(want[0], axis=0).max()
+        shift = want[0, 0] - got[0, 0]
+        assert abs(shift[1]) <= POS_TOL * scale, f"features leg ({layout}): root height did not come back"
+        shift[1] = 0.0
+        err = np.abs(got + shift - want).max() / scale
+        assert err <= POS_TOL, f"features leg ({layout}): joints off by {err:.2e} of extent"
+        # Every rotation that orients something comes back: under `rot6d_joint`
+        # every joint's, leaves included; under `rot6d_bone` every joint with a
+        # child (its reduction keeps the leaf that carries a parent's rotation,
+        # so the only leaves left are zero-length and orient nothing).
+        if layout == "rot6d_bone":
+            made = [n for j, n in enumerate(view.names) if j not in view.parents
+                    and prepared.names.index(n) in prepared.parents]
+            assert not made, f"features leg ({layout}): reduction made {made[:3]} leaves, losing their rotation"
+        held = [j for j in range(view.n_joints) if layout == "rot6d_joint" or j in view.parents]
+        turn = quat_mul(quat_inverse(view.rotations[: len(features), held]), rebuilt.rotations[:, held])
+        angle = np.degrees(2 * np.arccos(np.clip(np.abs(turn[..., 3]), 0.0, 1.0))).max()
+        assert angle <= ROT_TOL_DEG, f"features leg ({layout}): a joint rotation off by {angle:.2e} deg"
 
     # Preparation leg: undo the stages one at a time with the recorded
     # parameters, and check that re-applying each reproduces its input.

@@ -17,7 +17,7 @@ retarget validation metrics (`src/poseydon/training/metrics.py`).
 |---|---|
 | `src/poseydon/losses/base.py` | `LossTerm` (declares required blocks and space); `element_mask`, `masked_mean`, `masked_mean_per_sample`; `raw_block` (extract and denormalize); the `LOSSES` registry; the `NORM_STATS` key |
 | `src/poseydon/losses/simple.py` | `SimpleLoss` (`simple`): masked MSE over the whole feature vector, also reported per block |
-| `src/poseydon/losses/geodesic.py` | `GeodesicLoss` (`geodesic`): angular error on the rotation manifold |
+| `src/poseydon/losses/geodesic.py` | `GeodesicLoss` (`geodesic`): angular error on the rotation manifold, on whichever rotation layout the spec carries (`FeatureSpec.rotation_block()`) |
 | `src/poseydon/losses/footskate.py` | `FootSkateLoss` (`footskate`): movement of joints the target marks as planted |
 | `src/poseydon/losses/kl.py` | `KLDivergence` (`kl`): diagonal Gaussian posterior against a standard normal |
 

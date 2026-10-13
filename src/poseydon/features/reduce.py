@@ -13,7 +13,10 @@ and this module is the lens the model looks through.
 Two cases, and they are not interchangeable:
 
 * a zero-offset LEAF can be deleted outright -- nothing hangs off it and the
-  rotation reaching it is unobservable, so nothing is lost;
+  rotation reaching it is unobservable, so nothing is lost. Except under the
+  `rot6d_bone` feature layout, which stores each joint's rotation in its
+  children's slots: there a leaf that is its parent's only child carries the
+  parent's rotation, and is kept;
 * a zero-offset INTERNAL joint swings its subtree, so it can only be folded into
   its parent -- and that fold turns the parent, hence every OTHER child of the
   parent too. It is exact only when the joint is its parent's sole child.
@@ -23,6 +26,7 @@ Two cases, and they are not interchangeable:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -30,6 +34,7 @@ import numpy as np
 from poseydon.augment.joint_edit import JointEdit
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY, quat_mul
+from poseydon.core.spec import ROTATION_BLOCKS
 
 DROP = "drop"
 COLLAPSE = "collapse"
@@ -79,7 +84,9 @@ def _children_of(parents: np.ndarray, joint: int) -> list[int]:
     return [j for j in range(len(parents)) if parents[j] == joint]
 
 
-def _next_removal(anim: RigidBodyAnimation, tolerance: float) -> RemovalOp | None:
+def _next_removal(
+    anim: RigidBodyAnimation, tolerance: float, layout: str
+) -> RemovalOp | None:
     """The first removable joint, or None when the rig is fully reduced."""
     lengths = np.linalg.norm(anim.offsets, axis=-1)
     for joint in range(1, anim.n_joints):
@@ -88,6 +95,11 @@ def _next_removal(anim: RigidBodyAnimation, tolerance: float) -> RemovalOp | Non
         parent = int(anim.parents[joint])
         children = _children_of(anim.parents, joint)
         if not children:
+            # `rot6d_bone` stores a joint's rotation in its children's slots,
+            # so a leaf that is its parent's only child holds the only copy of
+            # the parent's rotation (an ear's, a tail tip's): keep it.
+            if layout == "rot6d_bone" and len(_children_of(anim.parents, parent)) == 1:
+                continue
             return RemovalOp(anim.names[joint], anim.names[parent], joint, DROP)
         if len(_children_of(anim.parents, parent)) == 1:
             return RemovalOp(
@@ -137,12 +149,16 @@ def _remove(anim: RigidBodyAnimation, op: RemovalOp) -> RigidBodyAnimation:
 
 
 def build_reduction(
-    anim: RigidBodyAnimation, tolerance: float = 1e-8
+    anim: RigidBodyAnimation, tolerance: float = 1e-8, layout: str = "rot6d_joint"
 ) -> JointReduction:
     """Work out which joints to remove, repeating until none is left.
 
     Repetition matters: dropping a zero-offset leaf can leave its parent a
     zero-offset leaf in turn.
+
+    ``layout`` is the rotation block the features use (`rot6d_joint` or
+    `rot6d_bone`, see `reduction_layout`): what a dropped leaf takes with it
+    depends on where rotations are stored.
     """
     ops: list[RemovalOp] = []
     current = anim
@@ -152,7 +168,7 @@ def build_reduction(
     # siblings. Scorpion/Bip01_Neck1 is exactly this shape. Testing the
     # CURRENT hierarchy ensures we capture joints as they actually become
     # droppable, not as they began.
-    while (op := _next_removal(current, tolerance)) is not None:
+    while (op := _next_removal(current, tolerance, layout)) is not None:
         ops.append(op)
         current = _remove(current, op)
 
@@ -162,6 +178,16 @@ def build_reduction(
         source_of=tuple(index_of[name] for name in current.names),
         source_names=tuple(anim.names),
     )
+
+
+def reduction_layout(features: Iterable[str]) -> str:
+    """The rotation layout a feature list implies for the reduction.
+
+    A list with no rotation block (positions only) reduces as `rot6d_joint`:
+    no rotation is stored, so none can be lost.
+    """
+    present = [name for name in features if name in ROTATION_BLOCKS]
+    return present[0] if present else "rot6d_joint"
 
 
 def apply_reduction(
@@ -240,6 +266,7 @@ class DropDegenerateJoints:
     """Config-facing wrapper, named by ``_target_`` in a dataset config."""
 
     tolerance: float = 1e-8
+    layout: str = "rot6d_joint"
 
     def build(self, anim: RigidBodyAnimation) -> JointReduction:
-        return build_reduction(anim, self.tolerance)
+        return build_reduction(anim, self.tolerance, self.layout)

@@ -216,8 +216,9 @@ def _sample(args: argparse.Namespace) -> int:
         if anim is None:
             print(f"wrote {stem}.positions.npy  (`{method}` yields no rotations, so no BVH)")
         else:
-            # Lossless; the BVH drops the rotation of every joint the
-            # reduction left as a leaf. Export from the .anim.npz.
+            # The animation exactly as generated (the BVH rounds to 6
+            # decimals and has no channels for a joint the reduction left as
+            # a leaf).
             anim.save(f"{stem}.anim.npz")
             BVH.from_animation(anim).write(f"{stem}.bvh")
             print(f"wrote {stem}.anim.npz, {stem}.bvh  (reconstruct={method})")
@@ -318,8 +319,8 @@ def _export(args: argparse.Namespace) -> int:
     from poseydon.export import RigRecord
     from poseydon.io.bvh import BVH
     path = Path(args.input)
-    # A `.anim.npz` (what `sample`/`retarget` write beside the BVH) is lossless;
-    # a BVH has lost the rotation of every joint the reduction left as a leaf.
+    # A `.anim.npz` (what `sample`/`retarget` write beside the BVH) is the
+    # animation exactly as saved; a BVH has no rotation for a leaf joint.
     anim = BVH.read(path).to_animation() if path.suffix.lower() == ".bvh" else Animation.load(path)
     if args.bare_skeleton:
         # An FBX always carries the rig's mesh, so there is no bare FBX.
@@ -329,7 +330,7 @@ def _export(args: argparse.Namespace) -> int:
         BVH.from_animation(anim).write(args.out)
         print(f"wrote {args.out}")
         return 0
-    record = RigRecord.load(args.corpus, args.raw, args.rig)
+    record = RigRecord.load(args.corpus, args.raw, args.rig, layout=args.layout)
     try:
         if args.representation == "source":
             anim = record.restore(anim, facing_from=args.facing_from)
@@ -454,6 +455,12 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("--representation", choices=("prepared", "source"), default="prepared")
     export.add_argument("--format", choices=("bvh", "fbx"), default="bvh")
     export.add_argument("--facing-from", default=None)
+    export.add_argument(
+        "--layout",
+        choices=("rot6d_joint", "rot6d_bone"),
+        default="rot6d_joint",
+        help="the rotation block the model was trained with; it decides which joints its output has",
+    )
     export.add_argument(
         "--bare-skeleton",
         action="store_true",

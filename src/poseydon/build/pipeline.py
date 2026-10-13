@@ -21,7 +21,7 @@ from poseydon.build.prepare import RigTransform
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.data.normalize import BlockPolicy, Normalizer
 from poseydon.features import extract_features
-from poseydon.features.reduce import apply_reduction, build_reduction
+from poseydon.features.reduce import apply_reduction, build_reduction, reduction_layout
 from poseydon.io.bvh import BVH
 
 
@@ -135,7 +135,9 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     # Load-bearing and derived nowhere else. If `as_rigid_body` ever starts
     # rewriting offsets, or `_next_removal` ever reads a rotation-dependent
     # quantity, this comment and its twin at `build_stats` are where it breaks.
-    reduction = build_reduction(rest, tolerance=config.reduce_tolerance)
+    reduction = build_reduction(
+        rest, tolerance=config.reduce_tolerance, layout=reduction_layout(config.schema)
+    )
     rig_params = config.transform(rig).rig_params
 
     payload: dict[str, np.ndarray] = {
@@ -178,7 +180,9 @@ def build_stats(config: BuildConfig, rig: str) -> None:
         # `norm(offsets)`, `parents` and `names`, none of which either
         # difference can change, so every one of these reductions equals the
         # one `skeleton.npz` records. See the full argument there.
-        reduction = build_reduction(anim, tolerance=config.reduce_tolerance)
+        reduction = build_reduction(
+            anim, tolerance=config.reduce_tolerance, layout=reduction_layout(config.schema)
+        )
         reduced = apply_reduction(anim, reduction)
         features, spec = extract_features(
             reduced, resolve(manifest, reduced.names), config.schema

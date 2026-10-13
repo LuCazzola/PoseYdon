@@ -32,7 +32,7 @@ from poseydon.io.bvh import BVH
 from poseydon.io.render import render_skeleton
 from poseydon.solvers import IK_TERMS, GradientIK, SolverSkeleton
 
-SPEC = FeatureSpec((("ric_pos", 3), ("rot6d", 6), ("local_vel", 3), ("foot_contact", 1)))
+SPEC = FeatureSpec((("ric_pos", 3), ("rot6d_bone", 6), ("local_vel", 3), ("foot_contact", 1)))
 ASSETS = Path("external/neural_motion_blending/assets/truebones")
 
 

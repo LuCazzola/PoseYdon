@@ -175,7 +175,11 @@ class RigRecord:
     _calibrations: dict = field(default_factory=dict)
 
     @classmethod
-    def load(cls, corpus: str | Path, raw: str | Path, rig: str) -> RigRecord:
+    def load(
+        cls, corpus: str | Path, raw: str | Path, rig: str, layout: str = "rot6d_joint"
+    ) -> RigRecord:
+        """``layout`` is the rotation block the model's features use: it
+        decides which joints the model view drops (`build_reduction`)."""
         corpus, raw = Path(corpus), Path(raw)
         skeleton = corpus / "rigs" / rig / "skeleton.npz"
         if not skeleton.is_file():
@@ -186,7 +190,7 @@ class RigRecord:
                 rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)),
                 root_pos=np.zeros((1, 3)), offsets=data["offsets"],
                 parents=data["parents"].astype(np.int32), names=names, fps=1.0)
-            reduction = build_reduction(rest)
+            reduction = build_reduction(rest, layout=layout)
         prep = corpus / "rigs" / rig / "preproc.npz"
         params = {}
         clip_params = {}

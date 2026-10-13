@@ -25,7 +25,7 @@ are the parts you change:
 ```bash
 poseydon train                                 # defaults
 poseydon train process=flow                    # flow matching instead of diffusion
-poseydon train features=[rot6d,local_vel]      # a different representation, no re-ingest
+poseydon train features=[rot6d_joint,heading,local_vel]      # a different representation, no re-ingest
 poseydon retarget --content Flamingo/onelegbent --target Scorpion
 ```
 

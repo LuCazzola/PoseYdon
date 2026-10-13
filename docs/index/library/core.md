@@ -20,7 +20,7 @@ training recipe (`src/poseydon/training/recipe.py`, see [training](training.md))
 |---|---|
 | `src/poseydon/core/animation.py` | `Animation` (every joint may translate, which is what a file declares) and `RigidBodyAnimation` (only the root translates, which is what everything downstream asks for) |
 | `src/poseydon/core/skeleton.py` | `SkeletonManifest` (per-rig YAML: facing pairs, contact thresholds, foot joints, rest pose, authority), `resolve()` binding names to indices, `ResolvedSkeleton` |
-| `src/poseydon/core/spec.py` | `FeatureSpec`, the ordered `(name, width)` block layout, with `slice()` and `take(tensor, name, axis, drop=)` |
+| `src/poseydon/core/spec.py` | `FeatureSpec`, the ordered `(name, width)` block layout, with `slice()`, `take(tensor, name, axis, drop=)` and `rotation_block()` (which of `ROTATION_BLOCKS`, `rot6d_joint` or `rot6d_bone`, it carries) |
 | `src/poseydon/core/batch.py` | `MotionBatch` (`x` of shape `(B, J, D, T)`, `spec`, `masks`, `window`, `cond`), plus `Masks`, `WindowInfo` and `Cond` |
 | `src/poseydon/core/authority.py` | `AuthorityPolicy` (which source format is authoritative for skeleton, motion and surface), `SourceArtifacts`, and `ArtifactUnavailableError` (the typed refusal an export raises) |
 | `src/poseydon/core/rotations.py` | quaternion / Euler / matrix / 6D conversions in numpy, wrapping SciPy |
@@ -59,7 +59,7 @@ tools.
   `resolve_joint` names the nearest alternatives when a name is wrong. Source:
   `src/poseydon/core/skeleton.py` docstring; commits `3949ef8`, `3ff8b64`;
   [architecture guide](../../guides/architecture.md#skeleton-knowledge-is-data).
-- **A named feature layout.** `FeatureSpec` exists so a loss asks for `rot6d` and
+- **A named feature layout.** `FeatureSpec` exists so a loss asks for `rot6d_joint` and
   fails loudly against a representation without rotations, instead of slicing
   a magic `[..., 3:9]`. Source: `src/poseydon/core/spec.py` docstring.
 - **A four-part batch.** The reference packs T-pose, joint names, topology,

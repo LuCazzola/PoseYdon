@@ -55,7 +55,7 @@ from poseydon.training.validation import RetargetValidation
 CHECKPOINT = Path("external/neural_motion_blending/save/truebones_attnpool/model000599998.pt")
 REFERENCE = Path("data/truebones/reference")
 RIGS = Path("data/truebones/rigs")
-FEATURES = ["ric_pos", "rot6d", "local_vel", "foot_contact"]
+FEATURES = ["ric_pos", "rot6d_bone", "local_vel", "foot_contact"]
 OUT = Path("runs/wandb-parity")
 
 PAIRS = [
