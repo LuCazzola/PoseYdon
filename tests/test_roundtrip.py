@@ -19,27 +19,30 @@ there alongside the BVH test. One test per clip, so `-k Camel` or
     docker compose run --rm -T test python -m pytest -q tests/test_roundtrip.py --dataset truebones
     docker compose run --rm -T fbxsdk python -m pytest -q tests/test_roundtrip.py --dataset truebones
 
-What is asserted is what the round trip promises (docs/guides/roundtrip.md):
+What is asserted is what the round trip promises (docs/guides/concepts/data/roundtrip.md):
 structure exact, root trajectory exact, every observable world rotation exact,
 bones rigid. What it loses by design is not asserted: per-joint translation
 (`EnforceRigid`, one rigid geometry per rig), the locator chain above a
-promoted root and its dead subtree (constant pose), and the rotation of
-joints the reduction removed or folded into their parent. The features leg
+promoted root and its dead subtree (constant pose), and the root's own
+rotation where the reduction folded a joint into it (End Sites, the only
+joints it drops, carry none). The features leg
 checks both rotation layouts; only `rot6d_joint` brings every joint's own
 rotation back (`rot6d_bone` has no slot for a leaf's).
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 import yaml
 
+from poseydon.build.corpus import rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.core.animation import RigidBodyAnimation
-from poseydon.core.rotations import quat_inverse, quat_mul
+from poseydon.core.rotations import quat_between, quat_inverse, quat_mul
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.export.rig import RigRecord
 from poseydon.features import extract_features, reconstruct
@@ -50,7 +53,9 @@ from poseydon.features.reduce import (
     invert_reduction,
     reduction_layout,
 )
+from poseydon.ingest.align import rotate_rig
 from poseydon.io.bvh import BVH
+from scripts.process_dataset_truebones import _chain_for
 
 # BVH stores six decimals, so a write/read cycle is exact only to that.
 POS_TOL = 1e-5  # fraction of the rig's extent
@@ -117,6 +122,10 @@ def test_round_trip(clip: Path, tmp_path, request):
     # rotation stays on its parent, and the two are coincident.
     expanded = invert_reduction(model, record.reduction)
     _assert_same_world(expanded, prepared, EXACT_TOL, "reduction leg")
+    # A fold loses its parent's own world rotation, so it may only target the root.
+    folded = [op.parent for op in record.reduction.ops
+              if op.kind == COLLAPSE and prepared.parents[prepared.names.index(op.parent)] >= 0]
+    assert not folded, f"reduction leg: folded into non-root {folded[:3]}, losing its rotation"
 
     # Features leg: extracting and rebuilding (the model as identity) gives the
     # model view back. Features are root-invariant in XZ and a velocity block
@@ -147,6 +156,11 @@ def test_round_trip(clip: Path, tmp_path, request):
             made = [n for j, n in enumerate(view.names) if j not in view.parents
                     and prepared.names.index(n) in prepared.parents]
             assert not made, f"features leg ({layout}): reduction made {made[:3]} leaves, losing their rotation"
+        else:
+            # Only End Sites may drop: any other joint has a rotation of its own.
+            dropped = [op.name for op in _record(corpus, raw, rig, layout).reduction.ops
+                       if op.kind == DROP and prepared.names.index(op.name) in prepared.parents]
+            assert not dropped, f"features leg ({layout}): reduction dropped joints {dropped[:3]}, losing their rotation"
         held = [j for j in range(view.n_joints) if layout == "rot6d_joint" or j in view.parents]
         turn = quat_mul(quat_inverse(view.rotations[: len(features), held]), rebuilt.rotations[:, held])
         angle = np.degrees(2 * np.arccos(np.clip(np.abs(turn[..., 3]), 0.0, 1.0))).max()
@@ -221,6 +235,40 @@ def test_round_trip(clip: Path, tmp_path, request):
     # The documented loss, asserted rather than assumed: bones are rigid.
     moving = np.ptp(back.translations[:, 1:], axis=0).max()
     assert moving <= POS_TOL * extent, "export leg: a non-root joint translates"
+
+
+def test_up_axis(request):
+    """A rig authored Z-up and declared `up_axis: +Z` prepares to the same clip
+    as its Y-up original, and inverts back to its own Z-up convention.
+
+    The corpus is all Y-up, so this turns one real rig to Z-up to exercise
+    `UpAxis`.
+    """
+    dataset = request.config.getoption("--dataset")
+    corpus, raw = Path("data") / dataset, Path("data/_raw") / dataset
+    rig = sorted(p.name for p in (corpus / "rigs").iterdir() if p.is_dir())[0]
+    manifest = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml")
+    paths = sorted((raw / "source" / rig).glob("*.bvh"))
+    rest_path = rest_source(manifest, paths)
+    clip_path = next(p for p in paths if p != rest_path)
+    rest_bvh = BVH.read(rest_path)
+    chain = _chain_for(rest_bvh.channels, rig)
+
+    def prepare(man, rest, clip):
+        rig_params = chain.fit_rig(rest, resolve(man, rest.names))
+        return chain.apply(clip, resolve(man, clip.names), rig_params)
+
+    rest, clip = rest_bvh.to_animation(), BVH.read(clip_path).to_animation()
+    to_z = quat_between(np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0]))
+    want, want_params = prepare(manifest, rest, clip)
+    got, got_params = prepare(
+        replace(manifest, up_axis="+Z"), rotate_rig(rest, to_z), rotate_rig(clip, to_z)
+    )
+    _assert_same_world(got, want, EXACT_TOL, f"{rig}: Z-up prepared")
+    _assert_same_world(
+        chain.invert(got, got_params), rotate_rig(chain.invert(want, want_params), to_z),
+        EXACT_TOL, f"{rig}: Z-up inverted",
+    )
 
 
 def test_round_trip_fbx(clip: Path, tmp_path, request):

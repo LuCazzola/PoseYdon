@@ -194,18 +194,20 @@ def rotate_to_face_axis(
     return rotate_rig(anim, rotation)
 
 
-def rotate_to_face_z(anim: RigidBodyAnimation, rotation: np.ndarray) -> RigidBodyAnimation:
+def rotate_to_face_z(anim: Animation, rotation: np.ndarray) -> Animation:
     """Apply a global rotation by composing it onto the root only.
 
-    Leaves ``offsets`` -- the rest geometry -- in their original orientation;
-    see :func:`rotate_to_face_axis` for the whole-rig form and when each is
-    the right one.
+    Leaves ``offsets`` -- the rest geometry -- and every non-root joint's
+    local rotation and translation untouched; see :func:`rotate_to_face_axis`
+    for the whole-rig form and when each is the right one.
     """
     rotations = anim.rotations.copy()
     rotations[:, 0] = quat_mul(np.broadcast_to(rotation, rotations[:, 0].shape), rotations[:, 0])
-    return RigidBodyAnimation.from_root_motion(
+    translations = anim.translations.copy()
+    translations[:, 0] = quat_apply(rotation, anim.root_pos)
+    return type(anim)(
         rotations=rotations,
-        root_pos=quat_apply(rotation, anim.root_pos),
+        translations=translations,
         offsets=anim.offsets,
         parents=anim.parents,
         names=anim.names,

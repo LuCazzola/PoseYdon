@@ -12,16 +12,31 @@ and this module is the lens the model looks through.
 
 Two cases, and they are not interchangeable:
 
-* a zero-offset LEAF can be deleted outright -- nothing hangs off it and the
-  rotation reaching it is unobservable, so nothing is lost. Except under the
-  `rot6d_bone` feature layout, which stores each joint's rotation in its
-  children's slots: there a leaf that is its parent's only child carries the
-  parent's rotation, and is kept;
+* a zero-offset LEAF can be deleted outright when nothing hangs off it and no
+  rotation is lost with it. What that means depends on the feature layout,
+  and the two are not interchangeable:
+
+  - `rot6d_joint` stores each joint's own rotation, so a leaf may go only if
+    it has none: an End Site (a leaf of the FULL rig, which a BVH gives no
+    channels). A real joint that becomes a leaf once its End Site is dropped
+    keeps its own rotation, and that rotation drives skin (Bear's
+    `NPC_*Arm2_ForearmTwist2`, Scorpion's `Bip01_Neck1`), so it is kept;
+  - `rot6d_bone` stores each joint's rotation in its children's slots, so a
+    leaf that is its parent's only child carries the parent's rotation and is
+    kept. A real joint therefore never becomes a leaf, and never drops;
 * a zero-offset INTERNAL joint swings its subtree, so it can only be folded into
   its parent -- and that fold turns the parent, hence every OTHER child of the
   parent too. It is exact only when the joint is its parent's sole child.
   Otherwise the joint is kept, because displacing its siblings to save one token
-  is not a trade worth making.
+  is not a trade worth making. The fold is world-exact for every joint but the
+  parent, which comes back carrying the product while the joint gets identity:
+  the PARENT's world rotation is lost. So it is done only into the root, whose
+  rotation drives no skin (Truebones' `Hips`: zero weighted vertices, with
+  `Bip01_Pelvis`, the joint folded, carrying the pelvis skin and coming back
+  exact). Anywhere else the joint is kept. The root fold is wanted, not just
+  tolerated: some rigs (the 46 Biped ones on Truebones) carry an extra root,
+  `Hips` above a coincident `Bip01_Pelvis`, and folding it gives every
+  skeleton the same one-joint root (the owner's rationale).
 """
 
 from __future__ import annotations
@@ -85,9 +100,13 @@ def _children_of(parents: np.ndarray, joint: int) -> list[int]:
 
 
 def _next_removal(
-    anim: RigidBodyAnimation, tolerance: float, layout: str
+    anim: RigidBodyAnimation, tolerance: float, layout: str, end_sites: frozenset[str]
 ) -> RemovalOp | None:
-    """The first removable joint, or None when the rig is fully reduced."""
+    """The first removable joint, or None when the rig is fully reduced.
+
+    ``end_sites`` are the leaves of the rig the reduction started from; see the
+    module docstring for why `rot6d_joint` drops only those.
+    """
     lengths = np.linalg.norm(anim.offsets, axis=-1)
     for joint in range(1, anim.n_joints):
         if lengths[joint] >= tolerance:
@@ -100,8 +119,13 @@ def _next_removal(
             # the parent's rotation (an ear's, a tail tip's): keep it.
             if layout == "rot6d_bone" and len(_children_of(anim.parents, parent)) == 1:
                 continue
+            # `rot6d_joint` keeps a joint's own rotation in its own slot: only
+            # an End Site has none to lose.
+            if layout == "rot6d_joint" and anim.names[joint] not in end_sites:
+                continue
             return RemovalOp(anim.names[joint], anim.names[parent], joint, DROP)
-        if len(_children_of(anim.parents, parent)) == 1:
+        # Into the root only: the fold loses the parent's own world rotation.
+        if anim.parents[parent] < 0 and len(_children_of(anim.parents, parent)) == 1:
             return RemovalOp(
                 anim.names[joint],
                 anim.names[parent],
@@ -168,7 +192,11 @@ def build_reduction(
     # siblings. Scorpion/Bip01_Neck1 is exactly this shape. Testing the
     # CURRENT hierarchy ensures we capture joints as they actually become
     # droppable, not as they began.
-    while (op := _next_removal(current, tolerance, layout)) is not None:
+    # The FULL rig's leaves: its End Sites, which carry no rotation of their own.
+    end_sites = frozenset(
+        name for j, name in enumerate(anim.names) if not _children_of(anim.parents, j)
+    )
+    while (op := _next_removal(current, tolerance, layout, end_sites)) is not None:
         ops.append(op)
         current = _remove(current, op)
 

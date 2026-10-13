@@ -144,20 +144,23 @@ class MotionDataset:
             )
         return self._manifests[skeleton]
 
-    def _rest_clip(self, skeleton: str) -> RigidBodyAnimation:
-        """The rig's DECLARED rest clip, as a rigid body.
+    def rest_action(self, skeleton: str) -> str:
+        """The action of the rig's DECLARED rest clip.
 
-        The action is read from `skeleton.npz`, not re-derived from the
-        manifest: `build_skeleton` recorded the very action it reduced under,
-        so the two cannot drift, and the read path stays clear of
-        `build.corpus` (a build-time internal -- tests/build/test_layering.py).
+        Read from `skeleton.npz`, not re-derived from the manifest:
+        `build_skeleton` recorded the very action it reduced under, so the two
+        cannot drift, and the read path stays clear of `build.corpus` (a
+        build-time internal -- tests/build/test_layering.py).
         """
         with np.load(
             self.manifest_dir / skeleton / "skeleton.npz", allow_pickle=True
         ) as data:
-            action = str(data["rest_action"])
+            return str(data["rest_action"])
+
+    def _rest_clip(self, skeleton: str) -> RigidBodyAnimation:
+        """The rig's DECLARED rest clip, as a rigid body."""
         return RigidBodyAnimation.load(
-            self.root / "clips" / skeleton / f"{action}.npz"
+            self.root / "clips" / skeleton / f"{self.rest_action(skeleton)}.npz"
         ).as_rigid_body(joint_translation="drop")
 
     def _reduction(self, skeleton: str) -> JointReduction:

@@ -27,6 +27,7 @@ _KNOWN_KEYS = frozenset(
         "base",
         "skeleton",
         "rest_pose",
+        "up_axis",
         "facing",
         "foot_joints",
         "fps",
@@ -76,6 +77,9 @@ class SkeletonManifest:
     #: stage 1 wants `source/<Rig>/<file>`, everything downstream wants the
     #: prepared clip `clips/<Rig>/<action>.bvh`.
     rest_pose: str | None = None
+    #: The source's up axis, ``"+Y"`` to ``"-Z"``. A BVH does not record it,
+    #: so a rig authored Z-up has to say so; stage 1 turns it to +Y up first.
+    up_axis: str = "+Y"
     extra_yaw_deg: float = 0.0
     foot_joints: tuple[str, ...] = ()
     fps: float | None = None
@@ -173,6 +177,11 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
 
     rest_pose = data.get("rest_pose")
 
+    up_raw = str(data.get("up_axis", "+Y")).strip().upper()
+    up_axis = up_raw if up_raw[:1] in "+-" else f"+{up_raw}"
+    if up_axis[1:] not in ("X", "Y", "Z") or len(up_axis) != 2:
+        raise ManifestError(f"{path}: `up_axis` must be X, Y or Z with an optional sign, got `{up_raw}`")
+
     authority_raw = data.get("authority")
     artifacts_raw = data.get("artifacts")
     if authority_raw is None and artifacts_raw is None:
@@ -217,6 +226,7 @@ def _build(data: dict, path: Path) -> SkeletonManifest:
         contact=contact,
         source=source,
         rest_pose=None if rest_pose is None else str(rest_pose),
+        up_axis=up_axis,
         extra_yaw_deg=extra_yaw,
         foot_joints=tuple(str(j) for j in (data.get("foot_joints") or ())),
         fps=None if data.get("fps") is None else float(data["fps"]),

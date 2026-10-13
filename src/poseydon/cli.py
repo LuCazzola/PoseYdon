@@ -146,6 +146,7 @@ def _sample(args: argparse.Namespace) -> int:
     from poseydon.data.collate import collate
     from poseydon.features import reconstruct
     from poseydon.io.bvh import BVH
+    from poseydon.ops.retarget_run import _whole_clip, find_clip_of_rig
     from poseydon.training.build import build_dataset, build_model, build_process
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
@@ -162,14 +163,15 @@ def _sample(args: argparse.Namespace) -> int:
 
     dataset = build_dataset(config)
     skeleton = config.skeleton or dataset.records[0].skeleton
-    matching = [i for i, r in enumerate(dataset.records) if r.skeleton == skeleton]
-    if not matching:
-        print(f"no clips for skeleton `{skeleton}`", file=sys.stderr)
+    try:
+        record = find_clip_of_rig(dataset, skeleton)
+    except LookupError as missing:
+        print(missing, file=sys.stderr)
         return 1
 
-    # One real item supplies the skeleton's conditioning: topology, rest pose and
-    # normalization statistics all describe the rig, not the clip.
-    template = collate([dataset[matching[0]]])
+    # The rest clip supplies the skeleton's conditioning and geometry; see
+    # `find_clip_of_rig` for why no other clip will do.
+    template = collate([_whole_clip(dataset, record)])
     process = build_process(config)
     model = build_model(config, feature_dim=template.spec.dim).eval()
 
@@ -197,7 +199,7 @@ def _sample(args: argparse.Namespace) -> int:
         )
 
     normalizer = dataset._normalizer(skeleton, template.spec)
-    reference = dataset._anim(dataset.records[matching[0]])
+    reference = dataset._anim(record)
 
     settings = dict(config.reconstruct)
     method = str(settings.pop("name"))
@@ -331,6 +333,12 @@ def _export(args: argparse.Namespace) -> int:
         print(f"wrote {args.out}")
         return 0
     record = RigRecord.load(args.corpus, args.raw, args.rig, layout=args.layout)
+    if path.suffix.lower() == ".bvh" and tuple(anim.names) == record._model_names:
+        print(
+            "warning: a model-view BVH has no rotation for its leaves (Dog's ears, "
+            "tail tip), so they export at rest; pass the `.anim.npz` beside it instead",
+            file=sys.stderr,
+        )
     try:
         if args.representation == "source":
             anim = record.restore(anim, facing_from=args.facing_from)

@@ -4,22 +4,26 @@ from poseydon.build.prepare import (
     CentreXZ,
     EnforceRigid,
     FaceAxis,
+    FaceRestAxis,
     PrepareChain,
     PrepareStage,
     PutOnGround,
     RestRelative,
     RigTransform,
     ScaleToMeanBoneLength,
+    UpAxis,
 )
 
 __all__ = [
     "CentreXZ",
     "EnforceRigid",
     "FaceAxis",
+    "FaceRestAxis",
     "PrepareChain",
     "PrepareStage",
     "PutOnGround",
     "RestRelative",
     "RigTransform",
     "ScaleToMeanBoneLength",
+    "UpAxis",
 ]

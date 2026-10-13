@@ -24,9 +24,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import numpy as np
 
 from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
-from poseydon.core.rotations import QUAT_IDENTITY, quat_apply, quat_inverse, quat_mul
+from poseydon.core.rotations import QUAT_IDENTITY, quat_apply, quat_between, quat_inverse, quat_mul
 from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH, resolve
-from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig
+from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig, rotate_to_face_z
 
 if TYPE_CHECKING:
     from poseydon.build.report import AuditSink
@@ -58,13 +58,24 @@ def prepare_chain(
     is the PROMOTED root's, not the locator's) and before
     `ScaleToMeanBoneLength` (a locator-to-body connector is not an anatomical
     bone and must not enter the mean).
+
+    `UpAxis` comes first, so every later stage, each of which takes +Y as up
+    (facing, grounding), sees a Y-up rig.
+
+    `FaceRestAxis` and `FaceAxis` sit after `EnforceRigid`, so the facing is
+    measured on the geometry the prepared clip keeps. Before it, a Biped
+    clip's per-joint translation channels place joints elsewhere than its
+    offsets do, and a facing fitted there came out up to ~90 degrees off once
+    `EnforceRigid` dropped them (Ant, Bat, Bird).
     """
     return PrepareChain(
         (
+            UpAxis(),
             RestRelative(),
             PromoteRoot(target=promote_target),
-            FaceAxis(axis="+Z"),
             EnforceRigid(joint_translation="drop", source_channels=source_channels),
+            FaceRestAxis(axis="+Z"),
+            FaceAxis(axis="+Z"),
             CentreXZ(),
             ScaleToMeanBoneLength(),
             PutOnGround(),
@@ -548,12 +559,83 @@ class PromoteRoot(PrepareStage):
 
 
 @dataclass(frozen=True)
+class UpAxis(PrepareStage):
+    """Turn the whole rig so the manifest's ``up_axis`` becomes +Y.
+
+    A BVH does not record its up axis, so it is declared (`up_axis:` in the
+    manifest, default ``+Y``, which makes this the identity). Forward needs no
+    declaration: `FaceRestAxis` derives it from the facing joints. Inverting
+    puts the rig back in its own convention.
+    """
+
+    name: ClassVar[str] = "up_axis"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        up = axis_vector(resolved.manifest.up_axis)
+        return {"rotation": quat_between(up, np.array([0.0, 1.0, 0.0]))}
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return rotate_rig(anim, params["rotation"])
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return rotate_rig(anim, quat_inverse(params["rotation"]))
+
+
+@dataclass(frozen=True)
+class FaceRestAxis(PrepareStage):
+    """Turn the whole rig so its REST skeleton faces ``axis``, +Y up.
+
+    Rig-scoped, fitted on the rest geometry as a DCC tool draws it (offsets,
+    no rotations), and applied with `rotate_rig`: offsets and every local
+    rotation turn together, by the same amount for every clip of the rig. So
+    every rig's rest pose faces +Z, its joints' local frames are the same in
+    every clip, and they line up across rigs. `FaceAxis` then turns each clip
+    the rest of the way, by its root alone.
+    """
+
+    axis: str = "+Z"
+
+    name: ClassVar[str] = "face_rest_axis"
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        skeleton = RigidBodyAnimation.from_root_motion(
+            rotations=np.tile(QUAT_IDENTITY, (1, anim.n_joints, 1)),
+            root_pos=np.zeros((1, 3)), offsets=anim.offsets,
+            parents=anim.parents, names=anim.names, fps=anim.fps,
+        )
+        rotation = facing_quats(
+            skeleton.global_positions(),
+            resolved.facing_indices,
+            resolved.manifest.extra_yaw_deg,
+            axis_vector(self.axis),
+        )[0]
+        return {"rotation": rotation}
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return rotate_rig(anim, params["rotation"])
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return rotate_rig(anim, quat_inverse(params["rotation"]))
+
+
+@dataclass(frozen=True)
 class FaceAxis(PrepareStage):
     """Turn each clip so its frame-0 facing direction points along ``axis``.
 
     Clip-scoped, and that is the whole reason this module exists: the rotation
     comes from THIS clip's frame 0, so once the prepared file faces +Z the
     original orientation cannot be recovered from it. It has to be recorded.
+
+    It turns the ROOT only (`rotate_to_face_z`), after `FaceRestAxis` has
+    turned the whole rig to face ``axis``: offsets and every other joint's
+    local rotation stay shared by all clips of the rig, so the same pose has
+    the same rotation features in every clip, and frame 0 faces the way the
+    rest skeleton does. Turning the whole rig per clip instead gives the same
+    world motion but conjugates every local rotation by that clip's own yaw,
+    which put each clip in its own frame (up to 179 degrees apart on
+    Truebones).
     """
 
     axis: str = "+Z"
@@ -571,10 +653,10 @@ class FaceAxis(PrepareStage):
         return {"rotation": rotation}
 
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
-        return rotate_rig(anim, params["rotation"])
+        return rotate_to_face_z(anim, params["rotation"])
 
     def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
-        return rotate_rig(anim, quat_inverse(params["rotation"]))
+        return rotate_to_face_z(anim, quat_inverse(params["rotation"]))
 
 
 def _with_root(anim: RigidBodyAnimation, root_pos: np.ndarray) -> RigidBodyAnimation:

@@ -102,10 +102,12 @@ def build_clips(config: BuildConfig, rig: str) -> int:
 def build_skeleton(config: BuildConfig, rig: str) -> None:
     """Rig-level geometry, names and the reduction map.
 
-    Offsets come from the REST clip specifically: FaceAxis is clip-scoped and
-    rotate_rig turns OFFSETS with the motion, so prepared clips of one rig do
-    not share an OFFSET block. Which clip that is comes from the manifest via
-    rest_action -- never from a filename match, since Crab's is `walk`.
+    Offsets come from the REST clip, the rig's declared reference. Prepared
+    clips of one rig share their offsets (`RestRelative` gives them the rest
+    pose's, `FaceRestAxis` turns them once per rig and `FaceAxis` turns only
+    the root), so any clip would do; the
+    rest clip is the one chosen. Which clip that is comes from the manifest
+    via rest_action -- never from a filename match, since Crab's is `walk`.
 
     Loading requires ``allow_pickle=True``. `prepare/enforce_rigid/source_channels`
     is genuinely ragged (a tuple of channel names per joint, of differing length)
@@ -123,10 +125,9 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     # than `stats.npz`'s moments were measured through. Two things differ
     # between the calls, and neither can change which joints are removed:
     #
-    # * a different CLIP. Prepared clips of one rig do not share an OFFSET
-    #   block (FaceAxis is clip-scoped and turns offsets with the motion --
-    #   see this docstring above), but `_next_removal` selects on
-    #   `norm(offsets)`, `parents` and `names`, and a rotation leaves a norm
+    # * a different CLIP. Prepared clips of one rig share their OFFSET block
+    #   (see this docstring above), and `_next_removal` selects on
+    #   `norm(offsets)`, `parents` and `names` anyway, which a rotation leaves
     #   unchanged.
     # * the rigid-body form. `build_stats` reduces
     #   `as_rigid_body(joint_translation="drop")`; that drops per-joint

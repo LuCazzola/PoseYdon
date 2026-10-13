@@ -99,11 +99,15 @@ def find_clip(dataset: MotionDataset, rig: str, action: str) -> ClipRecord:
 
 
 def find_clip_of_rig(dataset: MotionDataset, rig: str) -> ClipRecord:
-    """Any clip of `rig`: what is wanted from it is the RIG's conditioning."""
-    matching = [record for record in dataset.records if record.skeleton == rig]
-    if not matching:
+    """The rig's rest clip, whose conditioning and geometry stand for the rig's.
+
+    Every prepared clip of a rig shares its offsets (`FaceAxis` turns only the
+    root), so this is a fixed choice rather than a correctness one: the rig's
+    declared reference, the same clip `tpose` and `skeleton.npz` come from.
+    """
+    if not any(record.skeleton == rig for record in dataset.records):
         raise LookupError(f"no clips for skeleton `{rig}` in this dataset")
-    return matching[0]
+    return find_clip(dataset, rig, dataset.rest_action(rig))
 
 
 def _resolve(dataset: MotionDataset, content: ClipRecord | str) -> ClipRecord:

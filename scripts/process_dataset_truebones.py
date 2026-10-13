@@ -196,6 +196,7 @@ def _sanity_check(
         forward = np.cross(np.array([0.0, 1.0, 0.0]), across)
         return float(np.dot(forward / np.linalg.norm(forward), _TARGET_FORWARD))
 
+    posed_dot = facing_dot(anim.global_positions()[0], resolved.facing_indices)
     def rest_skeleton_positions(anim) -> np.ndarray:
         """``(J, 3)`` joint positions of the REST skeleton: OFFSETs, no rotations."""
         positions = np.zeros((anim.n_joints, 3))
@@ -203,8 +204,22 @@ def _sanity_check(
             positions[joint] = positions[anim.parents[joint]] + anim.offsets[joint]
         return positions
 
-    posed_dot = facing_dot(anim.global_positions()[0], resolved.facing_indices)
-    rest_dot = facing_dot(rest_skeleton_positions(anim), resolved.facing_indices)
+    rest = rest_skeleton_positions(anim)
+    rest_dot = facing_dot(rest, resolved.facing_indices)
+    # Upright, or a wrong or missing `up_axis:` in the manifest. On its side,
+    # the right-to-left direction across hips and shoulders turns vertical;
+    # upside down, the feet sit clearly above the hips and shoulders.
+    across = sum(rest[r] - rest[l] for r, l in resolved.facing_indices)
+    sideways = abs(across[1]) / np.linalg.norm(across)
+    extent = np.ptp(rest, axis=0).max()
+    body = rest[[j for pair in resolved.facing_indices for j in pair], 1].mean()
+    feet = rest[list(resolved.foot_indices), 1].mean() if resolved.foot_indices else body
+    if sideways > 0.5 or feet - body > 0.1 * extent:
+        warnings.append(
+            f"{manifest.name}: rest skeleton is not upright (right-left axis "
+            f"{sideways:.2f} vertical, feet {(feet - body) / extent:+.2f} of extent "
+            "above hips/shoulders); check `up_axis` and the facing pairs in the manifest"
+        )
     print(
         f"{label} frame-0 forward . +Z = {posed_dot:.4f}   "
         f"rest-skeleton forward . +Z = {rest_dot:.4f}"
@@ -216,10 +231,10 @@ def _sanity_check(
                 f"{subject.name}"
             )
 
-    # With the whole rig rotated (FaceAxis), EVERY joint -- the root included --
-    # reads as identity at the rest frame.
+    # Every joint but the root (which carries `FaceAxis`'s turn) reads as
+    # identity at the rest frame.
     identity_err = float(
-        np.abs(np.abs((anim.rotations[0] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max()
+        np.abs(np.abs((anim.rotations[0, 1:] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max()
     )
     print(f"{label} T-pose frame max |1 - dot(rot, identity)| = {identity_err:.4f}")
     if identity_err > 1e-3:
