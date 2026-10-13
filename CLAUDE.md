@@ -15,7 +15,8 @@ every contract) and the **tooling** around it (`scripts/`, `tools/`,
   `docs/index/tooling.md`.
 - Fixing something a page lists as open (under **Gotchas**, or a guide's
   **Open issues**, e.g. `docs/guides/roundtrip.md`) means updating that bullet
-  in the same commit.
+  in the same commit, and removing its row from **Open work** in
+  `docs/index/INDEX.md`, which lists everything known and not fixed.
 - A page found disagreeing with the code is fixed toward the code, and the
   commit message says so.
 
