@@ -15,8 +15,16 @@ every contract) and the **tooling** around it (`scripts/`, `tools/`,
   `docs/index/tooling.md`.
 - Fixing something a page lists as open (under **Gotchas**, or a guide's
   **Open issues**, e.g. `docs/guides/roundtrip.md`) means updating that bullet
-  in the same commit, and removing its row from **Open work** in
-  `docs/index/INDEX.md`, which lists everything known and not fixed.
+  in the same commit.
+
+## docs/index/todo.md
+
+`docs/index/todo.md` lists what is known to be open: suspected bugs,
+leftovers and pending decisions. Read it when starting work, but treat each
+row as a lead to verify against the code, not as fact: rows go stale, and a
+cause recorded there may be wrong. Keep it current. Add a row for anything
+you find and don't fix now. Remove or correct a row in the same commit that
+fixes or disproves it, and fix a row you find to be wrong.
 - A page found disagreeing with the code is fixed toward the code, and the
   commit message says so.
 
