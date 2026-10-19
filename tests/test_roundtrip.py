@@ -32,18 +32,20 @@ rotation back (`rot6d_bone` has no slot for a leaf's).
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
-import yaml
+from scripts.process_dataset_truebones import chain_for
 
 from poseydon.build.corpus import rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
+from poseydon.build.pipeline import compose_build
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import quat_between, quat_inverse, quat_mul
-from poseydon.core.skeleton import SkeletonManifest, resolve
+from poseydon.core.skeleton import SkeletonManifest, contact_defaults, resolve
 from poseydon.export.rig import RigRecord
 from poseydon.features import extract_features, reconstruct
 from poseydon.features.reduce import (
@@ -51,11 +53,11 @@ from poseydon.features.reduce import (
     DROP,
     apply_reduction,
     invert_reduction,
+    load_still,
     reduction_layout,
 )
 from poseydon.ingest.align import rotate_rig
 from poseydon.io.bvh import BVH
-from scripts.process_dataset_truebones import _chain_for
 
 # BVH stores six decimals, so a write/read cycle is exact only to that.
 POS_TOL = 1e-5  # fraction of the rig's extent
@@ -70,13 +72,23 @@ def pytest_generate_tests(metafunc):
     if "clip" not in metafunc.fixturenames:
         return
     dataset = metafunc.config.getoption("--dataset")
-    clips = sorted((Path("data") / dataset / "clips").glob("*/*.npz"))
+    # The clips training reads: the index's (a one-frame rest pose is left out of it).
+    root = Path("data") / dataset
+    clips = sorted(root / json.loads(line)["path"] for line in (root / "index.jsonl").read_text().splitlines() if line)
     metafunc.parametrize(
         "clip", clips, ids=[f"{p.parent.name}/{p.stem}" for p in clips]
     )
 
 
 _records: dict[tuple[str, str], RigRecord] = {}
+_configs: dict = {}
+
+
+def _config(dataset: str):
+    """`configs/build.yaml` for this dataset (`data=<dataset>`)."""
+    if dataset not in _configs:
+        _configs[dataset] = compose_build([f"data={dataset}"])
+    return _configs[dataset]
 
 
 def _record(corpus: Path, raw: Path, rig: str, layout: str = "rot6d_joint") -> RigRecord:
@@ -97,11 +109,14 @@ def _angle_deg(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.degrees(2 * np.arccos(np.clip(np.abs(d[..., 3]), 0.0, 1.0)))
 
 
-def _assert_same_world(got, want, tol: float, what: str) -> None:
-    """World positions agree to `tol` of the rig's extent; the message names the joint."""
+def _assert_same_world(got, want, tol: float, what: str, skip=()) -> None:
+    """World positions agree to `tol` of the rig's extent; the message names the joint.
+
+    Joints named in `skip` are not compared."""
     assert got.names == want.names, f"{what}: joints differ"
     a, b = got.global_positions(), want.global_positions()
     err = np.linalg.norm(a - b, axis=-1).max(axis=0) / np.ptp(b[0], axis=0).max()
+    err[[j for j, name in enumerate(want.names) if name in skip]] = 0.0
     worst = int(err.argmax())
     assert err[worst] <= tol, f"{what}: `{want.names[worst]}` off by {err[worst]:.2e} of extent"
 
@@ -120,8 +135,19 @@ def test_round_trip(clip: Path, tmp_path, request):
     # Reduction leg: expanding the model view puts every joint back where the
     # prepared clip had it. World-exact, not rotation-exact: a folded joint's
     # rotation stays on its parent, and the two are coincident.
+    # A still joint comes back at its rig's constant rotation, which a clip
+    # holds only to the dataset's `drop_still` degrees; it is checked to that.
+    config = _config(dataset)
+    manifest = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml", contact_defaults(config.data.labels.contact))
+    with np.load(corpus / "rigs" / rig / "skeleton.npz", allow_pickle=True) as data:
+        still = load_still(data)
     expanded = invert_reduction(model, record.reduction)
-    _assert_same_world(expanded, prepared, EXACT_TOL, "reduction leg")
+    _assert_same_world(expanded, prepared, EXACT_TOL, "reduction leg", skip=still)
+    if still:
+        held = [prepared.names.index(n) for n in still]
+        turned = _angle_deg(prepared.rotations[:, held], expanded.rotations[:, held]).max()
+        degrees = next(r.degrees for r in record.reduction_rules if r.name == "drop_still")
+        assert turned <= degrees, f"reduction leg: a still joint turned {turned:.3f} deg"
     # A fold loses its parent's own world rotation, so it may only target the root.
     folded = [op.parent for op in record.reduction.ops
               if op.kind == COLLAPSE and prepared.parents[prepared.names.index(op.parent)] >= 0]
@@ -132,9 +158,8 @@ def test_round_trip(clip: Path, tmp_path, request):
     # costs the last frame; both are by design, so they are factored out.
     # Both rotation layouts are checked, the dataset's and the other one, so
     # switching `schema:` can't break recovery unnoticed.
-    schema = yaml.safe_load(Path(f"configs/dataset/{dataset}.yaml").read_text())["schema"]
+    schema = list(config.features.blocks)
     swap = {"rot6d_joint": ["rot6d_bone"], "rot6d_bone": ["rot6d_joint", "heading"], "heading": []}
-    manifest = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml")
     for names in (schema, [m for n in schema for m in swap.get(n, [n])]):
         layout = reduction_layout(names)
         view = apply_reduction(prepared, _record(corpus, raw, rig, layout).reduction)
@@ -154,12 +179,14 @@ def test_round_trip(clip: Path, tmp_path, request):
         # so the only leaves left are zero-length and orient nothing).
         if layout == "rot6d_bone":
             made = [n for j, n in enumerate(view.names) if j not in view.parents
-                    and prepared.names.index(n) in prepared.parents]
+                    and prepared.names.index(n) in prepared.parents and n not in still]
             assert not made, f"features leg ({layout}): reduction made {made[:3]} leaves, losing their rotation"
         else:
-            # Only End Sites may drop: any other joint has a rotation of its own.
+            # Only End Sites and still joints may drop: any other joint has a
+            # rotation of its own.
             dropped = [op.name for op in _record(corpus, raw, rig, layout).reduction.ops
-                       if op.kind == DROP and prepared.names.index(op.name) in prepared.parents]
+                       if op.kind == DROP and prepared.names.index(op.name) in prepared.parents
+                       and op.name not in still]
             assert not dropped, f"features leg ({layout}): reduction dropped joints {dropped[:3]}, losing their rotation"
         held = [j for j in range(view.n_joints) if layout == "rot6d_joint" or j in view.parents]
         turn = quat_mul(quat_inverse(view.rotations[: len(features), held]), rebuilt.rotations[:, held])
@@ -252,7 +279,7 @@ def test_up_axis(request):
     rest_path = rest_source(manifest, paths)
     clip_path = next(p for p in paths if p != rest_path)
     rest_bvh = BVH.read(rest_path)
-    chain = _chain_for(rest_bvh.channels, rig)
+    chain = chain_for(_config(dataset).data.prepare, rest_bvh.channels)
 
     def prepare(man, rest, clip):
         rig_params = chain.fit_rig(rest, resolve(man, rest.names))

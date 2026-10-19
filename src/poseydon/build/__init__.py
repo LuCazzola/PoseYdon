@@ -1,6 +1,7 @@
 """Turning a raw corpus into a prepared one, invertibly."""
 
 from poseydon.build.prepare import (
+    BoneRelative,
     CentreXZ,
     EnforceRigid,
     FaceAxis,
@@ -15,6 +16,7 @@ from poseydon.build.prepare import (
 )
 
 __all__ = [
+    "BoneRelative",
     "CentreXZ",
     "EnforceRigid",
     "FaceAxis",

@@ -130,6 +130,9 @@ class MotionBatch:
     masks: Masks
     window: WindowInfo
     cond: Cond
+    #: Each sample's skeleton name, for per-rig diagnostics; empty when the
+    #: batch was not built from a dataset.
+    rigs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.x.ndim != 4:

@@ -10,7 +10,9 @@ recomputed.
 
 A joint that is INSERTED, rather than kept or moved, has no single source:
 it sits between two joints and is described by neither alone. ``blend_of``
-names its second source, and transport averages the pair.
+names its second source, and transport averages the pair -- except where the
+inserted joint's value is known exactly: its own rotation is identity on every
+frame, and ``identity_slots`` names the (block, joint) slots that carry it.
 """
 
 from __future__ import annotations
@@ -19,7 +21,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from poseydon.core.rotations import matrix_to_rot6d
+from poseydon.core.spec import FeatureSpec
 from poseydon.data.normalize import Normalizer
+from poseydon.features.kinematics import _REFERENCE_6D_LAYOUT
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,12 @@ class JointEdit:
     #: counterpart -- means a plain gather, so an edit that inserts nothing
     #: behaves exactly as it did before this existed.
     blend_of: tuple[int, ...] | None = None
+    #: ``(block, new_index)`` slots holding an identity rotation on every frame:
+    #: an inserted joint's own rotation, in whichever slot its layout stores it
+    #: (`rot6d_joint` at the joint, `rot6d_bone` at its child). Averaging the
+    #: neighbours' moments there is wrong whenever their rotations sit far from
+    #: identity, as on a bone-relative corpus (Roach's `Bip01_Tail`: 137 sigma).
+    identity_slots: tuple[tuple[str, int], ...] = ()
 
     def _sources(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         return self.source_of, self.blend_of or self.source_of
@@ -52,9 +63,14 @@ class JointEdit:
         """
         mine, mine_blend = self._sources()
         theirs, theirs_blend = prior._sources()
+        # The prior's slots follow its joints into this layout; a joint this
+        # edit dropped takes its slot with it.
+        new_of = {old: new for new, old in enumerate(mine) if mine_blend[new] == old}
+        carried = tuple((b, new_of[j]) for b, j in prior.identity_slots if j in new_of)
         return JointEdit(
             source_of=tuple(theirs[i] for i in mine),
             blend_of=tuple(theirs_blend[i] for i in mine_blend),
+            identity_slots=carried + self.identity_slots,
         )
 
     def transport(self, normalizer: Normalizer) -> Normalizer:
@@ -70,18 +86,32 @@ class JointEdit:
         constant 11 sigma on every frame, and `simple` squares it.
         """
         first, second = (np.asarray(s, dtype=np.int64) for s in self._sources())
-        return Normalizer(
-            mean=(normalizer.mean[first] + normalizer.mean[second]) / 2.0,
-            std=(normalizer.std[first] + normalizer.std[second]) / 2.0,
-            spec=normalizer.spec,
-        )
+        mean = (normalizer.mean[first] + normalizer.mean[second]) / 2.0
+        std = (normalizer.std[first] + normalizer.std[second]) / 2.0
+        # A slot known to hold identity is a constant: centred on it and left
+        # unscaled, the way `Normalizer` treats every constant channel.
+        for block, joint in self._identity_slots_in(normalizer.spec):
+            mean[joint, block] = _IDENTITY_6D
+            std[joint, block] = 1.0
+        return Normalizer(mean=mean, std=std, spec=normalizer.spec)
 
-    def transport_row(self, row: np.ndarray) -> np.ndarray:
-        """One ``(J, D)`` row -- the rest frame -- through the same edit.
+    def transport_row(self, row: np.ndarray, spec: FeatureSpec) -> np.ndarray:
+        """One NORMALIZED ``(J, D)`` row -- the rest frame -- through the same edit.
 
         Averaged for the same reason as `transport`: the rest pose is how the
         model is told what the rig IS, and describing an inserted midpoint by
         its source's rest row contradicts the features handed over beside it.
+        An identity slot is exactly 0 under the statistics `transport` gives it.
         """
         first, second = (np.asarray(s, dtype=np.int64) for s in self._sources())
-        return (row[first] + row[second]) / 2.0
+        out = (row[first] + row[second]) / 2.0
+        for block, joint in self._identity_slots_in(spec):
+            out[joint, block] = 0.0
+        return out
+
+    def _identity_slots_in(self, spec: FeatureSpec) -> list[tuple[slice, int]]:
+        """The identity slots whose block this spec carries, as channel slices."""
+        return [(spec.slice(name), joint) for name, joint in self.identity_slots if name in spec]
+
+
+_IDENTITY_6D = matrix_to_rot6d(np.eye(3), layout=_REFERENCE_6D_LAYOUT)

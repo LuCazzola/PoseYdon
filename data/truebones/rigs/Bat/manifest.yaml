@@ -1,4 +1,3 @@
-base: ../_base.yaml
 skeleton: Bat
 rest_pose: __TPOSE.bvh
 facing:

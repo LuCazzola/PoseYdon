@@ -1,6 +1,5 @@
-base: ../_base.yaml
 skeleton: Cricket
-rest_pose: __Idle.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
@@ -19,6 +18,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __Idle.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'Cricket-Attack1.fbx'
   textures: null

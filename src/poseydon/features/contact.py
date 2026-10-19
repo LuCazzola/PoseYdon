@@ -29,6 +29,11 @@ class FootContact(Feature):
         flags = np.zeros((ctx.positions.shape[0] - 1, ctx.n_joints, 1))
         if not feet:
             return flags
+        if contact is None:
+            raise ValueError(
+                f"{ctx.resolved.manifest.name}: `foot_contact` needs contact thresholds, which the "
+                "dataset config's `labels.contact` supplies; this manifest was loaded without them"
+            )
 
         delta = ctx.positions[1:, feet] - ctx.positions[:-1, feet]
         # Compare squared quantities: max_speed is a real speed, so squaring it

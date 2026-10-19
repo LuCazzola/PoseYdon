@@ -1,98 +1,68 @@
-"""Raw Truebones BVH -> canonical, invertible clips under the entity-first layout.
+"""Raw BVH -> canonical, invertible clips under the entity-first layout (stage 1).
 
-For every rig with a manifest under ``--out-root/rigs/<Rig>/manifest.yaml``,
-reads every raw ``.bvh`` clip under ``--raw-root/<Rig>/``, runs it through
-:class:`poseydon.build.prepare.PrepareChain` (bind-rotation removal, facing
-alignment, rigid-bone enforcement, XZ centring, uniform scaling, grounding),
-and writes the result to ``--out-root/clips/<Rig>/<action>.bvh``. The fitted
-transform is recorded to ``--out-root/rigs/<Rig>/preproc.npz`` so the corpus
-can be turned back into what it came from.
+For every rig with a manifest under the dataset's ``paths.rigs``, reads every
+raw clip under ``paths.raw/source/<Rig>/``, runs it through the dataset's
+``prepare:`` chain (`poseydon.build.prepare.chain_from`) and writes the result
+to ``paths.root/clips/<Rig>/<action>.bvh``. The fitted transform, and the chain
+itself, go to ``rigs/<Rig>/preproc.npz`` so the corpus can be turned back into
+what it came from. The dataset is `configs/build.yaml`'s ``data`` group:
 
-Run inside the test container:
-    docker compose run --rm test python scripts/process_dataset_truebones.py
+    docker compose run --rm test python scripts/process_dataset_truebones.py [--rigs Lion ...] [data=truebones_bone]
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import math
+import warnings as warnings_module
 from pathlib import Path
 
 import numpy as np
+from omegaconf import DictConfig
 
 from poseydon.build.corpus import rest_action, rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
-from poseydon.build.prepare import CLIP, PrepareChain, RigTransform, prepare_chain
+from poseydon.build.pipeline import compose_build
+from poseydon.build.prepare import (
+    CLIP,
+    BoneRelative,
+    EnforceRigid,
+    PrepareChain,
+    RigTransform,
+    chain_from,
+)
 from poseydon.build.report import PreparationReport
-from poseydon.core.rotations import QUAT_IDENTITY
+from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_apply, quat_inverse
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.ingest.pipeline import available_rigs
 from poseydon.io.bvh import BVH
 
-DEFAULT_RAW_ROOT = Path("data/_raw/truebones/source")
-DEFAULT_OUT_ROOT = Path("data/truebones")
 TARGET_AXIS = "+Z"
 _TARGET_FORWARD = np.array([0.0, 0.0, 1.0])
 
-def _chain_for(
-    source_channels: tuple[tuple[str, ...], ...] | None, rig: str = ""
-) -> PrepareChain:
-    """The canonical chain, configured with THIS rig's real channels and root.
 
-    The order lives in `poseydon.build.prepare.prepare_chain`; what this adds
-    is the two rig-specific fits. `EnforceRigid.fit` records `source_channels`
-    verbatim when given one rather than inferring a layout from the (often
-    single-frame, under-declaring) rest pose -- see `EnforceRigid`'s docstring.
-
-    `None` is that stage's documented fallback, for a caller with no source
-    file to declare channels for. Preparation always has one; `scripts/anim_2_fbx.py`,
-    which reuses this chain to INVERT a preparation, never does -- and never
-    fits the stage either, so the layout is not consulted on that path.
-    """
-    return prepare_chain(source_channels, PROMOTE_ROOT.get(rig))
+def chain_for(prepare, source_channels: tuple[tuple[str, ...], ...] | None) -> PrepareChain:
+    """The dataset's chain, with THIS rig's real channel layout given to
+    `EnforceRigid`, whose `fit` records it verbatim rather than inferring a
+    layout from the (often single-frame, under-declaring) rest pose."""
+    chain = chain_from(prepare)
+    stages = tuple(
+        dataclasses.replace(stage, source_channels=source_channels) if isinstance(stage, EnforceRigid) else stage
+        for stage in chain.stages
+    )
+    return PrepareChain(stages, chain.entries)
 
 
-#: Joint promoted to root, for the 14 rigs that root at a ground locator.
-#:
-#: Measured on the rest pose as height fraction (rootY - minY) / (maxY - minY),
-#: the corpus splits absolutely: these 14 at f <= 0.005, the other 59 at
-#: f >= 0.189, nothing between. Thirteen entries are the first branching joint
-#: along the root's single-child chain. Tukan is authored because its root
-#: branches straight into the real skeleton (N_ALL -> locator) and a dead MESH
-#: subtree of geometry-holder nodes, so no chain rule reaches it.
-#:
-#: The gate is the locator classification, NEVER the presence of an offset:
-#: Lynx and BrownBear have a correct root on the pelvis and a chain continuing
-#: to Bip01_Spine at 0.79 and 0.89 bone lengths, and an offset-keyed rule would
-#: promote their root onto the spine. A rig absent from this table is untouched.
-PROMOTE_ROOT: dict[str, str] = {
-    "Bear": "NPC_Pelvis",
-    "Camel": "Bip01",
-    "Crow": "_00",
-    "Dog": "Bip01_Pelvis",
-    "Dog-2": "Bip01_Pelvis",
-    "Horse": "Bip01_Pelvis",
-    "Pirrana": "locator",
-    "Pteranodon": "jt_Cog_C",
-    "Raptor3": "jt_Cog_C",
-    "SabreToothTiger": "Sabrecat__pelv_",
-    "Scorpion-2": "jt_Cog_C",
-    "Spider": "_body_",
-    "Trex": "jt_Cog_C",
-    "Tukan": "locator",
-}
-
-
-def process_species(
-    manifest: SkeletonManifest, raw_root: Path, out_root: Path
-) -> tuple[int, list[str]]:
+def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, list[str]]:
     """Prepare every raw clip for one rig. Returns (n_written, warnings)."""
     warnings: list[str] = []
-    species_dir = raw_root / manifest.name
+    out_root = Path(data.paths.root)
+    species_dir = Path(data.paths.raw) / "source" / manifest.name
     if not species_dir.is_dir():
         return 0, [f"{manifest.name}: no raw directory at {species_dir}, skipped"]
 
-    clip_paths = sorted(species_dir.glob("*.bvh"))
+    clip_paths = sorted(species_dir.glob(data.source.pattern))
     if not clip_paths:
         return 0, [f"{manifest.name}: no .bvh files found in {species_dir}, skipped"]
 
@@ -103,9 +73,12 @@ def process_species(
 
     rest_bvh = BVH.read(rest_path)
     rest = rest_bvh.to_animation()
-    chain = _chain_for(rest_bvh.channels, manifest.name)
+    chain = chain_for(data.prepare, rest_bvh.channels)
     report = PreparationReport.start("truebones", manifest.name, manifest.authority)
-    rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report)
+    with warnings_module.catch_warnings(record=True) as caught:   # e.g. `ground: mesh` falling back
+        warnings_module.simplefilter("always")
+        rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report)
+    warnings.extend(str(w.message) for w in caught)
 
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -119,13 +92,9 @@ def process_species(
         # and skipped rather than aborting the other twenty.
         try:
             source = BVH.read(clip_path).to_animation()
-            if manifest.fps is not None and not math.isclose(
-                manifest.fps, source.fps, rel_tol=1e-3
-            ):
-                raise ValueError(
-                    f"manifest requires {manifest.fps} fps but this clip is "
-                    f"{source.fps:.4f}"
-                )
+            fps = manifest.fps or data.source.get("fps")
+            if fps is not None and not math.isclose(fps, source.fps, rel_tol=1e-3):
+                raise ValueError(f"the dataset requires {fps} fps but this clip is {source.fps:.4f}")
             resolved = resolve(manifest, source.names)
             prepared, params = chain.apply(source, resolved, rig_params, audit=report)
 
@@ -143,15 +112,16 @@ def process_species(
         n_written += 1
 
     report.write(out_root / "rigs" / manifest.name / "report.json")
-    RigTransform(rig_params=rig_params, clip_params=clip_params).save(
+    RigTransform(rig_params=rig_params, clip_params=clip_params, chain=chain.entries).save(
         out_root / "rigs" / manifest.name / "preproc.npz"
     )
-    warnings.extend(_sanity_check(manifest, clips_dir, rest_path))
+    warnings.extend(_sanity_check(manifest, clips_dir, rest_path, rig_params.get("bone_relative")))
     return n_written, warnings
 
 
 def _sanity_check(
-    manifest: SkeletonManifest, clips_dir: Path, rest_path: Path
+    manifest: SkeletonManifest, clips_dir: Path, rest_path: Path,
+    bone_relative: dict[str, np.ndarray] | None,
 ) -> list[str]:
     """Print diagnostics for the written files; warn (not fail) if one looks off.
 
@@ -181,7 +151,11 @@ def _sanity_check(
         )
         subject = written[0]
 
+    # Checked in the rest-relative view, where identity is the rest pose: a
+    # bone-relative corpus is undone first (the identity on any other).
     anim = BVH.read(subject).to_animation()
+    if bone_relative is not None:
+        anim = BoneRelative().invert(anim, bone_relative)
     resolved = resolve(manifest, anim.names)
     label = f"  [{manifest.name}] {subject.name}"
 
@@ -194,6 +168,10 @@ def _sanity_check(
             across += positions[right] - positions[left]
         across = across / np.linalg.norm(across)
         forward = np.cross(np.array([0.0, 1.0, 0.0]), across)
+        # `extra_yaw_deg` turns the pairs' forward into the rig's (a snake's pair
+        # runs along its head); undo it so the check reads the rig's own facing.
+        yaw = euler_to_quat(np.array([0.0, manifest.extra_yaw_deg, 0.0]), "ZYX")
+        forward = quat_apply(quat_inverse(yaw), forward)
         return float(np.dot(forward / np.linalg.norm(forward), _TARGET_FORWARD))
 
     posed_dot = facing_dot(anim.global_positions()[0], resolved.facing_indices)
@@ -247,18 +225,14 @@ def _sanity_check(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
-    parser.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
-    parser.add_argument(
-        "--rigs",
-        nargs="*",
-        default=None,
-        help="Rig names to process (default: every rig under --out-root/rigs)",
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--rigs", nargs="*", default=None, help="rig names to process (default: every rig under paths.rigs)")
+    parser.add_argument("--config-name", default="build")
+    parser.add_argument("overrides", nargs="*", help="Hydra overrides, e.g. data=truebones_bone")
     args = parser.parse_args()
+    data = compose_build(args.overrides, config_name=args.config_name).data
 
-    rig_names = available_rigs(args.out_root / "rigs")
+    rig_names = available_rigs(data.paths.rigs)
     if args.rigs is not None:
         wanted = set(args.rigs)
         rig_names = [name for name in rig_names if name in wanted]
@@ -266,10 +240,10 @@ def main() -> None:
     total_written = 0
     all_warnings: list[str] = []
     for rig_name in rig_names:
-        manifest = SkeletonManifest.load(args.out_root / "rigs" / rig_name / "manifest.yaml")
+        manifest = SkeletonManifest.load(Path(data.paths.rigs) / rig_name / "manifest.yaml")
         print(f"{manifest.name}:")
-        n_written, warnings = process_species(manifest, args.raw_root, args.out_root)
-        print(f"  wrote {n_written} clips -> {args.out_root / 'clips' / manifest.name}")
+        n_written, warnings = process_species(manifest, data)
+        print(f"  wrote {n_written} clips -> {Path(data.paths.root) / 'clips' / manifest.name}")
         total_written += n_written
         all_warnings.extend(warnings)
 

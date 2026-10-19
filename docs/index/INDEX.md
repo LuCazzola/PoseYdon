@@ -52,7 +52,8 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
-| `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus | [tooling](tooling.md#tools-and-probes) |
+| `tools/build_rest_mesh.py` | caches each rig's vendor mesh skinned on its rest pose (`rigs/<Rig>/rest_mesh.npz`), which the `ground` stage's `mesh` mode grounds on; needs the `fbxsdk` service | [tooling](tooling.md#tools-and-probes) |
+| `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus, through `poseydon.conditioners.text` | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_grid_search.py` | grid search over `GradientIK` terms, foot-contact term included | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_contact_compare.py` | default vs best-from-grid IK solve, with predicted contacts shown | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_floating_root.py` | which rigs have a root that is a ground locator rather than a body joint | [tooling](tooling.md#tools-and-probes) |
@@ -67,6 +68,7 @@ meant to be deleted once read.
 | `tools/probe_tukan.py` | inspects the Tukan T-pose: joint count, mean bone, branching | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_reference_retarget.py` | *throwaway*: Flamingo → Scorpion retarget with the reference weights | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_wandb_parity.py` | *throwaway*: pushes a parity retarget run to wandb | [tooling](tooling.md#tools-and-probes) |
+| `tools/tpose_author.py` | authors one-frame T-poses (`__TPOSE_authored.bvh`) for rigs whose rest pose is a clip frame, checked on the skinned vendor mesh; instructions and per-rig configs at its top | [tooling](tooling.md#tools-and-probes) |
 | `tools/render.py` | re-export so reference-comparison scripts keep one import path | [tooling](tooling.md#tools-and-probes) |
 | `tools/reference/` | scripts that run the reference implementation (`compat` image) to produce ground truth PoseYdon is compared against | [tooling](tooling.md#tools-and-probes) |
 
@@ -74,7 +76,7 @@ meant to be deleted once read.
 
 | path | holds | read |
 |---|---|---|
-| `configs/` | Hydra configs: `configs/train.yaml`, `configs/sample.yaml`, groups `configs/data/`, `configs/dataset/`, `configs/model/`, `configs/process/`, `configs/trainer/` | [tooling](tooling.md#configs) |
+| `configs/` | Hydra configs: `configs/train.yaml`, `configs/sample.yaml`, `configs/build.yaml`, groups `configs/data/` (one file per dataset, raw file to training sample), `configs/features/`, `configs/model/`, `configs/process/`, `configs/trainer/` | [tooling](tooling.md#configs) |
 | `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/how-to/testing.md) |
 | `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/concepts/data/layout.md) |
 | `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/concepts/data/layout.md) |

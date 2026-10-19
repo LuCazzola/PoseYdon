@@ -9,19 +9,33 @@ re-runs one pass over already-prepared motion rather than rebuilding a corpus.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
-from poseydon.build.corpus import PerRigDirectory, read_labels, rest_action, write_labels
+from poseydon.build.corpus import CORPORA, PerRigDirectory, read_labels, rest_action, write_labels
 from poseydon.build.index import ClipRecord, CorpusIndex, clip_id
-from poseydon.build.names import Humanize
+from poseydon.build.names import JOINT_NAMES, Humanize
 from poseydon.build.prepare import RigTransform
-from poseydon.core.skeleton import SkeletonManifest, resolve
+from poseydon.core.registry import import_custom
+from poseydon.core.skeleton import SkeletonManifest, contact_defaults, resolve
 from poseydon.data.normalize import BlockPolicy, Normalizer
 from poseydon.features import extract_features
-from poseydon.features.reduce import apply_reduction, build_reduction, reduction_layout
+from poseydon.features.reduce import (
+    DEFAULT_RULES,
+    DropStill,
+    ReduceRule,
+    apply_reduction,
+    build_reduction,
+    load_rules,
+    load_still,
+    reduction_layout,
+    rule_entries,
+    rules_from,
+    still_joints,
+)
 from poseydon.io.bvh import BVH
 
 
@@ -35,8 +49,27 @@ class BuildConfig:
     #: Where artefacts are written. Defaults to `root`; tests point it at a
     #: tmp_path so a test never mutates the corpus another test reads.
     out: Path | None = None
-    reduce_tolerance: float = 1e-8
+    #: The dataset's `reduce:` rules, in order; recorded in `skeleton.npz`.
+    reduce: tuple[ReduceRule, ...] = DEFAULT_RULES
+    #: The dataset's `labels.contact`, the thresholds `foot_contact` reads.
+    contact: Mapping | None = None
     relabel: bool = False
+
+    @classmethod
+    def from_config(cls, config, out: Path | None = None, relabel: bool = False) -> BuildConfig:
+        """From a composed `configs/build.yaml` (its ``data`` and ``features``)."""
+        data, features = config.data, config.features
+        return cls(
+            root=Path(data.paths.root),
+            schema=tuple(features.blocks),
+            corpus=CORPORA.build(data.corpus),
+            names=JOINT_NAMES.build(data.labels.joint_names),
+            normalize=tuple(BlockPolicy(**dict(entry)) for entry in features.normalize),
+            out=out,
+            reduce=rules_from(data.reduce),
+            contact=data.labels.get("contact"),
+            relabel=relabel,
+        )
 
     def __post_init__(self) -> None:
         if self.out is None:
@@ -45,7 +78,7 @@ class BuildConfig:
         object.__setattr__(self, "out", Path(self.out))
 
     def manifest(self, rig: str) -> SkeletonManifest:
-        return SkeletonManifest.load(self.root / "rigs" / rig / "manifest.yaml")
+        return SkeletonManifest.load(self.root / "rigs" / rig / "manifest.yaml", contact_defaults(self.contact))
 
     def transform(self, rig: str) -> RigTransform:
         return RigTransform.load(self.root / "rigs" / rig / "preproc.npz")
@@ -136,9 +169,17 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     # Load-bearing and derived nowhere else. If `as_rigid_body` ever starts
     # rewriting offsets, or `_next_removal` ever reads a rotation-dependent
     # quantity, this comment and its twin at `build_stats` are where it breaks.
-    reduction = build_reduction(
-        rest, tolerance=config.reduce_tolerance, layout=reduction_layout(config.schema)
+    # The one exception is the still joints, measured here over every clip
+    # and recorded below, so that every later reduction reads the same set.
+    still = still_joints(
+        [
+            BVH.read(path).to_animation().as_rigid_body(joint_translation="drop")
+            for path in config.corpus.clips(config.root, rig)
+        ],
+        next((rule.degrees for rule in config.reduce if isinstance(rule, DropStill)), None),
+        protected=[*manifest.foot_joints, *(n for pair in manifest.facing for n in (pair.right, pair.left))],
     )
+    reduction = build_reduction(rest, config.reduce, layout=reduction_layout(config.schema), still=still)
     rig_params = config.transform(rig).rig_params
 
     payload: dict[str, np.ndarray] = {
@@ -148,6 +189,9 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
         "humanized": np.array(config.names(rest.names)),
         "reduction_source_of": np.array(reduction.source_of),
         "reduction_source_names": np.array(reduction.source_names),
+        "reduction_still_names": np.array(list(still), dtype="<U64"),
+        "reduction_still_rotations": np.array(list(still.values())).reshape(-1, 4),
+        "reduction_rules": np.array(json.dumps(rule_entries(config.reduce))),
         "rest_action": np.array(rest_action(manifest)),
     }
     # Fold stage 1's rig constants in, so the training-facing file is
@@ -173,6 +217,9 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
 def build_stats(config: BuildConfig, rig: str) -> None:
     """The one schema-dependent artefact."""
     manifest = config.manifest(rig)
+    with np.load(config.out / "rigs" / rig / "skeleton.npz", allow_pickle=True) as data:
+        still = load_still(data)
+        rules = load_rules(data)
     arrays, spec = [], None
     for path in config.corpus.clips(config.root, rig):
         anim = BVH.read(path).to_animation().as_rigid_body(joint_translation="drop")
@@ -181,9 +228,7 @@ def build_stats(config: BuildConfig, rig: str) -> None:
         # `norm(offsets)`, `parents` and `names`, none of which either
         # difference can change, so every one of these reductions equals the
         # one `skeleton.npz` records. See the full argument there.
-        reduction = build_reduction(
-            anim, tolerance=config.reduce_tolerance, layout=reduction_layout(config.schema)
-        )
+        reduction = build_reduction(anim, rules, layout=reduction_layout(config.schema), still=still)
         reduced = apply_reduction(anim, reduction)
         features, spec = extract_features(
             reduced, resolve(manifest, reduced.names), config.schema
@@ -215,6 +260,10 @@ def _split_of(label_path: Path, warnings: list[str] | None) -> str:
         _warn(warnings, f"{label_path}: split must be a string, got {split!r}; using split=train")
         return "train"
     return split
+
+
+#: Shortest clip the index takes: velocity features need two frames.
+MIN_CLIP_FRAMES = 2
 
 
 def _warn(warnings: list[str] | None, message: str) -> None:
@@ -251,6 +300,12 @@ def build_index(config: BuildConfig, warnings: list[str] | None = None) -> Corpu
             with np.load(path) as data:
                 n_frames = int(data["rotations"].shape[0])
                 fps = float(data["fps"])
+            if n_frames < MIN_CLIP_FRAMES:
+                # A one-frame clip (an authored `__TPOSE_authored.bvh`) is a rest
+                # pose, not motion: velocity needs two frames, so it has no
+                # feature frame to train on. Its file stays, for the rest pose.
+                _warn(warnings, f"{rig}/{path.stem}: {n_frames} frame(s), left out of the index")
+                continue
             split = _split_of(path.with_suffix(".yaml"), warnings)
             original_fbx = manifest.artifacts.fbx
             index.add(
@@ -310,3 +365,15 @@ def build_all(
         except Exception as error:  # noqa: BLE001 - collect, don't discard a completed build
             result.failures.append(f"index: {type(error).__name__}: {error}")
     return result
+
+
+def compose_build(overrides=(), config_dir: str | Path = "configs", config_name: str = "build"):
+    """`configs/build.yaml` composed with Hydra overrides (``data=truebones_bone``),
+    its ``custom_imports`` imported: what both corpus scripts read."""
+    from hydra import compose, initialize_config_dir
+
+    with initialize_config_dir(config_dir=str(Path(config_dir).resolve()), version_base=None):
+        config = compose(config_name=config_name, overrides=list(overrides))
+    import_custom(config.get("custom_imports"))
+    import_custom(config.data.get("custom_imports"))
+    return config

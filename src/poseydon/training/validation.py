@@ -34,7 +34,7 @@ import torch
 
 from poseydon.data.dataset import MotionDataset
 from poseydon.ops.retarget_run import run_retarget
-from poseydon.training.metrics import retarget_metrics
+from poseydon.training.metrics import reconstruction_metrics, retarget_metrics
 
 log = logging.getLogger(__name__)
 
@@ -216,17 +216,24 @@ class RetargetValidation(L.Callback):
                 guidance_scale=scale,
             )
             metrics = retarget_metrics(
+                result, self.dataset, content_rig=pair.content_rig, target_rig=pair.target
+            )
+            metrics |= reconstruction_metrics(
                 result,
                 model,
+                self.process,
+                self.sampler,
                 self.dataset,
-                content_rig=pair.content_rig,
+                content=pair.content,
                 target_rig=pair.target,
                 device=device,
+                generator=generator,
+                guidance_scale=scale,
             )
             self._upload(trainer, pair, result, step, artifact, scale)
             self._source(trainer, pair, result, step)
             scalars.update(
-                {f"retarget/{pair.slug}/{_tag(scale)}/{k}": float(v) for k, v in metrics.items()}
+                {f"retarget_pair/{pair.slug}/{_tag(scale)}/{k}": float(v) for k, v in metrics.items()}
             )
         return scalars
 
@@ -258,7 +265,7 @@ class RetargetValidation(L.Callback):
                 fps=round(anim.fps),
                 title=f"{pair.content}  (source)",
             )
-            experiment.log({f"retarget/{pair.slug}/source": wandb.Video(str(path))}, step=step)
+            experiment.log({f"retarget_video/{pair.slug}/source": wandb.Video(str(path))}, step=step)
             # Marked only on success, so a failed render is retried next firing
             # rather than silently never appearing.
             self._source_pushed.add(pair.content)
@@ -298,7 +305,7 @@ class RetargetValidation(L.Callback):
             for path in result.paths:
                 artifact.add_file(str(path), name=f"{pair.slug}/{_tag(scale)}/{Path(path).name}")
         experiment.log(
-            {f"retarget/{pair.slug}/{_tag(scale)}/video": wandb.Video(str(result.mp4))},
+            {f"retarget_video/{pair.slug}/{_tag(scale)}": wandb.Video(str(result.mp4))},
             step=step,
         )
 
@@ -318,15 +325,16 @@ class RetargetValidation(L.Callback):
         """
         if not scalars:
             return
-        # Everything after `retarget/<slug>/`, so the mean is taken across
-        # PAIRS within a scale. Grouping on the metric name alone would average
-        # g0.0 together with g2.5 and report the sweep's midpoint as the run's
-        # score -- a number that moves when a scale is added.
-        by_metric: dict[str, list[float]] = {}
+        # Per (scale, metric) across PAIRS, logged as `retarget/<metric>/<scale>`.
+        # Grouping on the metric name alone would average g0.0 together with
+        # g2.5 and report the sweep's midpoint as the run's score -- a number
+        # that moves when a scale is added.
+        by_metric: dict[tuple[str, str], list[float]] = {}
         for key, value in scalars.items():
-            by_metric.setdefault(key.split("/", 2)[2], []).append(value)
+            _, _, scale, metric = key.split("/")
+            by_metric.setdefault((metric, scale), []).append(value)
         scalars.update(
-            {f"retarget/mean/{name}": sum(v) / len(v) for name, v in by_metric.items()}
+            {f"retarget/{metric}/{scale}": sum(v) / len(v) for (metric, scale), v in by_metric.items()}
         )
         logger = getattr(trainer, "logger", None)
         if logger is not None:

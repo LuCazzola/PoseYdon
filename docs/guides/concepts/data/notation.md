@@ -42,14 +42,17 @@ each is undone.
 After preparation every character is in the same frame:
 
 - **Y is up.** The ground is the plane `y = 0`, with the rest pose's lowest
-  joint on it. A rig authored with another up axis declares it (`up_axis:` in
-  the manifest) and is turned to Y-up first; export turns it back.
+  mesh vertex on it (the `ground` stage's `mesh` mode in
+  `configs/data/truebones.yaml`) or, for a manifest that says `ground: joints`,
+  its lowest joint. A rig authored with another up axis declares it
+  (`up_axis:` in the manifest) and is turned to Y-up first; export turns it
+  back.
 - **Facing +Z.** Every rig's rest skeleton faces +Z, and each clip is turned
   (by its root) so that on its first frame the character faces +Z too.
 - **Centred.** The root sits at the X/Z origin on the rest pose's first frame.
 - **One size.** The rig is scaled so its mean bone length is 0.209, the
   reference implementation's average human bone length (`HML_AVG_BONELEN`,
-  set in `data/truebones/rigs/_base.yaml`). Lengths have no physical unit
+  the `scale` stage's `target` in `configs/data/truebones.yaml`). Lengths have no physical unit
   after this.
 - **Rigid.** Only the root moves through space; every other joint only
   rotates, so bone lengths never change.
@@ -59,6 +62,9 @@ After preparation every character is in the same frame:
 
 - **Quaternions are `(x, y, z, w)`**, with the scalar last, as in SciPy.
 - **Rotations are local**: each joint's rotation is relative to its parent.
+  In the default corpus identity on every joint is the rest pose
+  (`RestRelative`); in the bone-relative ablation corpus it is a straight
+  chain, each bone continuing its parent's (`BoneRelative`).
 - **6D rotations** are two of the three basis vectors of a rotation matrix.
   The feature blocks take the first two **columns**, which is what the
   reference's stored data uses. The general helper,
@@ -110,8 +116,8 @@ shorter than the clip.
 
 "Seen from the root" means the walk itself is removed, so the same step
 looks the same whichever way and wherever the character walks. The list is
-set in `configs/dataset/truebones.yaml` (`schema:`) and in `features:` of
-`configs/train.yaml`; the two must agree.
+set in the feature group, `configs/features/default.yaml` (`blocks:`), which
+stage 2 and the runs share.
 
 ### Rotation layouts
 

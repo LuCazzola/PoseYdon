@@ -1,15 +1,17 @@
-"""The five scalars that say whether a retarget is any good.
+"""The scalars that say whether a retarget is any good.
 
-Spec section 7's Metrics table, one function per row plus
-:func:`retarget_metrics`, which reads a :class:`~poseydon.ops.retarget_run.RetargetResult`
-and returns the six numbers the validation callback logs
-(``ik_residual`` is a mean AND a max).
+One function per row below, plus two that read a
+:class:`~poseydon.ops.retarget_run.RetargetResult`: :func:`retarget_metrics`
+returns the five numbers measured on the retarget itself (``ik_residual`` is a
+mean AND a max), and :func:`reconstruction_metrics` the two that decode again,
+``rec_error`` and ``rec_cycle_error``. The validation callback logs all seven.
 
 | foot skate            | horizontal displacement of a foot while its contact flag is set, on the SOLVED output |
 | bone-length drift     | ``abs(dist(p_j, p_parent) - norm(offset_j))`` on the RAW PREDICTED positions          |
 | IK residual           | ``norm(p_predicted - p_solved)``, mean and max                                        |
 | root trajectory error | generated root XZ velocity against the content clip's, each rescaled by its rig       |
-| latent round-trip     | distance between ``encode(generated)`` and the injected ``z_sem``                      |
+| reconstruction error  | content decoded onto its own rig, against the content (no retarget)                   |
+| cycle error           | the retarget decoded back onto the content's rig, against the content                 |
 
 Every length is reported **in bone-length units** -- divided by the rig's mean
 real bone -- so a scorpion and a flamingo produce numbers that can be averaged
@@ -47,7 +49,15 @@ from poseydon.features.base import FeatureContext
 from poseydon.features.contact import FootContact
 from poseydon.ingest.align import facing_quats
 from poseydon.models.base import Denoiser
-from poseydon.ops.retarget_run import RetargetResult, _whole_clip, find_clip_of_rig
+from poseydon.ops.retarget_run import (
+    RetargetResult,
+    _resolve,
+    _whole_clip,
+    decode_positions,
+    find_clip_of_rig,
+)
+from poseydon.process.base import Process
+from poseydon.sampling.base import Sampler
 
 #: Offsets at or below this are End Sites, not bones. Same constant, and the
 #: same reason, as `features.reduce` and `ScaleToMeanBoneLength`: a zero-length
@@ -208,31 +218,28 @@ def root_trajectory_error(
     return float(np.linalg.norm(generated - content, axis=-1).mean())
 
 
-def latent_round_trip(encoded: torch.Tensor, injected: torch.Tensor) -> float:
-    """Mean per-frame Euclidean distance between two semantic latents.
+def reconstruction_error(generated: np.ndarray, source: np.ndarray, *, scale: float = 1.0) -> float:
+    """Mean joint distance between two clips of ONE rig, the root's XZ removed.
 
-    Whether the decoder honoured the instruction at all: re-encoding what came
-    out should land back on the ``z_sem`` that was pinned into it.
-
-    The two frame axes need not agree. `MoDiffAE.encode` prepends the rig's rest
-    frame, so a latent is T+1 long, and re-encoding a GENERATED clip costs one
-    more frame to `local_vel`. Both sequences start with that same rest token,
-    so the shared frames are counted from the FRONT; everything after the frame
-    axis must match exactly, because a differing channel count is a different
-    model, not a shorter clip.
+    Both are ``(F, J, 3)`` world positions on the same skeleton; the shared
+    frames are counted from the front, since every decode costs the frame
+    `local_vel` spends. The root's ground-plane position is removed from each
+    frame because `features.recover.root_trajectory` starts a decode at the XZ
+    origin and the trajectory has its own metric; height and facing stay in.
     """
-    encoded = torch.as_tensor(encoded).detach().float().cpu()
-    injected = torch.as_tensor(injected).detach().float().cpu()
-    if encoded.shape[1:] != injected.shape[1:]:
+    generated = np.asarray(generated, dtype=np.float64)
+    source = np.asarray(source, dtype=np.float64)
+    if generated.shape[1:] != source.shape[1:]:
         raise ValueError(
-            f"latents differ past the frame axis: {tuple(encoded.shape[1:])} against "
-            f"{tuple(injected.shape[1:])}"
+            f"the two clips are on different rigs: {generated.shape[1:]} against {source.shape[1:]}"
         )
-    frames = min(encoded.shape[0], injected.shape[0])
+    frames = min(generated.shape[0], source.shape[0])
     if frames == 0:
-        raise ValueError("a latent with no frames cannot be compared")
-    difference = (encoded[:frames] - injected[:frames]).reshape(frames, -1)
-    return float(difference.norm(dim=-1).mean())
+        raise ValueError("a clip with no frames cannot be compared")
+    generated, source = generated[:frames].copy(), source[:frames].copy()
+    for clip in (generated, source):
+        clip[..., XZ] -= clip[:, :1, XZ]
+    return float(np.linalg.norm(generated - source, axis=-1).mean() / scale)
 
 
 # ---------------------------------------------------------------------------
@@ -260,15 +267,8 @@ def prepare_scale(dataset: MotionDataset, rig: str) -> float:
     return float(transform.rig_params["scale"]["factor"])
 
 
-def _encode_generated(
-    model: Denoiser,
-    dataset: MotionDataset,
-    result: RetargetResult,
-    resolved: ResolvedSkeleton,
-    target_rig: str,
-    device: torch.device | str,
-) -> torch.Tensor:
-    """``encode`` of the clip that was actually written, on the target rig.
+def _batch_of_generated(dataset: MotionDataset, result: RetargetResult, target_rig: str):
+    """The clip that was actually written, as a batch on the target rig.
 
     Re-extracted from `result.target_anim` rather than from the sampler's
     output tensor, so what is scored is the artifact -- reconstruction and all
@@ -277,31 +277,69 @@ def _encode_generated(
     topology, rest pose and statistics describe the rig, not the clip.
     """
     item = _whole_clip(dataset, find_clip_of_rig(dataset, target_rig))
-    raw, spec = extract_features(result.target_anim, resolved, dataset.features)
+    raw, spec = extract_features(
+        result.target_anim, target_skeleton(dataset, target_rig), dataset.features
+    )
     if spec != item.spec:
         raise ValueError(
             f"the generated clip extracts as {spec} but the rig's items are "
             f"{item.spec}; the two cannot share an encoder"
         )
     features = dataset._normalizer(target_rig, spec).normalize(raw)
-    batch = collate(
+    return collate(
         [dataclasses.replace(item, features=features, source_length=features.shape[0])]
     )
-    with torch.no_grad():
-        latent, _ = model.encode(batch.x.to(device), batch.cond.to(device))
-    return latent.detach().cpu()
+
+
+def reconstruction_metrics(
+    result: RetargetResult,
+    model: Denoiser,
+    process: Process,
+    sampler: Sampler,
+    dataset: MotionDataset,
+    *,
+    content: str,
+    target_rig: str,
+    device: torch.device | str = "cpu",
+    generator: torch.Generator | None = None,
+    guidance_scale: float = 1.0,
+) -> dict[str, float]:
+    """The two retarget checks that have a right answer: the source clip itself.
+
+    ``rec_error`` decodes the content onto its OWN rig; ``rec_cycle_error``
+    decodes the retarget `result` (content on the target rig) back onto the
+    content's rig. Both compare against the content clip, in its rig's bone
+    lengths. Neither says what the target-rig motion should look like -- no
+    ground truth exists for that -- only that the latent carried the content
+    there and back. Each costs one more decode.
+    """
+    record = _resolve(dataset, content)
+    source = result.content_anim.global_positions()
+    scale = mean_bone_length(result.content_anim.offsets)
+
+    def decode(batch) -> np.ndarray:
+        return decode_positions(
+            model, process, sampler, dataset, batch, record.skeleton,
+            device=device, generator=generator, reconstruct=result.reconstruct,
+            guidance_scale=guidance_scale,
+        )
+
+    own = decode(collate([_whole_clip(dataset, record)]))
+    back = decode(_batch_of_generated(dataset, result, target_rig))
+    return {
+        "rec_error": reconstruction_error(own, source, scale=scale),
+        "rec_cycle_error": reconstruction_error(back, source, scale=scale),
+    }
 
 
 def retarget_metrics(
     result: RetargetResult,
-    model: Denoiser,
     dataset: MotionDataset,
     *,
     content_rig: str,
     target_rig: str,
-    device: torch.device | str = "cpu",
 ) -> dict[str, float]:
-    """The six scalars for one retargeted pair, ready to log.
+    """The five scalars measured on one retargeted pair, ready to log.
 
     ``content_rig`` and ``target_rig`` are passed rather than recovered from the
     written filename: pairs are a QUERY the caller resolved, and nothing
@@ -336,9 +374,5 @@ def retarget_metrics(
             result.content_anim.root_pos[:frames],
             generated_scale=prepare_scale(dataset, target_rig),
             content_scale=prepare_scale(dataset, content_rig),
-        ),
-        "latent_round_trip": latent_round_trip(
-            _encode_generated(model, dataset, result, resolved, target_rig, device),
-            result.latent,
         ),
     }

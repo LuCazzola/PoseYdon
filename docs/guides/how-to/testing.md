@@ -20,7 +20,8 @@ The FBX half needs the Autodesk FBX SDK, which only the `fbxsdk` container has
 so. Under QEMU it costs about 11 s a clip, a few hours for the whole corpus.
 
 `--dataset <name>` reads `data/<name>/` (prepared), `data/_raw/<name>/source/`
-(raw) and `configs/dataset/<name>.yaml` (feature schema). Each test is one
+(raw) and `configs/build.yaml` composed with `data=<name>` (the dataset's
+chain and labels, and the feature blocks). Each test is one
 clip, with id `<Rig>/<action>`.
 
 ## The round-trip test
@@ -37,8 +38,11 @@ not produce. It asserts:
 - non-root joints don't translate;
 - in both rotation layouts (`rot6d_joint` and `rot6d_bone`), features rebuild
   the model view's positions and every rotation that orients something; the
-  `rot6d_bone` reduction makes no real joint a leaf, `rot6d_joint` drops no
-  joint but an End Site, and nothing is folded into a joint but the root.
+  `rot6d_bone` reduction makes no real joint but a still one a leaf,
+  `rot6d_joint` drops no joint but an End Site or a still joint, and nothing
+  is folded into a joint but the root; still joints come back within the
+  `drop_still` rule's `degrees` (as `skeleton.npz` records it), every other
+  joint exactly.
 
 `test_up_axis` turns one real rig to Z-up, declares `up_axis: +Z`, and checks
 that preparation gives the same clip as the Y-up original and that inverting

@@ -1,6 +1,6 @@
-base: ../_base.yaml
 skeleton: SabreToothTiger
-rest_pose: __Startwalk.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
+promote_root: Sabrecat__pelv_   # the root is a ground locator: the body's root joint
 facing:
   hips:      {right: Sabrecat_RightThigh_RThi_, left: Sabrecat_LeftThigh_LThi_}
   shoulders: {right: Sabrecat_RightClavicle_RClv_, left: Sabrecat_LeftClavicle_LClv_}
@@ -19,6 +19,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __Startwalk.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'SABREALL-180Flip.fbx'
   textures: null

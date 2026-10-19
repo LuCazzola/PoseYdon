@@ -1,15 +1,8 @@
 # Compose with CLI overrides, e.g.
-#   poseydon train model=anytop process=flow features=[rot6d_joint,heading,local_vel]
+#   poseydon train model=anytop process=flow features.blocks=[rot6d_joint,heading,local_vel]
 defaults:
-  - data: truebones
-  # The stage-2 build group. Composed here so the recipe records the reduction
-  # tolerance and the normalization policy the corpus was built under as REAL
-  # values: recorded as `null` they sat in `CHECKED` comparing None against
-  # None, two of six entries in the list that decides whether a checkpoint is
-  # safe to sample, contributing nothing while looking like the four that do.
-  # `configs/sample.yaml` composes the same group -- one-sided composition
-  # would reject every legitimate sample.
-  - dataset: truebones
+  - data: truebones          # the dataset, raw file to training sample (configs/data/)
+  - features: default        # feature blocks + their normalization; `configs/sample.yaml` composes the same
   - model: modiffae
   - process: gaussian
   - trainer: default
@@ -17,9 +10,8 @@ defaults:
 
 seed: 0
 
-# Feature blocks, in order. Changing this needs no re-ingest: ingest stores the
-# canonical animation, and features are composed when the data is read.
-features: [ric_pos, rot6d_joint, heading, local_vel, foot_contact]
+# Modules imported first, so the classes they register can be named by `type:`.
+custom_imports: []
 
 # Only declared conditioning is loaded, collated and moved to device.
 conditioners: [topology, tpose, norm_stats, joint_names]
@@ -42,14 +34,14 @@ conditioners: [topology, tpose, norm_stats, joint_names]
 # Set either p to 0 to fall back to a strictly one-or-the-other-or-neither
 # schedule, or override with `augmentations=[]` to disable entirely.
 augmentations:
-  - _target_: poseydon.augment.DropEndEffector
+  - type: drop_end_effector
     p: 0.3333333333333333
     rate: [0.1, 0.2, 0.3]
-  - _target_: poseydon.augment.DuplicateJoint
+  - type: duplicate_joint
     p: 0.3333333333333333
 
 # Weighted loss terms. Each declares the feature blocks it needs, checked
-# against `features` above before the first step.
+# against `features.blocks` before the first step.
 # `--lambda_geo 1.0` is passed explicitly by the reference's paper command;
 # `--lambda_fs` defaults to 0 there and is never passed. Foot skate stays a
 # MEASURED diagnostic (Plan B's validation scalar), not a training term -- the

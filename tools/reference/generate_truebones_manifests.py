@@ -186,7 +186,6 @@ def existing_extra_tags(out_dir: Path, taxonomy: set[str]) -> dict[str, list[str
 
 def render(species: str, facing: list[str], feet: list[str], tags: list[str]) -> str:
     lines = [
-        "base: _base.yaml",
         f"skeleton: {species}",
         "facing:",
         f"  hips:      {{right: {facing[0]}, left: {facing[1]}}}",
@@ -199,26 +198,6 @@ def render(species: str, facing: list[str], feet: list[str], tags: list[str]) ->
         lines.append("foot_joints: []   # the reference's heuristic finds none for this rig")
     lines.append(f"tags: [{', '.join(tags)}]")
     return "\n".join(lines) + "\n"
-
-
-BASE_MANIFEST = """# Shared by every Truebones skeleton. Values the reference keeps as GLOBAL
-# constants, identical for every species -- so they live here once instead of
-# being restated in seventy files. A species manifest overrides any of them by
-# declaring the key itself.
-fps: 30                 # every one of the 1153 raw Truebones clips is 30 fps, so
-                        # this is a real check rather than a default: ingest
-                        # rejects anything else instead of mixing rates silently.
-                        # The reference's FPS=20 is not a data rate at all -- it
-                        # discards each file's frame time and only labels its
-                        # rendered videos 20 fps, playing 30 fps motion 1.5x slow.
-scale: {mean_bone_length: 0.20921428571428569}   # reference HML_AVG_BONELEN
-contact:
-  max_height: 0.30      # reference FOOT_CONTACT_HEIGHT_THRESH
-  max_speed: 0.044721359549995794   # normalized length per frame; sqrt of the
-                        # reference's FOOT_CONTACT_VEL_THRESH (0.002), which it
-                        # compares against a SQUARED displacement. Must stay
-                        # exact: rounding flips borderline contact frames.
-"""
 
 
 def main() -> None:
@@ -237,7 +216,6 @@ def main() -> None:
 
     args.out.mkdir(parents=True, exist_ok=True)
     extra = existing_extra_tags(args.out, taxonomy)
-    (args.out / "_base.yaml").write_text(BASE_MANIFEST)
 
     wanted = args.species or sorted(face_joints)
     written, skipped, noted = 0, [], []
@@ -270,7 +248,9 @@ def main() -> None:
         (args.out / f"{species}.yaml").write_text(render(species, facing, feet, tags))
         written += 1
 
-    print(f"wrote {written} manifests + _base.yaml -> {args.out}")
+    # What every rig shares (fps, scale, contact thresholds) is the dataset
+    # config, configs/data/truebones.yaml, not a manifest.
+    print(f"wrote {written} manifests -> {args.out}")
     for species, reason in skipped:
         print(f"  skipped {species}: {reason}")
     if noted:

@@ -178,6 +178,47 @@ class FBX:
                 out[f, j] = _matrix(evaluator.GetNodeGlobalTransform(node, time))
         return out
 
+    def skinned_vertices(self, frame: int = 0) -> np.ndarray:
+        """``(V, 3)`` world positions of every skinned mesh's vertices on ``frame``.
+
+        Linear blend skinning as the file declares it: each cluster moves its
+        vertices by its link's world matrix on that frame times the inverse of
+        the link's bind matrix (the mesh's own bind matrix applied first).
+        Weights are normalised per vertex; a vertex no cluster weighs is dropped.
+        Meshes without a skin deformer are not included: a prop or helper
+        geometry is not the body.
+        """
+        if self._stack() is not None:
+            self.scene.SetCurrentAnimationStack(self._stack())
+        evaluator = self.scene.GetAnimationEvaluator()
+        time = _frame(frame, self._mode)
+        kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
+        out = []
+        for s in range(self.scene.GetSrcObjectCount(kind)):
+            skin = self.scene.GetSrcObject(kind, s)
+            points = np.array([[p[0], p[1], p[2], 1.0] for p in skin.GetGeometry().GetControlPoints()])
+            moved = np.zeros((len(points), 4))
+            total = np.zeros(len(points))
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                link_bind, mesh_bind = fbx.FbxAMatrix(), fbx.FbxAMatrix()
+                cluster.GetTransformLinkMatrix(link_bind)
+                cluster.GetTransformMatrix(mesh_bind)
+                deform = (
+                    _matrix(evaluator.GetNodeGlobalTransform(cluster.GetLink(), time))
+                    @ np.linalg.inv(_matrix(link_bind)) @ _matrix(mesh_bind)
+                )
+                index = np.array(cluster.GetControlPointIndices(), dtype=int)
+                weight = np.array(cluster.GetControlPointWeights(), dtype=float)
+                if index.size:
+                    np.add.at(moved, index, weight[:, None] * (points[index] @ deform.T))
+                    np.add.at(total, index, weight)
+            weighted = total > 0
+            out.append(moved[weighted, :3] / total[weighted, None])
+        if not out:
+            raise ValueError("this FBX has no skinned mesh")
+        return np.concatenate(out)
+
     def _check_transform_model(self, node) -> None:
         if node.RotationOrder.Get() != fbx.EFbxRotationOrder.eEulerXYZ:
             raise ValueError(f"{node.GetName()}: rotation order other than XYZ")
@@ -263,6 +304,10 @@ class FBX:
             self._key(node.LclTranslation, layer, frames, mode, local[:, j, :3, 3])
             scale = np.linalg.norm(local[0, j, :3, :3], axis=0)
             node.LclScaling.Set(fbx.FbxDouble3(*map(float, scale)))
+        # The evaluator caches what `world` read above (the old take's first
+        # frame) and keeps returning it for the new keys: Bird's posed mesh
+        # came back 70 units up in its attack pose until this reset.
+        self.scene.GetAnimationEvaluator().Reset()
 
     @staticmethod
     def _euler(linear: np.ndarray) -> np.ndarray:

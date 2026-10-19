@@ -36,11 +36,13 @@ invertible on its own.
 
 ## Going in: preparation
 
-[`prepare_chain()`][poseydon.build.prepare.prepare_chain] in `src/poseydon/build/prepare.py` is the single definition
-of the stage order, used both for preparing and for undoing. Each stage
-implements `fit`, `apply` and `invert`, and what it fitted is saved to
-`rigs/<Rig>/preproc.npz`. Inversion reads those saved parameters and never
-refits.
+The dataset config's `prepare:` list (`configs/data/truebones.yaml`) is the
+single definition of the stage order, built by
+[`chain_from`][poseydon.build.prepare.chain_from] and checked against each
+stage's declared predecessors. Each stage implements `fit`, `apply` and
+`invert`; what it fitted, and the list itself, are saved to
+`rigs/<Rig>/preproc.npz`. Inversion rebuilds the chain from that saved list,
+reads the saved parameters and never refits. The stages Truebones lists:
 
 | # | stage | scope | what it does | what undoing it needs |
 |---|---|---|---|---|
@@ -52,7 +54,8 @@ refits.
 | 6 | [`FaceAxis`][poseydon.build.FaceAxis] | **clip** | turns the clip's root so its frame-0 facing points along +Z; offsets and every other joint's rotation are left alone | that clip's yaw, which can't be recovered from the prepared file |
 | 7 | [`CentreXZ`][poseydon.build.CentreXZ] | rig | puts the root at the XZ origin on the rest pose's first frame | the offset |
 | 8 | [`ScaleToMeanBoneLength`][poseydon.build.ScaleToMeanBoneLength] | rig | scales so the mean bone length matches the reference's SMPL mean | the scale factor |
-| 9 | [`PutOnGround`][poseydon.build.PutOnGround] | rig | puts the rest pose's lowest joint at y = 0 | the offset |
+| 9 | [`PutOnGround`][poseydon.build.PutOnGround] | rig | puts the rest pose on y = 0: its lowest mesh vertex (`mode: mesh`, from `rest_mesh.npz`) or lowest joint (`mode: joints`, or a manifest's `ground: joints`) | the offset |
+| 10 | [`BoneRelative`][poseydon.build.BoneRelative] | rig | only in `data=truebones_bone`: re-expresses every local rotation in a bone-aligned frame, so identity is a straight chain | the per-joint frames |
 
 **Rig scope versus clip scope** decides what survives. Rig stages fit once on
 the rest pose and are shared by every clip of the character. Fitting
@@ -73,7 +76,11 @@ handles them in two ways:
 - a zero-offset **leaf** is deleted outright, losing nothing;
 - a zero-offset **internal** joint is folded into its parent only when it is
   that parent's only child. Otherwise folding would turn its siblings, so the
-  joint is kept.
+  joint is kept;
+- a **still** joint, one that turns less than the `drop_still` rule's
+  `degrees` (`reduce:` in the dataset config) over every clip of its rig, with every joint below it,
+  is deleted whatever its length and comes back at its constant rotation
+  (3ds Max `*Nub` tip bones, never-animated lips and eyes, Rat's `Trajectory`).
 
 Reduction is applied **when features are read, never written into the
 corpus**. Skin weights are indexed by the original joint order, so the corpus

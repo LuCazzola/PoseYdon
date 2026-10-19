@@ -1,6 +1,5 @@
-base: ../_base.yaml
 skeleton: Rat
-rest_pose: __Trottle.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
   hips:      {right: RightUpLeg, left: LeftUpLeg}
   shoulders: {right: RightForeArm, left: LeftForeArm}
@@ -15,6 +14,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __Trottle.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'Rat-AlertRun.fbx'
   textures: null

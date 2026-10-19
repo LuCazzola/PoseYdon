@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,7 +13,7 @@ from poseydon.augment.base import Augmentation, AugmentPipeline
 from poseydon.build.index import ClipRecord, CorpusIndex
 from poseydon.conditioners.base import CONDITIONERS, Conditioner
 from poseydon.core.animation import RigidBodyAnimation
-from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, resolve
+from poseydon.core.skeleton import ResolvedSkeleton, SkeletonManifest, contact_defaults, resolve
 from poseydon.core.spec import FeatureSpec
 from poseydon.data.normalize import Normalizer
 from poseydon.data.window import RandomCrop, Window
@@ -22,6 +22,8 @@ from poseydon.features.reduce import (
     JointReduction,
     apply_reduction,
     build_reduction,
+    load_rules,
+    load_still,
     reduction_layout,
 )
 
@@ -48,6 +50,8 @@ class Item:
     start: int
     source_length: int
     cond: dict[str, Any]
+    #: The skeleton the sample was drawn from, for per-rig diagnostics.
+    rig: str = ""
 
 
 class MotionDataset:
@@ -72,7 +76,7 @@ class MotionDataset:
         augmentations: Sequence[Augmentation] = (),
         split: str | None = None,
         seed: int = 0,
-        reduce_tolerance: float = 1e-8,
+        contact: Mapping | None = None,
     ) -> None:
         self.root = Path(root)
         self.manifest_dir = Path(manifest_dir)
@@ -82,9 +86,8 @@ class MotionDataset:
             CONDITIONERS.get(name)() for name in conditioners
         ]
         self.augment_pipeline = AugmentPipeline(augmentations)
-        # Matches `BuildConfig.reduce_tolerance`; taken as an argument so it
-        # cannot drift from the value stage 2 reduced under.
-        self.reduce_tolerance = reduce_tolerance
+        # The dataset's `labels.contact`: manifests carry no thresholds of their own.
+        self.contact = contact
         self.records = index.query(split=split) if split else list(index.records)
         if not self.records:
             raise ValueError(f"no clips in the index for split={split!r}")
@@ -140,7 +143,7 @@ class MotionDataset:
             # Entity-first layout: `rigs/<Rig>/manifest.yaml`, not the flat
             # `rigs/<Rig>.yaml` the migration deleted.
             self._manifests[skeleton] = SkeletonManifest.load(
-                self.manifest_dir / skeleton / "manifest.yaml"
+                self.manifest_dir / skeleton / "manifest.yaml", contact_defaults(self.contact)
             )
         return self._manifests[skeleton]
 
@@ -182,9 +185,11 @@ class MotionDataset:
                 self.manifest_dir / skeleton / "skeleton.npz", allow_pickle=True
             ) as data:
                 stored = tuple(int(i) for i in data["reduction_source_of"])
+                still = load_still(data)
+                rules = load_rules(data)
             rest = self._rest_clip(skeleton)
             reduction = build_reduction(
-                rest, tolerance=self.reduce_tolerance, layout=reduction_layout(self.features)
+                rest, rules, layout=reduction_layout(self.features), still=still
             )
             if reduction.source_of != stored:
                 raise ValueError(
@@ -281,7 +286,7 @@ class MotionDataset:
         start, length = self.window.bounds(features.shape[0], window_index, self._rng)
         window = features[start : start + length]
 
-        rest_frame = edit.transport_row(self._rest_frame_of(record.skeleton))
+        rest_frame = edit.transport_row(self._rest_frame_of(record.skeleton), spec)
 
         view = ClipView(
             record=record,
@@ -298,4 +303,5 @@ class MotionDataset:
             start=start,
             source_length=features.shape[0],
             cond={c.name: c.extract(view) for c in self.conditioners},
+            rig=record.skeleton,
         )

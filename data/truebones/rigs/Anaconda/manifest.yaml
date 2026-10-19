@@ -1,9 +1,11 @@
-base: ../_base.yaml
 skeleton: Anaconda
-rest_pose: __Idle.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
-  hips:      {right: BN_Tail_13, left: BN_Tone_04}
-  shoulders: {right: BN_Tail_13, left: BN_Tone_04}
+  # A snake has no left/right pair, so the pair runs along the head bone
+  # (neck -> head, pointing backward) and extra_yaw_deg turns the
+  # across-body axis it gives into the head's direction.
+  head:      {right: BN_Neck, left: BN_Head}
+  extra_yaw_deg: -90
 foot_joints:
   - Hips
   - BN_Tail_01
@@ -40,6 +42,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __Idle.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'AnacondaALL-Attack.fbx'
   textures: null

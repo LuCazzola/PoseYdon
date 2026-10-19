@@ -1,10 +1,10 @@
 """Turn a composed config into the objects that train.
 
-Two wiring styles, matched to how each kind of component is used. Singular
-choices -- model, process, window -- are Hydra config groups carrying a
-``_target_``. List-valued ones -- features, conditioners, losses -- are short
-registry names, because a full ``_target_`` block per list entry is noise and
-because ``poseydon list`` should be able to enumerate them.
+Every component is a registry name: a config entry names its class by
+``type:`` (`poseydon.core.registry.Registry.build`), and list slots whose
+entries take no arguments -- features, conditioners, losses -- by the bare
+name. A config's ``custom_imports`` are imported first, so a user's own
+registered class can be named the same way.
 """
 
 from __future__ import annotations
@@ -13,14 +13,16 @@ import os
 import warnings
 from pathlib import Path
 
-from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
+from poseydon.augment.base import AUGMENTATIONS
 from poseydon.build.index import CorpusIndex
+from poseydon.core.registry import import_custom
 from poseydon.data.dataset import MotionDataset
+from poseydon.data.window import WINDOWS
 from poseydon.losses.base import LOSSES, LossTerm
-from poseydon.models.base import Denoiser
-from poseydon.process.base import Process
+from poseydon.models.base import MODELS, Denoiser
+from poseydon.process.base import PROCESSES, Process
 from poseydon.training.lightning import MotionDataModule, MotionLitModule
 from poseydon.training.recipe import recipe_of
 
@@ -30,51 +32,42 @@ def build_losses(config: DictConfig) -> list[tuple[str, float, LossTerm]]:
 
 
 def build_dataset(config: DictConfig, split: str | None = None) -> MotionDataset:
-    index = CorpusIndex.load(Path(config.data.index))
+    import_custom(config.get("custom_imports"))
+    import_custom(config.data.get("custom_imports"))
+    index = CorpusIndex.load(Path(config.data.paths.index))
     # Clips this run must never see. Applied here rather than inside
     # `MotionDataset` because this is the one place a config becomes a dataset,
     # and both `train` and `sample` come through it.
     # Gated on the CONTENTS, not on the block: the default block is present and
     # empty, and `without` on two empty sets is a full copy of the index for
     # nothing.
-    block = config.data.get("blacklist") or {}
+    block = OmegaConf.select(config, "data.filter.blacklist") or {}
     skeletons, clips = block.get("skeletons") or (), block.get("clips") or ()
     if skeletons or clips:
         index = index.without(skeletons=skeletons, clips=clips)
     return MotionDataset(
         index=index,
-        root=config.data.root,
-        manifest_dir=config.data.manifests,
-        features=list(config.features),
-        window=instantiate(config.data.window),
+        root=config.data.paths.root,
+        manifest_dir=config.data.paths.rigs,
+        features=list(config.features.blocks),
+        window=WINDOWS.build(config.data.loader.window),
         conditioners=list(config.conditioners),
-        augmentations=[instantiate(entry) for entry in config.get("augmentations", [])],
+        augmentations=AUGMENTATIONS.build_all(config.get("augmentations")),
         split=split,
         seed=config.seed,
-        # The tolerance stage 2 reduced the corpus under. Read from the config
-        # rather than left on the dataset's own default so that the value the
-        # recipe RECORDS is the value the read path actually applies -- a
-        # recorded number the dataset ignores would be a second guard that
-        # reads as working while checking nothing.
-        # `is None`, not `or`: a configured `reduce_tolerance: 0.0` is falsy, and
-        # `or` would silently substitute 1e-8 while the recipe went on recording
-        # 0.0 -- exactly the recorded-but-ignored value the comment above rejects.
-        reduce_tolerance=float(
-            _tolerance if (_tolerance := OmegaConf.select(config, "dataset.reduce_tolerance"))
-            is not None else 1e-8
-        ),
+        contact=config.data.labels.get("contact"),
     )
 
 
 def build_datamodule(config: DictConfig) -> MotionDataModule:
     return MotionDataModule(
         train=build_dataset(config, split="train"),
-        batch_size=config.data.batch_size,
-        num_workers=config.data.num_workers,
+        batch_size=config.data.loader.batch_size,
+        num_workers=config.data.loader.num_workers,
         # Balanced sampling is the run's default (parity spec §10) but it was
         # unreachable from Hydra: this key was never forwarded, so
-        # `data.balanced=false` composed cleanly and changed nothing.
-        balanced=bool(config.data.get("balanced", True)),
+        # `data.loader.balanced=false` composed cleanly and changed nothing.
+        balanced=bool(config.data.loader.get("balanced", True)),
     )
 
 
@@ -84,14 +77,13 @@ def run_name(config: DictConfig) -> str:
     Used for the wandb run name and for the run's own directory, so a run's
     checkpoints, its recipe and its dashboard all carry the same name.
     """
-    target = str(OmegaConf.select(config, "model._target_") or "model")
-    parts = [target.rsplit(".", 1)[-1].lower()]
+    parts = [str(OmegaConf.select(config, "model.type") or "model")]
     # Only MoDiffAE has a pooling choice; AnyTop has no latent to pool into,
     # so it gets no pooling segment rather than a misleading one.
     virtual = OmegaConf.select(config, "model.n_virtual_joints")
     if virtual is not None:
         parts.append(f"attn{virtual}" if virtual else "mean")
-    parts.append(f"b{config.data.batch_size}")
+    parts.append(f"b{config.data.loader.batch_size}")
     parts.append(f"d{OmegaConf.select(config, 'model.d_model')}")
     return "-".join(parts)
 
@@ -209,11 +201,11 @@ def build_callbacks(run_dir: Path, logger: object = None, validation=None) -> li
 
 def build_model(config: DictConfig, feature_dim: int) -> Denoiser:
     """The model needs the feature width, which the representation decides."""
-    return instantiate(config.model, feature_dim=feature_dim)
+    return MODELS.build(config.model, feature_dim=feature_dim)
 
 
 def build_process(config: DictConfig) -> Process:
-    return instantiate(config.process)
+    return PROCESSES.build(config.process)
 
 
 def build_module(config: DictConfig, feature_dim: int) -> MotionLitModule:

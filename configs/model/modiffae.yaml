@@ -1,4 +1,4 @@
-_target_: poseydon.models.modiffae.MoDiffAE
+type: modiffae
 d_model: 128
 n_layers_semantic: 4
 n_layers_stochastic: 4

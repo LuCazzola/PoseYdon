@@ -1,0 +1,6 @@
+# Corpus construction: what scripts/process_dataset_truebones.py (stage 1) and
+# scripts/build_features.py (stage 2) read. Another dataset: `data=<name>`.
+defaults:
+  - data: truebones
+  - features: default
+  - _self_

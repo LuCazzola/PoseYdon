@@ -1,6 +1,5 @@
-base: ../_base.yaml
 skeleton: Monkey
-rest_pose: __Idle1.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
@@ -33,6 +32,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __Idle1.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'B01 die.fbx'
   textures: null

@@ -147,7 +147,64 @@ def _whole_clip(dataset: MotionDataset, record: ClipRecord) -> Item:
         start=0,
         source_length=raw.shape[0],
         cond={c.name: c.extract(view) for c in dataset.conditioners},
+        rig=record.skeleton,
     )
+
+
+def _decode(model, process, sampler, content_batch, target_batch, device, generator, guidance_scale):
+    """`content_batch`'s semantics denoised onto `target_batch`'s rig.
+
+    Returns the normalized ``(1, J, D, T)`` output and the `Retarget` op, which
+    keeps the latent it pinned. `target_batch` supplies only conditioning; the
+    length is the content's.
+    """
+    frames = content_batch.n_frames
+    masks = Masks(
+        frames=torch.ones(1, frames, dtype=torch.bool),
+        joints=target_batch.masks.joints[:1],
+    ).to(device)
+    operation = Retarget(content_batch.x, content_batch.cond, guidance_scale)
+    with torch.no_grad():
+        out = operation.run(
+            model=model,
+            process=process,
+            sampler=sampler,
+            shape=(1, target_batch.n_joints, target_batch.spec.dim, frames),
+            cond=target_batch.cond.to(device),
+            device=device,
+            generator=generator,
+            masks=masks,
+        )
+    return out, operation
+
+
+def decode_positions(
+    model: Denoiser,
+    process: Process,
+    sampler: Sampler,
+    dataset: MotionDataset,
+    content_batch,
+    rig: str,
+    device: torch.device | str = "cpu",
+    generator: torch.Generator | None = None,
+    reconstruct: str | None = None,
+    guidance_scale: float = 1.0,
+) -> np.ndarray:
+    """``(F, J, 3)`` solved positions of `content_batch` decoded onto `rig`.
+
+    What `run_retarget` does up to the solve, with nothing written: for
+    metrics that decode more than once per pair.
+    """
+    reconstructor = RECONSTRUCTORS.get(reconstruct or recipe.DEFAULT_RECONSTRUCT)()
+    record = find_clip_of_rig(dataset, rig)
+    target_batch = collate([_whole_clip(dataset, record)])
+    out, _ = _decode(
+        model, process, sampler, content_batch, target_batch, device, generator, guidance_scale
+    )
+    features = dataset._normalizer(rig, target_batch.spec).denormalize(
+        out[0].permute(2, 0, 1).cpu().numpy().astype("float64")
+    )
+    return reconstructor.anim(features, target_batch.spec, dataset._anim(record)).global_positions()
 
 
 def run_retarget(
@@ -192,26 +249,9 @@ def run_retarget(
     # are not used at all -- the length below is the content's.
     target_batch = collate([target_item])
 
-    frames = content_batch.n_frames
-    joints = target_batch.n_joints
-    masks = Masks(
-        frames=torch.ones(1, frames, dtype=torch.bool),
-        joints=target_batch.masks.joints[:1],
-    ).to(device)
-
-    operation = Retarget(content_batch.x, content_batch.cond, guidance_scale)
-    with torch.no_grad():
-        out = operation.run(
-            model=model,
-            process=process,
-            sampler=sampler,
-            shape=(1, joints, target_batch.spec.dim, frames),
-            cond=target_batch.cond.to(device),
-            device=device,
-            generator=generator,
-            masks=masks,
-        )
-
+    out, operation = _decode(
+        model, process, sampler, content_batch, target_batch, device, generator, guidance_scale
+    )
     normalizer = dataset._normalizer(target_rig, target_batch.spec)
     features = normalizer.denormalize(
         out[0].permute(2, 0, 1).cpu().numpy().astype("float64")

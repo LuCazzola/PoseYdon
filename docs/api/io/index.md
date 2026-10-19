@@ -27,6 +27,11 @@ frame the same shot.
   rotation in its own frame, so they differ by a constant per-joint offset.
   Compare in world space; `FbxCalibration` ([export](../export/index.md))
   measures the offset.
+- **`FBX.skinned_vertices` is plain linear blend skinning of skinned meshes
+  only.** Weights are normalised per vertex, unweighted vertices and meshes with
+  no skin deformer are left out, and dual-quaternion or blend-shape deformers
+  are ignored; none was checked on a Truebones file, which uses neither. Its
+  one user is `tools/build_rest_mesh.py`.
 
 ## Reference
 

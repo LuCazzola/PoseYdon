@@ -22,7 +22,31 @@ from poseydon.data.sampler import balanced_weights
 from poseydon.losses.base import LossTerm
 from poseydon.models.base import Denoiser
 from poseydon.process.base import Process
-from poseydon.training.task import MotionTask
+from poseydon.training.task import BLOCK, PER_SAMPLE, MotionTask
+
+#: Steps between per-rig loss averages. Balanced sampling draws every rig
+#: about equally, so 2500 steps of batch 16 give each of 73 rigs ~550 samples.
+RIG_LOG_EVERY = 2500
+
+
+def metric_name(key: str) -> str:
+    """Where a `compute_losses` key is logged; wandb groups on the first segment.
+
+    ``loss/<loss>`` the batch means, ``loss_noise/<loss>/q<N>`` split by noise
+    quartile, ``loss_block/<loss>/<block>`` per feature block.
+    """
+    loss, _, rest = key.partition("/")
+    if not rest:
+        return f"loss/{loss}"
+    if rest.startswith("noise_q"):
+        return f"loss_noise/{loss}/q{rest.removeprefix('noise_q')}"
+    return f"loss_block/{loss}/{rest.removeprefix(f'{BLOCK}/')}"
+
+
+def _module_of(name: str) -> str:
+    """`task.model.semantic_encoder.weight` -> `semantic_encoder`."""
+    parts = name.split(".")
+    return parts[2] if name.startswith("task.model.") and len(parts) > 3 else "other"
 
 
 class MotionLitModule(L.LightningModule):
@@ -46,6 +70,10 @@ class MotionLitModule(L.LightningModule):
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self._checked = False
+        #: `(loss, rig) -> [sum, count]` since the last per-rig flush.
+        self._rig_sums: dict[tuple[str, str], list[float]] = {}
+        #: Parameters as they were before this step's update, on logging steps.
+        self._before_step: dict[str, torch.Tensor] | None = None
 
     def training_step(self, batch, batch_index: int) -> torch.Tensor:
         # Validate the whole configuration against the first real batch, so a
@@ -56,8 +84,72 @@ class MotionLitModule(L.LightningModule):
 
         losses = self.task.compute_losses(batch)
         for name, value in losses.items():
-            self.log(f"train/{name}", value, prog_bar=(name == "total"), batch_size=len(batch))
+            if name.endswith(PER_SAMPLE):
+                self._accumulate_per_rig(name.removesuffix(f"/{PER_SAMPLE}"), value, batch.rigs)
+                continue
+            self.log(metric_name(name), value, prog_bar=(name == "total"), batch_size=len(batch))
         return losses["total"]
+
+    def _accumulate_per_rig(self, loss: str, values: torch.Tensor, rigs) -> None:
+        for rig, value in zip(rigs, values.float().tolist()):
+            entry = self._rig_sums.setdefault((loss, rig), [0.0, 0])
+            entry[0] += value
+            entry[1] += 1
+
+    def on_train_batch_end(self, outputs, batch, batch_index: int) -> None:
+        """The weight statistics of a logging step, and the per-rig flush.
+
+        Both are written straight to the loggers rather than through
+        `self.log`, whose step cadence (`log_every_n_steps`) would drop a write
+        landing between its ticks.
+        """
+        if self._before_step is not None:
+            self._log_weights(self._before_step)
+            self._before_step = None
+        if self._rig_sums and self.global_step % RIG_LOG_EVERY == 0:
+            self._flush_per_rig()
+
+    def _flush_per_rig(self) -> None:
+        """Each loss averaged per rig since the last flush: `loss_rig/<loss>/<Rig>`.
+
+        A batch-mean loss hides which rigs are hard; these show it.
+        """
+        metrics = {
+            f"loss_rig/{loss}/{rig}": total / count
+            for (loss, rig), (total, count) in self._rig_sums.items()
+        }
+        self._rig_sums.clear()
+        self._write(metrics)
+
+    def _log_weights(self, before: dict[str, torch.Tensor]) -> None:
+        """Per module, `weights/norm/<module>` and `weights/update_ratio/<module>`.
+
+        The norm shows whether weights inflate (weight decay is 0 by default);
+        the ratio, ``|after - before| / |before|``, is the step actually taken
+        relative to the weights it changed -- what a gradient norm only hints
+        at, since AdamW rescales the gradient and the clip may cut it.
+        """
+        norms: dict[str, float] = {}
+        updates: dict[str, float] = {}
+        for name, parameter in self.named_parameters():
+            if name not in before:
+                continue
+            group = _module_of(name)
+            after = parameter.detach().float()
+            norms[group] = norms.get(group, 0.0) + before[name].pow(2).sum().item()
+            updates[group] = updates.get(group, 0.0) + (after - before[name]).pow(2).sum().item()
+        metrics: dict[str, float] = {}
+        for group in norms:
+            metrics[f"weights/norm/{group}"] = norms[group] ** 0.5
+            metrics[f"weights/update_ratio/{group}"] = (updates[group] / max(norms[group], 1e-30)) ** 0.5
+        total, change = sum(norms.values()), sum(updates.values())
+        metrics["weights/norm/total"] = total ** 0.5
+        metrics["weights/update_ratio/total"] = (change / max(total, 1e-30)) ** 0.5
+        self._write(metrics)
+
+    def _write(self, metrics: dict[str, float]) -> None:
+        for logger in self.loggers:
+            logger.log_metrics(metrics, step=self.global_step)
 
     def on_before_optimizer_step(self, optimizer) -> None:
         """Gradient norms, before clipping.
@@ -71,34 +163,42 @@ class MotionLitModule(L.LightningModule):
         breakdown is unreadable, while the split that matters is which half of
         the autoencoder is receiving gradient.
         """
+        # On the steps Lightning logs, keep the weights as they are before the
+        # update, for `_log_weights` once it has been applied.
+        if self.loggers and self.global_step % self.trainer.log_every_n_steps == 0:
+            self._before_step = {
+                name: parameter.detach().float().clone()
+                for name, parameter in self.named_parameters()
+                if parameter.requires_grad
+            }
+
         norms: dict[str, torch.Tensor] = {}
         squares: dict[str, torch.Tensor] = {}
         for name, parameter in self.named_parameters():
             if parameter.grad is None:
                 continue
-            # `task.model.semantic_encoder.weight` -> `semantic_encoder`.
-            parts = name.split(".")
-            group = parts[2] if name.startswith("task.model.") and len(parts) > 3 else "other"
+            group = _module_of(name)
             squares[group] = squares.get(group, 0.0) + parameter.grad.detach().pow(2).sum()
 
         if not squares:
             return
         for group, total in squares.items():
-            norms[f"grad_norm/{group}"] = total.sqrt()
-        norms["grad_norm/total"] = torch.stack(list(squares.values())).sum().sqrt()
+            norms[f"optim/grad_norm/{group}"] = total.sqrt()
+        norms["optim/grad_norm/total"] = torch.stack(list(squares.values())).sum().sqrt()
 
         clip = getattr(self.trainer, "gradient_clip_val", None)
         if clip:
             # 1 when this step was clipped, 0 when it was not; its running mean
             # is the fraction of steps hitting the ceiling.
-            norms["grad_norm/clipped"] = (norms["grad_norm/total"] > clip).float()
+            norms["optim/clipped"] = (norms["optim/grad_norm/total"] > clip).float()
         # Step-level scalars: no epoch aggregation, so no batch size to weight by.
         self.log_dict(norms, on_step=True, on_epoch=False)
 
     def validation_step(self, batch, batch_index: int) -> torch.Tensor:
         losses = self.task.compute_losses(batch)
         for name, value in losses.items():
-            self.log(f"val/{name}", value, batch_size=len(batch))
+            if not name.endswith(PER_SAMPLE):
+                self.log(f"val_{metric_name(name)}", value, batch_size=len(batch))
         return losses["total"]
 
     def configure_optimizers(self):
@@ -116,6 +216,8 @@ class MotionLitModule(L.LightningModule):
                     optimizer, step_size=10_000, gamma=0.99
                 ),
                 "interval": "step",
+                # `LearningRateMonitor` logs under this name.
+                "name": "optim/lr",
             },
         }
 

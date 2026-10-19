@@ -17,11 +17,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from os.path import commonprefix
 
+from poseydon.core.registry import Registry
+
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _SEPARATORS = re.compile(r"[_\-.:]+")
 _SIDES = {"r": "right", "l": "left"}
 
+#: Joint-name labellers (``labels.joint_names:`` in a dataset config).
+JOINT_NAMES: Registry[object] = Registry("joint-name labeller")
 
+
+@JOINT_NAMES.register("humanize")
 @dataclass(frozen=True)
 class Humanize:
     """`Bip01_R_Thigh` -> `right thigh`."""

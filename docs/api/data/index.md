@@ -12,8 +12,8 @@ every rig an equal share of samples.
 `data` also owns the statistics' format and policy (`Normalizer`,
 `BlockPolicy`): stage 2 fits and saves them ([build](../build/index.md)), the
 dataset only loads them, and retargeting uses them to denormalize. The policy
-per block is declared in `configs/dataset/truebones.yaml`; the window in
-`configs/data/`. It does not own writing the corpus, what a feature or a
+per block is declared in the feature group (`configs/features/`); the window,
+blacklist and loader settings in the dataset config (`configs/data/`). It does not own writing the corpus, what a feature or a
 conditioner is ([conditioners](../conditioners/index.md)), or the DataLoader
 and worker setup (`src/poseydon/training/lightning.py`,
 [training](../training/index.md)).
@@ -56,7 +56,10 @@ classDiagram
     scale
   }
   class ClipView { <<dataclass>> }
-  class Item { <<dataclass>> }
+  class Item {
+    <<dataclass>>
+    rig: str
+  }
   Window <|-- FullClip
   Window <|-- RandomCrop
   Window <|-- SlidingWindow

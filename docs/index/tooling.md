@@ -37,16 +37,40 @@ docker compose run --rm test python -m poseydon.cli list
 
 **Corpus construction** (run in this order):
 
+Both read `configs/build.yaml`, which composes a dataset (`configs/data/`)
+and the feature group its statistics are measured for (`configs/features/`);
+pick another dataset with a Hydra override (`data=truebones_bone`), and one
+rig with `--rigs <Rig>`.
+
 - `scripts/process_dataset_truebones.py` (stage 1, `test` container). Reads
-  raw BVH clips under `--raw-root/<Rig>/`, runs each through
-  `PrepareChain`, and writes `clips/<Rig>/<action>.bvh` plus
-  `rigs/<Rig>/preproc.npz`, which holds the fitted transform and its inverse.
-  It then checks each rig's written rest clip and warns, without failing, if
-  frame 0 or the rest skeleton does not face +Z, if a non-root joint is not
-  identity at the rest frame, or if the rest skeleton is not upright (a
-  wrong `up_axis:` or a facing pair that is not left/right).
+  each rig's raw clips under `paths.raw/source/<Rig>/`, runs them through the
+  dataset's `prepare:` chain, and writes `clips/<Rig>/<action>.bvh` plus
+  `rigs/<Rig>/preproc.npz`, which holds the fitted transform, its inverse and
+  the chain itself. A rig grounded on the mesh without a current
+  `rest_mesh.npz` (run `tools/build_rest_mesh.py` first) is grounded on its
+  lowest joint, with a warning. It then checks each rig's written rest
+  clip and warns, without failing, if frame 0 or the rest skeleton does not
+  face +Z (after the manifest's `extra_yaw_deg`), if a non-root joint is not
+  identity at the rest frame, or if the rest skeleton is not upright (a wrong `up_axis:` or a
+  facing pair that is not left/right).
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
-  passes (clips, skeleton, stats, index) from `configs/dataset/<name>.yaml`.
+  passes (clips, skeleton, stats, index) with the dataset's `reduce:` and
+  `labels:` and the feature group's blocks and normalization.
+
+The bone-relative ablation corpus is `data=truebones_bone`: the same chain
+with `bone_relative` appended, built into its own root `data/truebones_bone/`
+(gitignored, its manifests, clip labels and mesh caches copied from the main
+corpus, the checks undoing `bone_relative` first):
+
+```bash
+mkdir -p data/truebones_bone && (cd data/truebones && find rigs clips \( -name '*.yaml' -o -name rest_mesh.npz \) | cpio -pdmu ../truebones_bone)
+ln -sfn truebones data/_raw/truebones_bone   # the test reads data/_raw/<dataset>
+docker compose run --rm -T test python scripts/process_dataset_truebones.py data=truebones_bone
+docker compose run --rm -T test python scripts/build_features.py data=truebones_bone
+```
+
+Train or sample on it with `data=truebones_bone`; check it with
+`pytest --dataset truebones_bone`.
 
 There is no FBX preparation pass: preparation runs on the BVH, and FBX enters
 only at the two ends, through `poseydon export --format fbx`.
@@ -78,10 +102,11 @@ nothing. Files whose docstring says *throwaway* exist to be deleted.
 | subject | files |
 |---|---|
 | root and hierarchy shape | `tools/probe_floating_root.py`, `tools/probe_promote_table.py`, `tools/probe_root_chain.py`, `tools/probe_root_shape.py`, `tools/probe_tukan.py` |
-| rest pose and joint sets | `tools/probe_jointset_spread.py`, `tools/probe_tpose_gap.py`, `tools/probe_rest_override.py`, `tools/write_rest_pose.py`, `tools/probe_resolve_after_reduce.py` |
+| rest pose and joint sets | `tools/probe_jointset_spread.py`, `tools/probe_tpose_gap.py`, `tools/probe_rest_override.py`, `tools/write_rest_pose.py`, `tools/probe_resolve_after_reduce.py`, `tools/tpose_author.py` (authored T-poses: `build` in the `fbxsdk` service, then `pose` / `ref` / `paw` / `flips` / `save` in `train`; workflow and lessons in its docstring) |
 | inverse kinematics | `tools/ik_grid_search.py`, `tools/ik_contact_compare.py` |
 | parity with the reference | `tools/probe_reference_retarget.py`, `tools/probe_wandb_parity.py`, `tools/render.py` |
-| joint-name embeddings | `tools/build_joint_name_cache.py` |
+| rest-pose mesh | `tools/build_rest_mesh.py`: each rig's vendor mesh skinned on its rest pose, cached as `rigs/<Rig>/rest_mesh.npz` for the `ground` stage's `mesh` mode (`fbxsdk` service, about 10 s a rig); rerun for a rig whose `rest_pose:` changes, before stage 1 |
+| joint-name embeddings | `tools/build_joint_name_cache.py`: the `joint_names` cache, from every rig's reduced joint names through `poseydon.conditioners.text` (`compat` image, for the `text` extra); rerun after a reduction change adds names |
 
 `tools/reference/` holds scripts that run the **reference implementation** (the
 published code PoseYdon is measured against) inside the `compat` container. They
@@ -90,20 +115,26 @@ DDPM decomposition, IK and transfer comparisons, and manifest generation.
 
 ## Configs
 
-Hydra composes `configs/train.yaml` and `configs/sample.yaml` from these groups:
+Every slot that builds an object names a registered class by `type:`, with
+the rest of the entry as its arguments (`poseydon.core.registry.Registry.build`,
+the mmengine pattern); `poseydon list [kind]` prints what each registry holds.
+A class of one's own registers itself (a `PrepareStage` or `ReduceRule`
+subclass by declaring `name`, anything else with `@<REGISTRY>.register("name")`)
+and is named after its module is listed in `custom_imports:`.
 
-| group | selects |
+| config | holds |
 |---|---|
-| `configs/data/` | where the prepared corpus and index live, batch size, window policy, rig balancing |
-| `configs/dataset/` | the stage-2 build: feature schema, corpus discovery, joint-name humanizing, reduction tolerance, normalization policy |
-| `configs/model/` | `anytop` or `modiffae` |
-| `configs/process/` | `gaussian` (diffusion) or `flow` (flow matching) |
-| `configs/trainer/` | `default` or `debug` |
+| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended |
+| `configs/features/` | the model's feature blocks and their normalization (model-side) |
+| `configs/build.yaml` | corpus construction: a dataset plus a feature group, for both build scripts |
+| `configs/train.yaml`, `configs/sample.yaml` | a run: dataset, features, `configs/model/` (`anytop`, `modiffae`), `configs/process/` (`gaussian`, `flow`), `configs/trainer/` (`default`, `debug`), conditioners, augmentations, losses |
 
-Both top-level configs compose the same `dataset` group, because the recipe
-check compares its values between training and sampling. The comments in
-`configs/train.yaml` record why each default is what it is, including the
-measured guidance scales. Read them before changing a default.
+Per-rig facts stay in each rig's `manifest.yaml`: joints, facing pairs, feet,
+tags, the rest-pose clip, the vendor files, and the two per-rig settings
+`promote_root:` and `ground:`. Training and sampling compose the same
+`features` group, because the recipe check compares it between them. The
+comments in `configs/train.yaml` record why each default is what it is,
+including the measured guidance scales. Read them before changing a default.
 
 ## Tests
 
@@ -161,6 +192,7 @@ extras:
 | `dev` | pytest, ruff, rendering | `test`, `train`, `compat` |
 | `cpu` / `cu130` | which torch build; mutually exclusive | `cpu`: `test`, `compat`; `cu130`: `train` |
 | `train` | wandb | `train` |
+| `text` | transformers, sentencepiece: building the joint-name cache | pulled in by `compat` |
 | `compat` | the reference implementation and what its scripts import | `compat` |
 | `render` | matplotlib, imageio | pulled in by `dev` and `compat` |
 

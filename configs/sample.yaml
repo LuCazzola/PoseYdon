@@ -1,10 +1,8 @@
 defaults:
   - data: truebones
-  # Same group `configs/train.yaml` composes, and for the same reason: the
-  # recipe check compares `dataset.reduce_tolerance` and `dataset.normalize`
-  # across the two, so composing it on one side only would reject every
-  # legitimate sample.
-  - dataset: truebones
+  # Same group `configs/train.yaml` composes: the recipe check compares the
+  # feature blocks and their normalization across the two.
+  - features: default
   # Training runs `modiffae`; sampling a run checkpoint therefore needs
   # `model=modiffae` on the command line. Left as `anytop` deliberately -- the
   # recipe check names the override in its error rather than silently
@@ -14,7 +12,7 @@ defaults:
   - _self_
 
 seed: 0
-features: [ric_pos, rot6d_joint, heading, local_vel, foot_contact]
+custom_imports: []
 # Sampling must declare the SAME conditioning the checkpoint trained under.
 # `MoDiffAE` treats `joint_names` as optional and skips the term in silence
 # when it is absent, so a checkpoint trained with names and sampled without
@@ -26,13 +24,13 @@ optimizer: {learning_rate: 1e-4, weight_decay: 0.0}
 
 # What to do with the model, and how to solve the trajectory.
 operation:
-  _target_: poseydon.ops.generate.Generate
+  type: generate
   # 1.0 is the identity -- the model sampled as trained. 0.0 is the
   # UNCONDITIONAL branch, and above 1.0 extrapolates away from it.
   guidance_scale: 1.0
 
 sampler:
-  _target_: poseydon.sampling.diffusion.DDIM
+  type: ddim
   steps: 100
 
 # Which skeleton to animate, and for how long.

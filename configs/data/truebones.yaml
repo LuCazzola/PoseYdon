@@ -1,37 +1,97 @@
-root: data/truebones
-# A rig is a directory `data/truebones/rigs/<Rig>/` holding `manifest.yaml`
-# (plus its stage-1/stage-2 artefacts) -- not the `skeletons/` directory the
-# entity-first layout migration deleted.
-manifests: data/truebones/rigs
-index: data/truebones/index.jsonl
+# The Truebones dataset, from raw file to training sample. Read top to bottom,
+# this is the life of one clip:
+#   paths -> prepare (stage 1) -> reduce + labels (stage 2) -> filter -> loader
+# Every entry with a `type:` is built from its registry, in the order listed;
+# reorder, drop or add entries here (a class of your own registers itself and
+# is imported through `custom_imports`). Per-rig facts -- joints, facing pairs,
+# feet, tags, the rest-pose clip, the vendor files -- stay in each rig's
+# `rigs/<Rig>/manifest.yaml`.
+#
+# Built by: scripts/process_dataset_truebones.py (stage 1) and
+# scripts/build_features.py (stage 2), both through `configs/build.yaml`.
+
+# Modules imported before anything here is built, so the classes they register
+# can be named below (`- {type: my_stage}`).
+custom_imports: []
+
+paths:
+  raw: data/_raw/truebones             # raw/source/<Rig>/*.bvh, *.fbx (vendor files, never edited)
+  root: data/truebones                 # the prepared corpus: clips/<Rig>/, rigs/<Rig>/
+  rigs: data/truebones/rigs            # one directory per rig: manifest.yaml + its built files
+  index: data/truebones/index.jsonl    # one row per trainable clip
+
+source:
+  pattern: "*.bvh"
+  # Every one of the 1153 raw Truebones clips is 30 fps, so this is a real check
+  # rather than a default: a clip at another rate is reported and skipped. The
+  # reference's FPS=20 is not a data rate at all -- it discards each file's
+  # frame time and only labels its rendered videos 20 fps.
+  fps: 30
+
+# Stage 1: the invertible source -> canonical chain (`PREPARE`). Each stage's
+# fitted parameters go to rigs/<Rig>/preproc.npz with this list, so a corpus is
+# inverted by the chain it was built with. A stage that must follow another
+# says so and a wrong order is refused (`PrepareStage.after`).
+prepare:
+  - {type: up_axis}                    # the manifest's `up_axis:` turned to +Y
+  - {type: rest_relative}              # identity on every joint = the rig's rest pose
+  - {type: promote_root}               # root moved off a ground locator onto the body (a manifest's `promote_root:`)
+  - {type: enforce_rigid, joint_translation: drop}   # constant bone lengths; the file's channels recorded
+  - {type: face_rest_axis, axis: "+Z"} # the whole rig turned so its rest skeleton faces +Z
+  - {type: face_axis, axis: "+Z"}      # each clip's root turned so its frame 0 faces +Z (per clip)
+  - {type: centre_xz}                  # root at the XZ origin on the rest pose
+  - {type: scale, target: 0.20921428571428569}       # mean bone length = the reference's HML_AVG_BONELEN
+  - {type: ground, mode: mesh}         # rest pose on y = 0: its lowest vendor-mesh vertex
+                                       # (tools/build_rest_mesh.py), or `joints`; a manifest's
+                                       # `ground:` overrides it for its rig
+
+# Stage 2: which joints the model sees (`REDUCE`), tried in this order joint by
+# joint, the first that applies removing it; every removed joint comes back on
+# export. Recorded in rigs/<Rig>/skeleton.npz.
+reduce:
+  # A joint turning less than this over every prepared clip of its rig, with
+  # every joint below it, is dropped and put back at its constant rotation.
+  # 0.5 keeps left/right twins together: the twins of joints still at 0.06 deg
+  # move a median 0.08 deg.
+  - {type: drop_still, degrees: 0.5}
+  - {type: drop_end_sites, tolerance: 1.0e-8}        # zero-length leaves with no rotation of their own
+  - {type: fold_into_root, tolerance: 1.0e-8}        # a zero-length sole child of the root (Biped `Hips`)
+
+# Stage 2: what each clip is labelled with.
+labels:
+  # `split:` per clip, from clips/<Rig>/<action>.yaml (`train` when absent);
+  # edit those files to hold clips out, and `--relabel` keeps the edit.
+  joint_names: {type: humanize, lowercase: true, expand_sides: true}   # `Bip01_R_Thigh` -> `right thigh`
+  # Foot contact: a manifest's `foot_joints` count as planted below this height
+  # and slower than this speed (normalized units, per frame).
+  contact:
+    max_height: 0.30                   # reference FOOT_CONTACT_HEIGHT_THRESH
+    # sqrt of the reference's FOOT_CONTACT_VEL_THRESH (0.002), which it compares
+    # against a SQUARED displacement. Must stay exact: rounding flips borderline
+    # contact frames.
+    max_speed: 0.044721359549995794
+
+corpus: {type: per_rig_directory, pattern: "*.bvh"}   # where stage 2 finds the prepared clips
 
 # Clips this run must never see, dropped from the index before anything reads
 # it. `skeletons` takes rig names, `clips` takes clip ids (`Crow__fly1`), both
 # matched exactly. An entry matching nothing is an ERROR, not a no-op: a
 # blacklist is acted on for days, and a typo'd name that quietly matched
-# nothing would train the very clips it was written to drop.
-#
-# Recorded in the recipe, so a checkpoint carries what it was trained WITHOUT.
-# Not CHECKED against it -- dropping clips does not change what the feature
-# tensor means, so it must never reject a legitimate sample.
-#
-# Lives here beside `root`/`manifests`/`index`, the other per-corpus keys,
-# rather than beside the loader keys below: mixing several corpora into one run
-# gives each its own blacklist, and none of this has to move for that.
-blacklist:
-  skeletons: []
-  clips: []
+# nothing would train the very clips it was written to drop. Recorded in the
+# recipe, not checked against it: dropping clips does not change what the
+# feature tensor means.
+filter:
+  blacklist:
+    skeletons: []
+    clips: []
 
-# Batch 16, not the reference's 10: measured E[0.431 s/step] against 1.054 at
-# batch 32, and 13.2 GB peak against 128 GB available. See design spec §4.
-batch_size: 16
-num_workers: 4
-
-# Weighted sampling over rigs, weight 1 / (n_rigs * n_clips_of_rig). Without it
-# Trex's 70 clips dominate a corpus whose smallest rigs have 4 (parity spec
-# §10). Off only for a deliberate experiment.
-balanced: true
-
-window:
-  _target_: poseydon.data.window.RandomCrop
-  length: 40
+loader:
+  # Batch 16, not the reference's 10: measured E[0.431 s/step] against 1.054 at
+  # batch 32, and 13.2 GB peak against 128 GB available.
+  batch_size: 16
+  num_workers: 4
+  # Weighted sampling over rigs, weight 1 / (n_rigs * n_clips_of_rig). Without
+  # it Trex's 70 clips dominate a corpus whose smallest rigs have 4. Off only
+  # for a deliberate experiment.
+  balanced: true
+  window: {type: random_crop, length: 40}

@@ -16,6 +16,7 @@ between a crouch and a stand. A ``"clip"`` stage fits per animation.
 from __future__ import annotations
 
 import json
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +25,15 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import numpy as np
 
 from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
-from poseydon.core.rotations import QUAT_IDENTITY, quat_apply, quat_between, quat_inverse, quat_mul
+from poseydon.core.registry import Registry
+from poseydon.core.rotations import (
+    QUAT_IDENTITY,
+    matrix_to_quat,
+    quat_apply,
+    quat_between,
+    quat_inverse,
+    quat_mul,
+)
 from poseydon.core.skeleton import HML_MEAN_BONE_LENGTH, resolve
 from poseydon.ingest.align import axis_vector, facing_quats, rotate_rig, rotate_to_face_z
 
@@ -35,61 +44,45 @@ RIG = "rig"
 CLIP = "clip"
 
 
-def prepare_chain(
-    source_channels: tuple[tuple[str, ...], ...] | None = None,
-    promote_target: str | None = None,
-) -> PrepareChain:
-    """The canonical source-to-prepared chain: ONE definition of the order.
+#: Every preparation stage, by the name its parameters are stored under. A stage
+#: joins by subclassing `PrepareStage` with a ``name`` (see `PrepareStage`), so a
+#: user's own stage needs only its module in the config's ``custom_imports``.
+PREPARE: Registry[PrepareStage] = Registry("prepare stage")
 
-    The order is contractual, not incidental, and it was previously written out
-    twice -- once where a corpus is prepared and once where a clip is returned
-    to source space. Two copies of an ordered inverse is a silent-drift hazard
-    of the worst kind: the second list is only ever exercised by inverting, so
-    a stage added to the first and forgotten in the second unprepares a corpus
-    with the wrong transform and reports nothing.
 
-    What each argument pins is documented on the stage it configures. Both only
-    affect `fit`, so a caller that INVERTS a recorded preparation needs neither:
-    `apply` and `invert` read the persisted parameters.
+def chain_from(entries) -> PrepareChain:
+    """The chain a config's ``prepare:`` list describes, in its order."""
+    return PrepareChain(tuple(PREPARE.build(entry) for entry in entries), tuple(_entry(e) for e in entries))
 
-    `PromoteRoot` sits after `RestRelative` (whose `_check` requires a clip to
-    carry exactly the joints its rest pose declares, which a promoted clip no
-    longer does), before `EnforceRigid` (so the preserved translation channel
-    is the PROMOTED root's, not the locator's) and before
-    `ScaleToMeanBoneLength` (a locator-to-body connector is not an anatomical
-    bone and must not enter the mean).
 
-    `UpAxis` comes first, so every later stage, each of which takes +Y as up
-    (facing, grounding), sees a Y-up rig.
+def _entry(entry) -> dict:
+    from omegaconf import OmegaConf
 
-    `FaceRestAxis` and `FaceAxis` sit after `EnforceRigid`, so the facing is
-    measured on the geometry the prepared clip keeps. Before it, a Biped
-    clip's per-joint translation channels place joints elsewhere than its
-    offsets do, and a facing fitted there came out up to ~90 degrees off once
-    `EnforceRigid` dropped them (Ant, Bat, Bird).
-    """
-    return PrepareChain(
-        (
-            UpAxis(),
-            RestRelative(),
-            PromoteRoot(target=promote_target),
-            EnforceRigid(joint_translation="drop", source_channels=source_channels),
-            FaceRestAxis(axis="+Z"),
-            FaceAxis(axis="+Z"),
-            CentreXZ(),
-            ScaleToMeanBoneLength(),
-            PutOnGround(),
-        )
-    )
+    if OmegaConf.is_config(entry):
+        return OmegaConf.to_container(entry, resolve=True)
+    return {"type": entry} if isinstance(entry, str) else dict(entry)
 
 
 class PrepareStage(ABC):
-    """One invertible step of the source-to-prepared transform."""
+    """One invertible step of the source-to-prepared transform.
+
+    A concrete subclass declaring ``name`` registers itself in `PREPARE` under
+    that name, which is also the key its fitted parameters are stored under and
+    the ``type:`` a config names it by.
+    """
 
     #: Key under which this stage's fitted parameters are stored.
     name: ClassVar[str]
     #: ``RIG`` to fit once against the rest pose, ``CLIP`` to fit per animation.
     scope: ClassVar[str] = RIG
+    #: Stages that must run before this one when the chain has them (the order
+    #: check in `PrepareChain`); ``"*"`` means every other stage.
+    after: ClassVar[tuple[str, ...]] = ()
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        if "name" in cls.__dict__:
+            PREPARE.register(cls.name)(cls)
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
         """Parameters derived from ``anim`` as it stands at this point in the chain."""
@@ -104,9 +97,28 @@ class PrepareStage(ABC):
 
 @dataclass(frozen=True)
 class PrepareChain:
-    """An ordered composition of stages, invertible as a whole."""
+    """An ordered composition of stages, invertible as a whole.
+
+    The order is contractual, so it is checked here rather than trusted: each
+    stage declares in ``after`` the stages that must precede it, and a chain
+    breaking one is refused before anything runs. ``entries`` are the config
+    entries the chain was built from (`chain_from`); `RigTransform` stores them
+    in ``preproc.npz``, so a corpus is inverted with the chain it was built
+    with, not whatever the config says today.
+    """
 
     stages: tuple[PrepareStage, ...]
+    entries: tuple[dict, ...] = ()
+
+    def __post_init__(self) -> None:
+        order = [stage.name for stage in self.stages]
+        if len(set(order)) != len(order):
+            raise ValueError(f"a prepare chain lists a stage twice: {order}")
+        for i, stage in enumerate(self.stages):
+            wanted = [n for n in order if n != stage.name] if "*" in stage.after else stage.after
+            late = [n for n in wanted if n in order[i + 1:]]
+            if late:
+                raise ValueError(f"prepare stage `{stage.name}` must come after {late}; the chain is {order}")
 
     def fit_rig(
         self, rest: Animation, resolved: Any, audit: AuditSink | None = None
@@ -209,9 +221,12 @@ def _global_binds(local_bind: np.ndarray, parents: np.ndarray) -> np.ndarray:
 class RestRelative(PrepareStage):
     """Re-express rotations so zero on every joint reproduces the rest pose.
 
-    Raw Biped rigs bake an arbitrary per-joint bind rotation into every clip --
-    an exporter axis-convention artefact, not motion. Removing it is what makes a
-    T-pose read as identity, which every downstream consumer assumes.
+    Raw Biped rigs bake a per-joint bind rotation into every clip: a
+    bone-aligned frame (OFFSETs mostly ``(L, 0, 0)``) whose twist is the
+    exporter's own, constant, not motion. Removing it is what makes the rest
+    pose read as identity, which every stage before `BoneRelative` assumes.
+    `BoneRelative` puts a bone-aligned frame back, with a twist chosen by one
+    rule for every rig, when the corpus asks for it.
 
     Offsets become plain WORLD-SPACE differences of the rest pose's own global
     positions, not offsets rotated into a joint's local frame: identity rotation
@@ -222,8 +237,10 @@ class RestRelative(PrepareStage):
     else.
     """
 
-    name = "rest_relative"
-    scope = RIG
+    name: ClassVar[str] = "rest_relative"
+    #: Every stage after `up_axis` takes +Y as up.
+    after: ClassVar[tuple[str, ...]] = ("up_axis",)
+    scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
         rest = rest_geometry(anim)
@@ -364,15 +381,26 @@ class PromoteRoot(PrepareStage):
     guarantee still covers every joint, dead or not.
     """
 
-    #: Joint to promote. ``None`` makes every method the identity, which is what
-    #: the 59 rigs not in the table get.
-    target: str | None = None
+    #: The joint to promote is the manifest's ``promote_root:``; a rig without
+    #: one is untouched (every method is the identity), as 59 of 73 are.
+    #: Measured on the rest pose as height fraction (rootY - minY) / (maxY - minY),
+    #: the corpus splits absolutely: the 14 at f <= 0.005, the other 59 at
+    #: f >= 0.189. Thirteen targets are the first branching joint along the
+    #: root's single-child chain; Tukan's is authored, because its root branches
+    #: straight into the skeleton (N_ALL -> locator) and a dead MESH subtree. The
+    #: gate is the locator classification, never the presence of an offset:
+    #: Lynx and BrownBear root correctly on the pelvis with a chain to
+    #: Bip01_Spine 0.79 and 0.89 bone lengths long, and an offset-keyed rule
+    #: would promote their root onto the spine.
 
     name: ClassVar[str] = "promote_root"
+    #: After `rest_relative`, whose check needs the clip to carry exactly the rest pose's joints, which a promoted clip no longer does.
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "rest_relative")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
-        if self.target is None:
+        target = resolved.manifest.promote_root
+        if target is None:
             return {
                 "n_removed": np.int64(0),
                 "names": np.empty(0, dtype="<U1"),
@@ -384,12 +412,12 @@ class PromoteRoot(PrepareStage):
             }
 
         names = list(anim.names)
-        if self.target not in names:
+        if target not in names:
             raise ValueError(
-                f"cannot promote `{self.target}`: this rig has no such joint "
+                f"cannot promote `{target}`: this rig has no such joint "
                 f"(it has {len(names)}, starting {names[:3]})"
             )
-        index = names.index(self.target)
+        index = names.index(target)
 
         # Every joint above the target must have exactly one child continuing
         # the chain toward it. An ancestor with a second child is normally the
@@ -412,7 +440,7 @@ class PromoteRoot(PrepareStage):
                 for j in _subtree(anim.parents, c)
             ):
                 raise ValueError(
-                    f"cannot promote `{self.target}`: joint `{names[joint]}` above "
+                    f"cannot promote `{target}`: joint `{names[joint]}` above "
                     f"it has {len(children)} children, so the joints above the "
                     "target are not a single-child chain"
                 )
@@ -597,6 +625,8 @@ class FaceRestAxis(PrepareStage):
     axis: str = "+Z"
 
     name: ClassVar[str] = "face_rest_axis"
+    #: After `enforce_rigid`: facing fitted on a Biped clip's per-joint translations came out up to ~90 deg off once they were dropped (Ant, Bat, Bird).
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "enforce_rigid")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
@@ -641,6 +671,8 @@ class FaceAxis(PrepareStage):
     axis: str = "+Z"
 
     name: ClassVar[str] = "face_axis"
+    #: After `enforce_rigid`, for the same reason as `face_rest_axis`.
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "enforce_rigid", "face_rest_axis")
     scope: ClassVar[str] = CLIP
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
@@ -703,6 +735,8 @@ class EnforceRigid(PrepareStage):
     source_channels: tuple[tuple[str, ...], ...] | None = None
 
     name: ClassVar[str] = "enforce_rigid"
+    #: After `promote_root`, so the translation channel kept is the PROMOTED root's, not the locator's.
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "promote_root")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
@@ -749,6 +783,8 @@ class CentreXZ(PrepareStage):
     """Translate so the root sits at the XZ origin on the rest pose's first frame."""
 
     name: ClassVar[str] = "centre_xz"
+    #: The reference's order: rotate, centre XZ, scale, ground; reordering changes the result.
+    after: ClassVar[tuple[str, ...]] = ("face_rest_axis", "face_axis")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
@@ -780,6 +816,8 @@ class ScaleToMeanBoneLength(PrepareStage):
     tolerance: float = 1e-8
 
     name: ClassVar[str] = "scale"
+    #: After `promote_root`: a locator-to-body connector is not an anatomical bone and must not enter the mean.
+    after: ClassVar[tuple[str, ...]] = ("promote_root", "centre_xz")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
@@ -807,18 +845,58 @@ class ScaleToMeanBoneLength(PrepareStage):
         )
 
 
+#: Each rig's rest-pose mesh, cached beside its manifest by `tools/build_rest_mesh.py`
+#: (the FBX SDK runs only in the `fbxsdk` container; the build never needs it).
+REST_MESH = "rest_mesh.npz"
+
+
+def similarity(source: np.ndarray, target: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
+    """``s, R, t`` minimising ``|s R x + t - y|`` over paired ``(N, 3)`` points (Umeyama)."""
+    mu_x, mu_y = source.mean(0), target.mean(0)
+    x, y = source - mu_x, target - mu_y
+    u, d, vt = np.linalg.svd(y.T @ x / len(x))
+    fix = np.diag([1.0, 1.0, np.sign(np.linalg.det(u @ vt))])
+    rotation = u @ fix @ vt
+    scale = float(np.trace(np.diag(d) @ fix) / (x**2).sum(1).mean())
+    return scale, rotation, mu_y - scale * rotation @ mu_x
+
+
 @dataclass(frozen=True)
 class PutOnGround(PrepareStage):
-    """Translate in Y so the rest pose's lowest joint sits at ``y = 0``.
+    """Translate in Y so the rest pose sits on ``y = 0``, the way ``mode`` says.
+
+    ``mode`` is the dataset's choice; a manifest's ``ground:`` overrides it for its rig.
+    ``joints``: the rest clip's lowest joint over all its frames. ``mesh``: the
+    lowest vertex of the vendor mesh skinned on the rest pose's first frame
+    (`REST_MESH`), carried onto the joints as they stand here by the similarity
+    that best maps the cached rest joints onto them. A rig set to ``mesh`` whose
+    cache is missing, or was made for another rest pose, falls back to
+    ``joints`` and says so with a `UserWarning`.
 
     Rig-scoped deliberately: fitting per clip would ground a flying creature and
     flatten the height difference between a crouch and a stand.
     """
 
+    mode: str = "joints"
+
     name: ClassVar[str] = "ground"
+    #: Grounds the scaled rig, +Y up.
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "scale")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        manifest = resolved.manifest
+        mode = manifest.ground or self.mode
+        if mode not in ("joints", "mesh"):
+            raise ValueError(f"{manifest.name}: ground mode must be `joints` or `mesh`, got `{mode}`")
+        if mode == "mesh":
+            height, reason = _mesh_floor(anim, manifest)
+            if height is not None:
+                return {"height": np.float64(height)}
+            warnings.warn(
+                f"{manifest.name}: ground mode `mesh`, but {reason}; grounded on the lowest joint instead",
+                stacklevel=2,
+            )
         return {"height": np.float64(anim.global_positions()[..., 1].min())}
 
     def apply(self, anim, params):
@@ -828,6 +906,114 @@ class PutOnGround(PrepareStage):
     def invert(self, anim, params):
         shift = np.array([0.0, float(params["height"]), 0.0])
         return _with_root(anim, anim.root_pos + shift)
+
+
+def _mesh_floor(anim: Animation, manifest: Any) -> tuple[float | None, str]:
+    """The cached rest mesh's lowest height under ``anim``'s first frame, or why not."""
+    path = Path(manifest.source).parent / REST_MESH
+    if not path.is_file():
+        return None, f"{path} is missing (run tools/build_rest_mesh.py)"
+    with np.load(path) as cache:
+        if str(cache["rest_pose"]) != manifest.rest_pose:
+            return None, f"{path} was made for {cache['rest_pose']}, not {manifest.rest_pose}"
+        names, joints, vertices = [str(n) for n in cache["names"]], cache["joints"], cache["vertices"]
+    common = [n for n in names if n in anim.names]
+    if len(common) < 3:
+        return None, f"{path} shares {len(common)} joints with the rest pose"
+    here = anim.global_positions()[0, [anim.names.index(n) for n in common]]
+    scale, rotation, translation = similarity(joints[[names.index(n) for n in common]], here)
+    return float((scale * vertices @ rotation.T + translation)[:, 1].min()), ""
+
+
+def bone_frames(offsets: np.ndarray, parents: np.ndarray) -> np.ndarray:
+    """``(J, 4)`` world-space rest orientation of a bone-aligned frame per joint.
+
+    Local +X points along the joint's main child bone: the non-zero child
+    offset with the most descendants, the longer one on a tie. Local +Y is
+    the parent frame's +Y with its +X component removed (the parent's +Z when
+    that is degenerate), so twist carries down a chain instead of being picked
+    per joint. A joint with no non-zero child takes its parent's frame; the
+    root's parent frame is the world. ``offsets`` are world-space rest bone
+    vectors, as `RestRelative` leaves them.
+    """
+    n = len(parents)
+    descendants = np.zeros(n, dtype=int)
+    for joint in range(n - 1, 0, -1):
+        descendants[parents[joint]] += descendants[joint] + 1
+    frames = np.empty((n, 3, 3))
+    for joint in range(n):
+        parent = np.eye(3) if parents[joint] < 0 else frames[parents[joint]]
+        children = [
+            c for c in range(joint + 1, n)
+            if parents[c] == joint and np.linalg.norm(offsets[c]) > 1e-8
+        ]
+        if not children:
+            frames[joint] = parent
+            continue
+        main = max(children, key=lambda c: (descendants[c], np.linalg.norm(offsets[c])))
+        x = offsets[main] / np.linalg.norm(offsets[main])
+        y = parent[:, 1] - parent[:, 1].dot(x) * x
+        if np.linalg.norm(y) < 1e-3:
+            y = parent[:, 2] - parent[:, 2].dot(x) * x
+        y /= np.linalg.norm(y)
+        frames[joint] = np.stack([x, y, np.cross(x, y)], axis=-1)
+    return matrix_to_quat(frames)
+
+
+def _reframe(anim: Animation, frames: np.ndarray) -> Animation:
+    """Express every joint in its own constant frame ``frames``: world motion unchanged.
+
+    ``q'_j = A_p^-1 q_j A_j``, ``q'_0 = q_0 A_0``, ``o'_j = A_p^-1 o_j``; the
+    root's world translation stays. Passing the inverse frames undoes it.
+    """
+    inverse = quat_inverse(frames)
+    parents = anim.parents[1:]
+    rotations = anim.rotations.copy()
+    rotations[:, 0] = quat_mul(anim.rotations[:, 0], frames[0])
+    rotations[:, 1:] = quat_mul(quat_mul(inverse[parents], anim.rotations[:, 1:]), frames[1:])
+    translations = anim.translations.copy()
+    translations[:, 1:] = quat_apply(inverse[parents], anim.translations[:, 1:])
+    offsets = anim.offsets.copy()
+    offsets[1:] = quat_apply(inverse[parents], anim.offsets[1:])
+    return type(anim)(
+        rotations=rotations, translations=translations, offsets=offsets,
+        parents=anim.parents, names=anim.names, fps=anim.fps,
+    )
+
+
+@dataclass(frozen=True)
+class BoneRelative(PrepareStage):
+    """Re-express rotations so identity on every joint is a straight chain.
+
+    The LAFAN1 / 3ds Max Biped convention, kept beside `RestRelative` for
+    ablation: each joint's local +X runs along its bone (`bone_frames`), so a
+    zero rotation means "continue the parent's bone" on every rig, instead of
+    "the rig's own rest clip", and X is twist, Y/Z swing, on every joint.
+    World motion is unchanged; only the local rotations and offsets change.
+
+    Last in the chain because every position-fitting stage before it builds
+    the rest skeleton from offsets under identity rotations. A dataset turns it
+    on by listing it; ``enabled=False`` records identity frames, which makes
+    every method the identity.
+    """
+
+    enabled: bool = True
+
+    name: ClassVar[str] = "bone_relative"
+    #: Last: every stage before it reads the rest skeleton as offsets under identity rotations.
+    after: ClassVar[tuple[str, ...]] = ("*",)
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        if not self.enabled:
+            return {"frames": np.tile(QUAT_IDENTITY, (anim.n_joints, 1))}
+        return {"frames": bone_frames(anim.offsets, anim.parents)}
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return _reframe(anim, params["frames"])
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return _reframe(anim, quat_inverse(params["frames"]))
 
 
 @dataclass(frozen=True)
@@ -849,6 +1035,15 @@ class RigTransform:
 
     rig_params: dict[str, dict]
     clip_params: dict[str, dict[str, dict]]
+    #: The ``prepare:`` entries the corpus was built with (`PrepareChain.entries`).
+    chain: tuple[dict, ...] = ()
+
+    def prepare_chain(self) -> PrepareChain:
+        """The chain this corpus was prepared with, to invert it by. A stage of
+        the user's own must be imported first (``custom_imports``)."""
+        if not self.chain:
+            raise ValueError("this preproc.npz records no chain (made before 2026-10-19): rebuild stage 1")
+        return chain_from(self.chain)
 
     def params_for(self, clip: str) -> dict[str, dict]:
         """The full parameter set for one clip: rig-scoped plus its own."""
@@ -881,6 +1076,7 @@ class RigTransform:
                 for key, value in params.items():
                     arrays[f"clip/{clip}/{stage}/{key}"] = np.asarray(value, dtype="<U" if key == "names" else None)
         arrays["__clips__"] = np.array(json.dumps(sorted(self.clip_params)))
+        arrays["__chain__"] = np.array(json.dumps(list(self.chain)))
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(Path(path), **arrays)
 
@@ -891,8 +1087,9 @@ class RigTransform:
         with np.load(Path(path), allow_pickle=True) as data:
             for name in json.loads(str(data["__clips__"])):
                 clips[name] = {}
+            chain = tuple(json.loads(str(data["__chain__"]))) if "__chain__" in data.files else ()
             for key in data.files:
-                if key == "__clips__":
+                if key in ("__clips__", "__chain__"):
                     continue
                 head, *rest = key.split("/")
                 if head == "rig":
@@ -907,4 +1104,4 @@ class RigTransform:
                 else:
                     clip, stage, field = rest
                     clips.setdefault(clip, {}).setdefault(stage, {})[field] = data[key]
-        return cls(rig_params=rig, clip_params=clips)
+        return cls(rig_params=rig, clip_params=clips, chain=chain)

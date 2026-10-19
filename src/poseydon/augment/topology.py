@@ -164,7 +164,10 @@ def duplicate_joint(
     old_to_new = {old: shift(old) for old in range(n)}
     new_resolved = _reindex_resolved(resolved, old_to_new)
     return new_anim, new_resolved, JointEdit(
-        source_of=tuple(source_of), blend_of=tuple(blend_of)
+        source_of=tuple(source_of),
+        blend_of=tuple(blend_of),
+        # The inserted joint's own rotation, at itself and at its only child.
+        identity_slots=(("rot6d_joint", joint), ("rot6d_bone", joint + 1)),
     )
 
 

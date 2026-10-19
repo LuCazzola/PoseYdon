@@ -16,8 +16,10 @@ the decode is as long as the content clip, because the latent is per-frame;
 the reconstruction method comes from the recipe (`DEFAULT_RECONSTRUCT`), so
 `sample`, `retarget` and validation agree. It writes `.npz` (positions and
 latent), `.anim.npz` (the animation exactly as generated), `.bvh` and `.mp4`,
-and returns a `RetargetResult` that `training/metrics.py` scores. The whole
-flow is drawn on [Retargeting](../retargeting.md).
+and returns a `RetargetResult` that `training/metrics.py` scores.
+`decode_positions` is the same decode up to the solve with nothing written,
+for metrics that decode more than once per pair. The whole flow is drawn on
+[Retargeting](../retargeting.md).
 
 ## Limitations
 

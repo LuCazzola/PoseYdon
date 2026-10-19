@@ -1,8 +1,7 @@
-base: ../_base.yaml
 skeleton: Scorpion
-rest_pose: __TPOSE.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
-  hips:      {right: Bip01_R_Thigh_4, left: Bip01_L_Thigh1_4}
+  hips:      {right: Bip01_R_Thigh_4, left: Bip01_L_Thigh_4}
   shoulders: {right: Bip01_R_Forearm, left: Bip01_L_Forearm}
 foot_joints:
   - Bip01_R_Foot_1
@@ -29,6 +28,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __TPOSE.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'scorpion-Agitated.fbx'
   textures: null

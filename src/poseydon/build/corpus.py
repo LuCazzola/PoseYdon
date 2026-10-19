@@ -16,10 +16,15 @@ from pathlib import Path
 import yaml
 
 from poseydon.build.index import action_slug, strip_skeleton_prefix
+from poseydon.core.registry import Registry
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.io.bvh import BVH
 
+#: Corpus layouts: where a corpus's prepared clips are (``corpus:`` in a dataset config).
+CORPORA: Registry[object] = Registry("corpus layout")
 
+
+@CORPORA.register("per_rig_directory")
 @dataclass(frozen=True)
 class PerRigDirectory:
     """The entity-first layout: `clips/<Rig>/<action>.bvh`."""

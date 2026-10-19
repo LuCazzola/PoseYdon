@@ -17,6 +17,12 @@ from poseydon.losses.base import LossTerm
 from poseydon.models.base import CLEAN_MOTION, Denoiser
 from poseydon.process.base import Process
 
+#: Suffix of the `(B,)` per-sample entries `compute_losses` returns beside its
+#: scalars; consumers that log scalars skip them.
+PER_SAMPLE = "per_sample"
+#: Middle segment of the per-feature-block entries, `<loss>/block/<block>`.
+BLOCK = "block"
+
 
 class MotionTask(nn.Module):
     """Ties a denoiser, a process and weighted loss terms together.
@@ -126,14 +132,19 @@ class MotionTask(nn.Module):
             values = term.per_sample(x0_hat, batch.x, batch, aux)
             if values is not None:
                 self._spread(out, name, values.detach(), quartile)
+                # Unreduced, for per-rig averages; `(B,)`, so not loggable as is.
+                out[f"{name}/{PER_SAMPLE}"] = values.detach()
 
             # And per feature block, where the term can separate them. A single
             # number over the whole vector cannot say whether the model is
             # struggling with positions or with rotations, and those are the
             # cases that call for different fixes.
             blocks = term.per_sample_blocks(x0_hat, batch.x, batch, aux)
+            # Batch mean only: split again by noise quartile it was twenty
+            # more curves, and the per-loss quartiles already say which noise
+            # levels are hard.
             for block, block_values in (blocks or {}).items():
-                self._spread(out, f"{name}/{block}", block_values.detach(), quartile)
+                out[f"{name}/{BLOCK}/{block}"] = block_values.detach().mean()
         return out
 
     @staticmethod

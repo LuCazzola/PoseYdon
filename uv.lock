@@ -2377,6 +2377,11 @@ render = [
     { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.12.*' or (extra == 'extra-8-poseydon-cpu' and extra == 'extra-8-poseydon-cu130')" },
     { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' or (extra == 'extra-8-poseydon-cpu' and extra == 'extra-8-poseydon-cu130')" },
 ]
+text = [
+    { name = "sentencepiece" },
+    { name = "transformers", version = "5.17.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.12.*' or (extra == 'extra-8-poseydon-cpu' and extra == 'extra-8-poseydon-cu130')" },
+    { name = "transformers", version = "5.19.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' or (extra == 'extra-8-poseydon-cpu' and extra == 'extra-8-poseydon-cu130')" },
+]
 train = [
     { name = "wandb" },
 ]
@@ -2396,18 +2401,19 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "poseydon", extras = ["render"], marker = "extra == 'compat'" },
     { name = "poseydon", extras = ["render"], marker = "extra == 'dev'" },
+    { name = "poseydon", extras = ["text"], marker = "extra == 'compat'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "scipy", specifier = ">=1.11" },
-    { name = "sentencepiece", marker = "extra == 'compat'" },
+    { name = "sentencepiece", marker = "extra == 'text'" },
     { name = "torch", specifier = ">=2.4" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.4", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "poseydon", extra = "cpu" } },
     { name = "torch", marker = "extra == 'cu130'", specifier = ">=2.4", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "poseydon", extra = "cu130" } },
-    { name = "transformers", marker = "extra == 'compat'" },
+    { name = "transformers", marker = "extra == 'text'" },
     { name = "wandb", marker = "extra == 'train'", specifier = ">=0.17" },
 ]
-provides-extras = ["dev", "render", "cpu", "cu130", "train", "compat"]
+provides-extras = ["dev", "render", "cpu", "cu130", "train", "text", "compat"]
 
 [[package]]
 name = "proglog"

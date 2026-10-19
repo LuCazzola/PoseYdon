@@ -21,6 +21,11 @@ clip back to the source rig. Driven by `scripts/process_dataset_truebones.py`
 - **A stage-1 change invalidates everything after it.** Nothing detects a
   stale corpus: rebuild stage 1, then stage 2, and retrain checkpoints trained
   on the old corpus.
+- **The index leaves out clips shorter than two frames.** Velocity features
+  need two frames, so such a clip (each authored `__TPOSE_authored.bvh`) has
+  no feature frame; it is still written to `clips/`, as the rig's rest pose,
+  and stage 2 warns once per clip. Anything that lists clips from disk instead
+  of the index sees it.
 
 ## Class diagram
 

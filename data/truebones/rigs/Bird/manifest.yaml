@@ -1,6 +1,5 @@
-base: ../_base.yaml
 skeleton: Bird
-rest_pose: __IdleLoop.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: BN_Forearm_R_01, left: BN_Forearm_L_01}
@@ -47,6 +46,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __IdleLoop.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'BIRD-Attack.fbx'
   textures: null

@@ -140,13 +140,14 @@ def _load_weights(model, state) -> None:
 def _sample(args: argparse.Namespace) -> int:
     import numpy as np
     import torch
-    from hydra.utils import instantiate
 
     from poseydon.core.batch import Cond, Masks
     from poseydon.data.collate import collate
     from poseydon.features import reconstruct
     from poseydon.io.bvh import BVH
+    from poseydon.ops.base import OPERATIONS
     from poseydon.ops.retarget_run import _whole_clip, find_clip_of_rig
+    from poseydon.sampling.base import SAMPLERS
     from poseydon.training.build import build_dataset, build_model, build_process
 
     config = _compose(args.config_dir, args.config_name, args.overrides)
@@ -186,8 +187,8 @@ def _sample(args: argparse.Namespace) -> int:
         joints=template.masks.joints[:1].repeat(n, 1),
     )
 
-    sampler = instantiate(config.sampler)
-    operation = instantiate(config.operation)
+    sampler = SAMPLERS.build(config.sampler)
+    operation = OPERATIONS.build(config.operation)
     with torch.no_grad():
         out = operation.run(
             model=model,
@@ -359,9 +360,13 @@ def _export(args: argparse.Namespace) -> int:
 
 def _list(args: argparse.Namespace) -> int:
     from poseydon.augment import AUGMENTATIONS
+    from poseydon.build.corpus import CORPORA
+    from poseydon.build.names import JOINT_NAMES
+    from poseydon.build.prepare import PREPARE
     from poseydon.conditioners import CONDITIONERS
     from poseydon.data.window import WINDOWS
     from poseydon.features import FEATURES
+    from poseydon.features.reduce import REDUCE
     from poseydon.losses import LOSSES
     from poseydon.models import MODELS
     from poseydon.ops import OPERATIONS
@@ -369,6 +374,10 @@ def _list(args: argparse.Namespace) -> int:
     from poseydon.sampling import CONTROLS, SAMPLERS
 
     registries = {
+        "prepare": PREPARE,
+        "reduce": REDUCE,
+        "corpora": CORPORA,
+        "joint_names": JOINT_NAMES,
         "features": FEATURES,
         "conditioners": CONDITIONERS,
         "augmentations": AUGMENTATIONS,

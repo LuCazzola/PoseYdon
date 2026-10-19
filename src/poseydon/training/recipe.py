@@ -23,29 +23,33 @@ RECIPE_FILE = "recipe.yaml"
 # with unless the config names one of its own.
 DEFAULT_RECONSTRUCT = "positions_ik"
 
-# Dotted paths into the composed config, recorded verbatim. `dataset.*` is the
-# stage-2 build group -- `configs/dataset/truebones.yaml`, composed into BOTH
-# `train.yaml` and `sample.yaml` so these record the tolerance and the block
-# policy the corpus was built under rather than a pair of nulls that compared
-# equal forever. What they record is the DECLARED policy, not provenance read
-# back out of `rigs/<Rig>/stats.npz`: they catch a policy that changed since
-# the checkpoint was trained, not a config edited without a rebuild.
+# Dotted paths into the composed config, recorded verbatim. `features` is the
+# feature group (blocks and their normalization), composed into BOTH
+# `train.yaml` and `sample.yaml`; `data.*` is the dataset. What they record is
+# the DECLARED policy, not provenance read back out of `rigs/<Rig>/stats.npz`:
+# they catch a policy that changed since the checkpoint was trained, not a
+# config edited without a rebuild. A recipe written before 2026-10-19 records
+# `features` as a bare list, so it fails `check_recipe` against this layout;
+# those checkpoints were trained on the corpus rebuilt that day and need
+# retraining anyway.
 RECORDED: tuple[str, ...] = (
     "features",
     "conditioners",
     "losses",
     "model",
     "process",
-    "data.window",
-    "data.blacklist",
-    "dataset.reduce_tolerance",
-    "dataset.normalize",
+    "data.loader.window",
+    "data.filter.blacklist",
+    "data.paths.root",
+    "data.reduce",
 )
 
 # The subset whose disagreement changes what the tensor MEANS: the feature
 # schema and its width, the conditioning the model was given, the model and
 # process themselves, and the reduction and normalization the values were
-# measured under. `losses`, `data.window` and `reconstruct` are recorded for
+# measured under, and the corpus (`data.paths.root`): the same schema over the
+# rest-relative and the bone-relative corpus has the same width and a
+# different meaning. `losses`, `data.loader.window` and `reconstruct` are recorded for
 # the record only -- sampling legitimately configures no losses, a different
 # window length and a different reconstruction than training did.
 #
@@ -66,8 +70,8 @@ CHECKED: tuple[str, ...] = (
     "conditioners",
     "model",
     "process",
-    "dataset.reduce_tolerance",
-    "dataset.normalize",
+    "data.paths.root",
+    "data.reduce",
 )
 
 
@@ -145,12 +149,12 @@ def _rows(path: str, was: Any, now: Any) -> list[tuple[str, Any, Any]]:
     `model.dropout: trained with 0.2, configured 0.1`.
     """
     if isinstance(was, Mapping) and isinstance(now, Mapping):
-        # A different `_target_` is a different config GROUP, not nine
+        # A different `type` is a different config GROUP, not nine
         # differing fields: listing the fields of two unrelated models buries
         # the one line the reader can act on.
-        if was.get("_target_") != now.get("_target_"):
-            return [(f"{path}._target_", was.get("_target_", ABSENT),
-                     now.get("_target_", ABSENT))]
+        if was.get("type") != now.get("type"):
+            return [(f"{path}.type", was.get("type", ABSENT),
+                     now.get("type", ABSENT))]
         keys = list(was) + [key for key in now if key not in was]
         return [
             (f"{path}.{key}", was.get(key, ABSENT), now.get(key, ABSENT))
@@ -171,9 +175,9 @@ def _override_hint(rows: list[tuple[str, Any, Any]]) -> str:
     hints = []
     for path, was, _ in rows:
         group, _, field = path.rpartition(".")
-        if field == "_target_" and isinstance(was, str):
-            # `poseydon.models.modiffae.MoDiffAE` -> `configs/model/modiffae.yaml`
-            hints.append(f"{group}={was.rsplit('.', 2)[-2]}")
+        if field == "type" and isinstance(was, str):
+            # `type: modiffae` is `configs/model/modiffae.yaml`
+            hints.append(f"{group}={was}")
     if not hints:
         return ""
     return "\nThis is a different config group. Re-run with: " + " ".join(hints)

@@ -1,0 +1,21 @@
+# Ablation: Truebones prepared bone-relative -- identity on every joint is a
+# straight chain (LAFAN1 / 3ds Max Biped), not the rig's rest pose. Everything
+# else is `truebones.yaml`. Its manifests and clip labels are copies of the main
+# corpus's (see docs/index/tooling.md).
+defaults: [truebones, _self_]
+paths:
+  raw: data/_raw/truebones
+  root: data/truebones_bone
+  rigs: data/truebones_bone/rigs
+  index: data/truebones_bone/index.jsonl
+prepare:
+  - {type: up_axis}
+  - {type: rest_relative}
+  - {type: promote_root}
+  - {type: enforce_rigid, joint_translation: drop}
+  - {type: face_rest_axis, axis: "+Z"}
+  - {type: face_axis, axis: "+Z"}
+  - {type: centre_xz}
+  - {type: scale, target: 0.20921428571428569}
+  - {type: ground, mode: mesh}
+  - {type: bone_relative}              # the only difference: local rotations re-expressed bone-relative

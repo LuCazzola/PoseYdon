@@ -1,10 +1,9 @@
 """Data augmentation.
 
 An augmentation is a small class, registered by name so ``poseydon list``
-can enumerate it, and instantiated by full ``_target_`` path from config
+can enumerate it, and built from a config entry naming it by ``type:``,
 because (unlike features or conditioners) entries carry parameters of their
-own -- a probability, and sometimes more. See the design spec for why this
-mirrors ``conditioners:`` in philosophy but not in config shape.
+own -- a probability, and sometimes more.
 """
 
 from poseydon.augment import topology as _topology  # noqa: F401  (registers)

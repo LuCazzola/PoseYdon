@@ -19,11 +19,11 @@ import numpy as np
 
 from poseydon.build.authority import ArtifactUnavailableError
 from poseydon.build.index import action_slug, is_all_takes_bundle, strip_skeleton_prefix
-from poseydon.build.prepare import PrepareChain, prepare_chain
+from poseydon.build.prepare import PrepareChain, RigTransform, similarity
 from poseydon.core.animation import Animation, RigidBodyAnimation
 from poseydon.core.rotations import QUAT_IDENTITY, quat_to_matrix
 from poseydon.core.skeleton import SkeletonManifest
-from poseydon.features.reduce import build_reduction, invert_reduction
+from poseydon.features.reduce import build_reduction, invert_reduction, load_rules, load_still
 from poseydon.io.bvh import BVH
 
 #: Largest disagreement, as a fraction of the rig's extent, between the vendor
@@ -40,17 +40,6 @@ def world_matrices(anim: Animation) -> np.ndarray:
     world[..., :3, 3] = positions
     world[..., 3, 3] = 1.0
     return world
-
-
-def _similarity(source: np.ndarray, target: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
-    """``s, R, t`` minimising ``|s R x + t - y|`` over paired ``(N, 3)`` points (Umeyama)."""
-    mu_x, mu_y = source.mean(0), target.mean(0)
-    x, y = source - mu_x, target - mu_y
-    u, d, vt = np.linalg.svd(y.T @ x / len(x))
-    fix = np.diag([1.0, 1.0, np.sign(np.linalg.det(u @ vt))])
-    rotation = u @ fix @ vt
-    scale = float(np.trace(np.diag(d) @ fix) / (x**2).sum(1).mean())
-    return scale, rotation, mu_y - scale * rotation @ mu_x
 
 
 @dataclass(frozen=True)
@@ -89,7 +78,7 @@ class FbxCalibration:
             raise ValueError(
                 f"{bvh_path.name} has {len(b)} frames but {fbx_path.name} has {len(f)}"
             )
-        scale, rotation, translation = _similarity(
+        scale, rotation, translation = similarity(
             b[..., :3, 3].reshape(-1, 3), f[..., :3, 3].reshape(-1, 3)
         )
         frame = scale * rotation @ b[0, :, :3, :3]
@@ -156,6 +145,29 @@ def same_clip_pairs(source: Path, rig: str, first: str | None) -> list[tuple[Pat
     return sorted(best.items(), key=lambda pair: (pair[0].name != first, pair[0].name))
 
 
+def source_calibration(corpus: str | Path, raw: str | Path, rig: str) -> FbxCalibration:
+    """The rig's raw BVH placed in its vendor FBX: the first same-clip pair that
+    agrees, the rest pose's pair tried first. Needs no built corpus, only the
+    manifest and the raw files."""
+    manifest = SkeletonManifest.load(Path(corpus) / "rigs" / rig / "manifest.yaml")
+    source = Path(raw) / "source" / rig
+    tried = []
+    for bvh, fbx in same_clip_pairs(source, rig, manifest.rest_pose):
+        try:
+            calibration = FbxCalibration.fit(bvh, fbx)
+        except ValueError as error:
+            tried.append(f"{fbx.name}: {error}")
+            continue
+        if calibration.residual <= CALIBRATION_TOL:
+            return calibration
+        tried.append(f"{fbx.name}: off by {calibration.residual:.2e} of the extent")
+    raise ArtifactUnavailableError(
+        "corpus", rig, "source", "fbx",
+        "no vendor BVH/FBX pair of one clip agrees"
+        + (f" ({'; '.join(tried[:3])})" if tried else " (no pair found)"),
+    )
+
+
 @dataclass
 class RigRecord:
     """One rig as the corpus recorded it: its reduction, its preparation
@@ -172,6 +184,8 @@ class RigRecord:
     params: dict
     reduction: object
     clip_params: dict = field(default_factory=dict)
+    #: The reduce rules `skeleton.npz` records, the dataset's when stage 2 ran.
+    reduction_rules: tuple = ()
     _calibrations: dict = field(default_factory=dict)
 
     @classmethod
@@ -190,18 +204,17 @@ class RigRecord:
                 rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)),
                 root_pos=np.zeros((1, 3)), offsets=data["offsets"],
                 parents=data["parents"].astype(np.int32), names=names, fps=1.0)
-            reduction = build_reduction(rest, layout=layout)
+            rules = load_rules(data)
+            reduction = build_reduction(rest, rules, layout=layout, still=load_still(data))
         prep = corpus / "rigs" / rig / "preproc.npz"
-        params = {}
-        clip_params = {}
+        params, clip_params, chain = {}, {}, PrepareChain(())
         if prep.is_file():
-            from poseydon.build.prepare import RigTransform
             transform = RigTransform.load(prep)
-            params, clip_params = transform.rig_params, transform.clip_params
+            params, clip_params, chain = transform.rig_params, transform.clip_params, transform.prepare_chain()
         # Inversion reads the persisted parameters, so the chain needs neither
-        # this rig's channel layout nor its promotion target -- only the ORDER,
-        # which `prepare_chain` is the single definition of.
-        return cls(corpus, raw, rig, prepare_chain(), params, reduction, clip_params)
+        # this rig's channel layout nor its promotion target -- only the stages
+        # and their order, which preproc.npz records as built.
+        return cls(corpus, raw, rig, chain, params, reduction, clip_params, reduction_rules=rules)
 
     @property
     def _model_names(self) -> tuple[str, ...]:
@@ -292,23 +305,7 @@ class RigRecord:
         return self._calibrations[space]
 
     def _fit_source(self) -> FbxCalibration:
-        manifest = SkeletonManifest.load(self.corpus / "rigs" / self.rig / "manifest.yaml")
-        source = self.raw / "source" / self.rig
-        tried = []
-        for bvh, fbx in same_clip_pairs(source, self.rig, manifest.rest_pose):
-            try:
-                calibration = FbxCalibration.fit(bvh, fbx)
-            except ValueError as error:
-                tried.append(f"{fbx.name}: {error}")
-                continue
-            if calibration.residual <= CALIBRATION_TOL:
-                return calibration
-            tried.append(f"{fbx.name}: off by {calibration.residual:.2e} of the extent")
-        raise ArtifactUnavailableError(
-            "corpus", self.rig, "source", "fbx",
-            "no vendor BVH/FBX pair of one clip agrees"
-            + (f" ({'; '.join(tried[:3])})" if tried else " (no pair found)"),
-        )
+        return source_calibration(self.corpus, self.raw, self.rig)
 
     def _fit_prepared(self) -> FbxCalibration:
         source = self.calibration("source")

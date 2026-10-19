@@ -50,7 +50,9 @@ docker compose run --rm test python scripts/build_features.py
 This reads the prepared clips and writes, per character, the skeleton the
 model sees (`skeleton.npz`) and the statistics used to normalise its inputs
 (`stats.npz`), plus one index of every clip (`data/truebones/index.jsonl`).
-What gets computed is set in `configs/dataset/truebones.yaml`.
+What gets computed is set in `configs/build.yaml`: the dataset
+(`configs/data/truebones.yaml`: which joints the model may drop, the labels)
+and the feature group the statistics are for (`configs/features/default.yaml`).
 
 If you change only the feature list, add `--stats-only`: the statistics are the
 only thing that depends on it. The exception is switching the rotation layout,

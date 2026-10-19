@@ -341,10 +341,8 @@ class MoDiffAE(Denoiser):
         self.feature_dim = feature_dim
         self.d_model = d_model
         self.temporal_window = temporal_window
-        # A plain dict of rates rather than a `_target_` block: Hydra's
-        # recursive instantiate would build this before `MoDiffAE` and without
-        # a `d_model` to size the null token, forcing the width to be
-        # duplicated in the config.
+        # A plain dict of rates rather than a built object: it needs `d_model`
+        # to size the null token, which only the model has.
         self.motion_masking = MotionMasker(d_model, **(masking or {}))
         self.cond_masking = ConditionMasker(d_model, cond_drop)
         self.semantic_encoder = SemanticEncoder(

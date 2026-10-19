@@ -40,7 +40,7 @@ STD_EPSILON = 1e-6
 #: The floor stays, and is not redundant: centring only removes the MEAN, so a
 #: channel with a tiny but non-zero spread still divides by something near
 #: zero and amplifies float noise. `rot6d` is centred now (see
-#: `configs/dataset/truebones.yaml`), so that specific 1e6 cannot recur -- this
+#: `configs/features/default.yaml`), so that specific 1e6 cannot recur -- this
 #: guards the general case, whatever a future policy centres or does not.
 #:
 #: 1e-4 is not a guess. Across all 73 rigs and every block, 168 channels fall

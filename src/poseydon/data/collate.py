@@ -59,4 +59,5 @@ def collate(items: Sequence[Item]) -> MotionBatch:
             ),
         ),
         cond=Cond(payloads),
+        rigs=tuple(item.rig for item in items),
     )

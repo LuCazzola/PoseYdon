@@ -23,12 +23,14 @@ cpu = ["torch>=2.4"]
 cu130 = ["torch>=2.4"]
 # Training-only: run logging.
 train = ["wandb>=0.17"]
+# Building the joint-name cache (`poseydon.conditioners.text`); training reads
+# the cache and never needs it.
+text = ["transformers", "sentencepiece"]
 # The published reference implementation and what its scripts import, for the
 # parity tools in tools/reference/. Never a dependency of the suite.
 compat = [
     "motion",
-    "transformers",
-    "sentencepiece",
+    "poseydon[text]",
     "num2words",
     "einops",
     "blobfile",

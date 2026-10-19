@@ -1,6 +1,8 @@
-base: ../_base.yaml
 skeleton: Tukan
 rest_pose: __Tpose.bvh
+promote_root: locator   # the root is a ground locator: the body's root joint
+ground: joints   # its BVH skeleton covers only part of the mesh: the wingtips hang 0.6 below
+                 # the lowest joint, so a mesh floor would float the bird above them
 facing:
   hips:      {right: R_momo, left: L_momo}
   shoulders: {right: R_kata, left: L_kata}

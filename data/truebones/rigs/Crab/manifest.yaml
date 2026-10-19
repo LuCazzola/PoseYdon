@@ -1,6 +1,5 @@
-base: ../_base.yaml
 skeleton: Crab
-rest_pose: __Walk.bvh
+rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
 facing:
   hips:      {right: BN_Leg_R_11, left: BN_Leg_L_11}
   shoulders: {right: BN_Arm_R_02, left: BN_Arm_L_02}
@@ -13,6 +12,6 @@ authority:
   surface: fbx
   auxiliary_joints: bake
 artifacts:
-  bvh: __Walk.bvh
+  bvh: __TPOSE_authored.bvh
   fbx: 'Crab-Walk.fbx'
   textures: null

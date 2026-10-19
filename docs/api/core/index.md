@@ -32,6 +32,7 @@ classDiagram
   class MotionBatch {
     <<dataclass>>
     x: Tensor
+    rigs: tuple
     n_joints
     n_frames
     block(name) Tensor
@@ -79,7 +80,9 @@ classDiagram
     <<dataclass>>
     name
     foot_joints
-    load(path)$
+    promote_root, ground
+    contact
+    load(path, defaults)$
   }
   class ResolvedSkeleton {
     <<dataclass>>
