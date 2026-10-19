@@ -14,7 +14,7 @@ anyone can hand a rig to.
 
 ```mermaid
 flowchart LR
-  S[source<br/>as authored] -- prepare --> P[prepared<br/>canonical, all joints]
+  S[source<br/>as authored] -- prepare --> P[prepared<br/>canonical, all joints after rig cleanup]
   P -- reduce --> M[model character<br/>degenerate joints removed]
   M -- features --> N((model))
   N -- features --> G[generated motion<br/>model character]
@@ -88,8 +88,8 @@ handles them in two ways:
   (3ds Max `*Nub` tip bones, never-animated lips and eyes, Rat's `Trajectory`).
 
 Reduction is applied **when features are read, never written into the
-corpus**. Skin weights are indexed by the original joint order, so the corpus
-has to keep every joint for a generated clip to land back on the rig. The
+corpus**. A generated clip has to land back on the rig, so the corpus keeps
+every joint that rig cleanup (`prune_unskinned`) did not remove. The
 recorded [`JointReduction`][poseydon.features.reduce.JointReduction] is replayed in reverse by [`invert_reduction`][poseydon.features.reduce.invert_reduction]. See
 [features: reduction](../../../api/features/reduction.md).
 
@@ -101,7 +101,7 @@ whatever clip it is given:
 
 ```python
 record = RigRecord.load(corpus, raw, "Dog")
-prepared = record.expand(model)                       # every joint, canonical
+prepared = record.expand(model)                       # every joint (after rig cleanup), canonical
 source = record.restore(model, facing_from="attack")  # the user's rig
 
 BVH.from_animation(source, channels=record.source_channels).write("dog.bvh")
@@ -112,7 +112,7 @@ FBX.from_animation(prepared, record.calibration("prepared")).write("dog_prepared
 | space | joints | frame | BVH | FBX |
 |---|---|---|---|---|
 | **model view** | exactly the model's | canonical (+Z, scaled, centred, grounded) | the animation | expand first |
-| **prepared** | every joint | canonical | the animation | the vendor's own asset in canonical space, mesh included |
+| **prepared** | every joint (after rig cleanup) | canonical | the animation | the vendor's own asset in canonical space, mesh included |
 | **source** | the source's own | source units, frame, names, channels | with the source's `CHANNELS` block | the vendor's own asset: nodes, mesh, skin, materials |
 
 Every FBX carries the vendor's mesh. A source BVH needs `source_channels` and
