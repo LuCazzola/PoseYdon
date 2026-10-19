@@ -72,6 +72,14 @@ docker compose run --rm -T test python scripts/build_features.py data=truebones_
 Train or sample on it with `data=truebones_bone`; check it with
 `pytest --dataset truebones_bone`.
 
+**UniMate inputs**:
+
+- `scripts/fetch_unimate_annotations.sh` (host, bash): fetches `clips.csv` and
+  the three FBX repair scripts under `scripts/probes/` from the Hugging Face
+  dataset `Linzhan/Truebones-ZOO-Annotations`, pinned to one commit in the
+  script, into `data/_raw/UniML3D/truebones_annotations/` (gitignored). It also
+  links `data/_raw/unimate` to `truebones`. Idempotent: present files are kept.
+
 There is no FBX preparation pass: preparation runs on the BVH, and FBX enters
 only at the two ends, through `poseydon export --format fbx`.
 
