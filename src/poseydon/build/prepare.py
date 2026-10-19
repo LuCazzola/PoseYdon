@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from poseydon.build.corpus import corpus_root, rig_cache
 from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
 from poseydon.core.registry import Registry
 from poseydon.core.rotations import (
@@ -845,7 +846,7 @@ class ScaleToMeanBoneLength(PrepareStage):
         )
 
 
-#: Each rig's rest-pose mesh, cached beside its manifest by `tools/build_rest_mesh.py`
+#: Each rig's rest-pose mesh, cached under `rig_cache()` by `tools/build_rest_mesh.py`
 #: (the FBX SDK runs only in the `fbxsdk` container; the build never needs it).
 REST_MESH = "rest_mesh.npz"
 
@@ -910,7 +911,7 @@ class PutOnGround(PrepareStage):
 
 def _mesh_floor(anim: Animation, manifest: Any) -> tuple[float | None, str]:
     """The cached rest mesh's lowest height under ``anim``'s first frame, or why not."""
-    path = Path(manifest.source).parent / REST_MESH
+    path = rig_cache(corpus_root(manifest), Path(manifest.source).parent.name) / REST_MESH
     if not path.is_file():
         return None, f"{path} is missing (run tools/build_rest_mesh.py)"
     with np.load(path) as cache:

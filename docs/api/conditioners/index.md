@@ -7,7 +7,7 @@ skeleton-derived: `topology`, `tpose`, `norm_stats`, `joint_names`. Only
 declared conditioners are loaded, so an unconditional corpus declares none.
 
 `joint_names` reads T5 embeddings from a cache keyed by raw joint name
-(`data/truebones/joint_names_t5.npz`). `text` builds it: the reference's
+(`data/truebones/cache/joint_names_t5.npz`). `text` builds it: the reference's
 name clean-up and pooling, ported and measured bit-identical to the
 reference's own cache on all 1185 names it held. Building needs the `text`
 extra (`compat` image); training never does.

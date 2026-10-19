@@ -52,7 +52,7 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
-| `tools/build_rest_mesh.py` | caches each rig's vendor mesh skinned on its rest pose (`rigs/<Rig>/rest_mesh.npz`), which the `ground` stage's `mesh` mode grounds on; needs the `fbxsdk` service | [tooling](tooling.md#tools-and-probes) |
+| `tools/build_rest_mesh.py` | caches each rig's vendor mesh skinned on its rest pose (`cache/rigs/<Rig>/rest_mesh.npz`), which the `ground` stage's `mesh` mode grounds on; needs the `fbxsdk` service | [tooling](tooling.md#tools-and-probes) |
 | `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus, through `poseydon.conditioners.text` | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_grid_search.py` | grid search over `GradientIK` terms, foot-contact term included | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_contact_compare.py` | default vs best-from-grid IK solve, with predicted contacts shown | [tooling](tooling.md#tools-and-probes) |

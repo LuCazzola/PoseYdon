@@ -44,7 +44,7 @@ convention (`data=truebones_bone`).
   problem.
 - **The `ground` stage's `mesh` mode reads a cache the build cannot make.** The FBX SDK is
   x86-64 only, so `tools/build_rest_mesh.py` (the `fbxsdk` service) writes each
-  rig's rest-pose mesh to `rigs/<Rig>/rest_mesh.npz` beside its manifest, and
+  rig's rest-pose mesh to `cache/rigs/<Rig>/rest_mesh.npz` under the dataset (`rig_cache` in `poseydon.build.corpus`), and
   `PutOnGround` maps it onto the rest joints by a best-fit similarity. A rig
   whose cache is missing, or was made for another `rest_pose:`, is grounded on
   its lowest joint and the build prints a warning; it does not fail. A changed

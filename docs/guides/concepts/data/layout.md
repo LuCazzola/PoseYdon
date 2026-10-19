@@ -9,11 +9,13 @@ data/
   truebones/
     rigs/<Rig>/                    one folder per character
       manifest.yaml                hand-written: how to read this rig
-      rest_mesh.npz                the vendor mesh on the rest pose, for grounding
       preproc.npz                  how the rig was prepared, and how to undo it
       skeleton.npz                 the skeleton the model sees
       stats.npz                    normalisation statistics
       report.json                  what preparation did, and why
+    cache/                         derived from vendor files, rebuilt by tools
+      joint_names_t5.npz           T5 embeddings of the joint names
+      rigs/<Rig>/rest_mesh.npz     the vendor mesh on the rest pose, for grounding
     clips/<Rig>/<action>.npz       the prepared clip
     clips/<Rig>/<action>.bvh       the same, as BVH, to look at
     clips/<Rig>/<action>.yaml      which split the clip belongs to
@@ -24,7 +26,7 @@ Only the hand-written files are in git: the manifests and the clip `.yaml`
 files. What is done to every rig alike, from preparation to loading, is the
 dataset config, `configs/data/truebones.yaml`. Everything else is rebuilt by
 the two steps in [Building the dataset](../../how-to/tutorials/build-a-corpus.md);
-`rest_mesh.npz` comes from `tools/build_rest_mesh.py`, which needs the FBX SDK.
+`cache/` comes from `tools/build_joint_name_cache.py` and `tools/build_rest_mesh.py`, the latter needing the FBX SDK.
 
 ## The raw files
 

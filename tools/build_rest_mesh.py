@@ -2,7 +2,7 @@
 
 The vendor FBX skin is posed on the first frame of the rig's `rest_pose:` clip
 and written, in the raw BVH's space, beside the manifest as
-`rigs/<Rig>/rest_mesh.npz`: `rest_pose` (the clip it was made for), `names` and
+`cache/rigs/<Rig>/rest_mesh.npz`: `rest_pose` (the clip it was made for), `names` and
 `joints` (that frame's joint positions) and `vertices`. The build maps it onto
 the rest pose as it stands at grounding, so it needs no FBX SDK; this does, so
 it runs in the `fbxsdk` container (x86-64, emulated on ARM hosts: minutes per
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from poseydon.build.corpus import rest_source
+from poseydon.build.corpus import rest_source, rig_cache
 from poseydon.build.prepare import REST_MESH
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.export.rig import source_calibration
@@ -51,7 +51,9 @@ def main() -> int:
             failed.append(rig)
             print(f"{rig}: FAILED {type(error).__name__}: {error}", flush=True)
             continue
-        np.savez_compressed(CORPUS / "rigs" / rig / REST_MESH, **cache)
+        out = rig_cache(CORPUS, rig)
+        out.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(out / REST_MESH, **cache)
         below = cache["joints"][:, 1].min() - cache["vertices"][:, 1].min()
         print(f"{rig}: {len(cache['vertices'])} vertices, lowest {below:+.3f} below the lowest joint (raw units, along raw Y)", flush=True)
     print(f"{len(rigs) - len(failed)} cached, {len(failed)} failed {failed}")

@@ -41,6 +41,21 @@ class PerRigDirectory:
         return sorted((Path(root) / "clips" / rig).glob(self.pattern))
 
 
+def corpus_root(manifest: SkeletonManifest) -> Path:
+    """The dataset directory a rig's manifest lives in (`<root>/rigs/<Rig>/manifest.yaml`)."""
+    return Path(manifest.source).parents[2]
+
+
+def cache_dir(root: str | Path) -> Path:
+    """Where a dataset keeps what is derived from vendor files and not part of the corpus."""
+    return Path(root) / "cache"
+
+
+def rig_cache(root: str | Path, rig: str) -> Path:
+    """A rig's derived files (the rest mesh)."""
+    return cache_dir(root) / "rigs" / rig
+
+
 def read_labels(path: str | Path) -> dict:
     """A clip's authored label file, or an empty mapping when absent."""
     path = Path(path)

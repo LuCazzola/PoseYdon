@@ -63,7 +63,7 @@ with `bone_relative` appended, built into its own root `data/truebones_bone/`
 corpus, the checks undoing `bone_relative` first):
 
 ```bash
-mkdir -p data/truebones_bone && (cd data/truebones && find rigs clips \( -name '*.yaml' -o -name rest_mesh.npz \) | cpio -pdmu ../truebones_bone)
+mkdir -p data/truebones_bone && (cd data/truebones && find rigs clips cache \( -name '*.yaml' -o -name rest_mesh.npz \) | cpio -pdmu ../truebones_bone)
 ln -sfn truebones data/_raw/truebones_bone   # the test reads data/_raw/<dataset>
 docker compose run --rm -T test python scripts/process_dataset_truebones.py data=truebones_bone
 docker compose run --rm -T test python scripts/build_features.py data=truebones_bone
@@ -105,8 +105,8 @@ nothing. Files whose docstring says *throwaway* exist to be deleted.
 | rest pose and joint sets | `tools/probe_jointset_spread.py`, `tools/probe_tpose_gap.py`, `tools/probe_rest_override.py`, `tools/write_rest_pose.py`, `tools/probe_resolve_after_reduce.py`, `tools/tpose_author.py` (authored T-poses: `build` in the `fbxsdk` service, then `pose` / `ref` / `paw` / `flips` / `save` in `train`; workflow and lessons in its docstring) |
 | inverse kinematics | `tools/ik_grid_search.py`, `tools/ik_contact_compare.py` |
 | parity with the reference | `tools/probe_reference_retarget.py`, `tools/probe_wandb_parity.py`, `tools/render.py` |
-| rest-pose mesh | `tools/build_rest_mesh.py`: each rig's vendor mesh skinned on its rest pose, cached as `rigs/<Rig>/rest_mesh.npz` for the `ground` stage's `mesh` mode (`fbxsdk` service, about 10 s a rig); rerun for a rig whose `rest_pose:` changes, before stage 1 |
-| joint-name embeddings | `tools/build_joint_name_cache.py`: the `joint_names` cache, from every rig's reduced joint names through `poseydon.conditioners.text` (`compat` image, for the `text` extra); rerun after a reduction change adds names |
+| rest-pose mesh | `tools/build_rest_mesh.py`: each rig's vendor mesh skinned on its rest pose, cached as `cache/rigs/<Rig>/rest_mesh.npz` for the `ground` stage's `mesh` mode (`fbxsdk` service, about 10 s a rig); rerun for a rig whose `rest_pose:` changes, before stage 1 |
+| joint-name embeddings | `tools/build_joint_name_cache.py`: the `joint_names` cache (`cache/joint_names_t5.npz`), from every rig's reduced joint names through `poseydon.conditioners.text` (`compat` image, for the `text` extra); rerun after a reduction change adds names |
 
 `tools/reference/` holds scripts that run the **reference implementation** (the
 published code PoseYdon is measured against) inside the `compat` container. They
