@@ -41,6 +41,11 @@ frame the same shot.
   with several bind poses takes the first that names the node. `skins` indexes
   weights by node, so a skin whose link is not a scene node is dropped.
   `scripts/build_fbx_cache.py` is their one user.
+- **The SDK's criteria-filtered `GetSrcObject(criteria, n)` is not a strict
+  filter.** On 349 Truebones clips it returned objects of other types (an
+  `FbxNode` where an `FbxAnimCurveNode` was asked for); cause not established.
+  The readers (`key_range`, `skins`, `bind_matrices`, `skinned_vertices`)
+  filter by type, so a new reader of this kind must too.
 
 ## Reference
 

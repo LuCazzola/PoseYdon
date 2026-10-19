@@ -299,10 +299,8 @@ class FBX:
             self.scene.SetCurrentAnimationStack(self._stack())
         evaluator = self.scene.GetAnimationEvaluator()
         time = _frame(frame, self._mode)
-        kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
         out = []
-        for s in range(self.scene.GetSrcObjectCount(kind)):
-            skin = self.scene.GetSrcObject(kind, s)
+        for skin in self._skins():
             points = np.array([[p[0], p[1], p[2], 1.0] for p in skin.GetGeometry().GetControlPoints()])
             moved = np.zeros((len(points), 4))
             total = np.zeros(len(points))
