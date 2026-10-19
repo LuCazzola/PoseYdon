@@ -231,6 +231,10 @@ class FBX:
             layer = stack.GetMember(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId), i)
             for n in range(layer.GetSrcObjectCount(kind)):
                 curve_node = layer.GetSrcObject(kind, n)
+                # The criteria also lets other objects through on some files
+                # (FbxNodes on 349 Truebones clips).
+                if not isinstance(curve_node, fbx.FbxAnimCurveNode):
+                    continue
                 for channel in range(curve_node.GetChannelsCount()):
                     for c in range(curve_node.GetCurveCount(channel)):
                         curve = curve_node.GetCurve(channel, c)
@@ -247,7 +251,8 @@ class FBX:
 
     def _skins(self) -> list:
         kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
-        return [self.scene.GetSrcObject(kind, s) for s in range(self.scene.GetSrcObjectCount(kind))]
+        found = (self.scene.GetSrcObject(kind, s) for s in range(self.scene.GetSrcObjectCount(kind)))
+        return [o for o in found if isinstance(o, fbx.FbxSkin)]  # the criteria is not a strict filter
 
     def skins(self) -> list[Skin]:
         """Every skin deformer's per-node weight summary (see `Skin`)."""
