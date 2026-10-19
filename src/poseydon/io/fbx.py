@@ -143,6 +143,10 @@ class FBX:
         asset.animate(calibration.drive(anim), anim.fps, space=calibration.placement)
         return asset
 
+    def close(self) -> None:
+        """Free the SDK manager and everything it owns. The object is unusable after."""
+        self.manager.Destroy()
+
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(node.GetName() for node in self.nodes)
@@ -236,9 +240,10 @@ class FBX:
                 for channel in range(curve_node.GetChannelsCount()):
                     for c in range(curve_node.GetCurveCount(channel)):
                         curve = curve_node.GetCurve(channel, c)
+                        if curve.KeyGetCount() == 0:
+                            continue
                         for k in (0, curve.KeyGetCount() - 1):
-                            if k >= 0:
-                                times.append(curve.KeyGetTime(k).GetFrameCountPrecise(self._mode))
+                            times.append(curve.KeyGetTime(k).GetFrameCountPrecise(self._mode))
         return (min(times), max(times)) if times else (0.0, 0.0)
 
     def up_axis(self) -> str:
@@ -263,7 +268,7 @@ class FBX:
                 at = by_uid.get(cluster.GetLink().GetUniqueID())
                 weight = np.array(cluster.GetControlPointWeights(), dtype=float)
                 if at is not None and weight.size:
-                    top[at], total[at] = weight.max(), weight.sum()
+                    top[at], total[at] = max(top[at], weight.max()), total[at] + weight.sum()
             node = geometry.GetNode()
             out.append(Skin(node.GetName() if node else "", geometry.GetControlPointsCount(), top, total))
         return out

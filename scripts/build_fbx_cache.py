@@ -55,13 +55,20 @@ def repaired(source: Path) -> Path:
     if source.parent.name != "KingCobra":
         return source
     out = CACHE / "repaired" / "KingCobra" / source.name
-    if not out.exists():
+    if not out.exists() or out.stat().st_mtime < source.stat().st_mtime:
+        # Repair a scratch copy and rename it on success, so a failure midway
+        # is redone next run instead of read as a repaired file.
         out.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(source, out)
-        if source.name == "walk.fbx":
-            probe("fbx_graft_mesh.py", "--donor", str(source.parent / DONOR), "--bind", "donor", str(out))
-            define_types(out, source.parent / DONOR)
-        probe("fbx_strip_variant.py", "--keep", "A01", str(out))
+        part = out.with_name(out.stem + ".part.fbx")
+        try:
+            shutil.copy(source, part)
+            if source.name == "walk.fbx":
+                probe("fbx_graft_mesh.py", "--donor", str(source.parent / DONOR), "--bind", "donor", str(part))
+                define_types(part, source.parent / DONOR)
+            probe("fbx_strip_variant.py", "--keep", "A01", str(part))
+            part.replace(out)
+        finally:
+            part.unlink(missing_ok=True)
     return out
 
 
@@ -85,11 +92,21 @@ def define_types(target: Path, donor: Path) -> None:
 
 
 def probe(script: str, *args: str) -> None:
-    subprocess.run([sys.executable, str(PROBES / script), *args], check=True, capture_output=True)
+    try:
+        subprocess.run([sys.executable, str(PROBES / script), *args], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"{script} failed: {error.stderr.strip()[-500:]}") from error
 
 
 def read(path: Path) -> dict:
     fbx = FBX.read(path)
+    try:
+        return _read(fbx)
+    finally:
+        fbx.close()  # ~1,100 scenes in one process
+
+
+def _read(fbx: FBX) -> dict:
     start, stop = fbx.key_range()
     frames = np.arange(math.floor(start + FRAME_RANGE_EPS), math.ceil(stop - FRAME_RANGE_EPS) + 1)
     skins = fbx.skins()
@@ -138,7 +155,7 @@ def main() -> int:
         t0 = time.time()
         try:
             d = read(repaired(source))
-        except Exception as error:  # one bad clip must not stop a 3 h run
+        except Exception as error:  # one bad clip must not stop a long run
             failed += 1
             print(f"FAILED {species}-{action}: {error!r}", flush=True)
             continue
