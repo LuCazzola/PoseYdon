@@ -46,7 +46,8 @@ rig with `--rigs <Rig>`.
   each rig's raw clips through the dataset's `source:` (`type: bvh_files`, the
   BVHs under `paths.raw/source/<Rig>/`; or `type: fbx_cache`, the cache of
   `scripts/build_fbx_cache.py`; `src/poseydon/build/sources.py`), runs them through the
-  dataset's `prepare:` chain, and writes `clips/<Rig>/<action>.bvh` plus
+  dataset's `prepare:` chain (a stage that decides from the whole rig, `prune_unskinned`,
+  is given every clip of the rig and its skin weights first), and writes `clips/<Rig>/<action>.bvh` plus
   `rigs/<Rig>/preproc.npz`, which holds the fitted transform, its inverse and
   the chain itself. A rig grounded on the mesh without a current
   `rest_mesh.npz` (run `tools/build_rest_mesh.py` first) is grounded on its
@@ -148,7 +149,7 @@ and is named after its module is listed in `custom_imports:`.
 
 | config | holds |
 |---|---|
-| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended; `unimate` (UniMate's recipe, `fbx_cache` source, manifests from `tools/write_unimate_manifests.py`) has a placeholder `prepare:` (`enforce_rigid` only) and `reduce: []` until the recipe parts exist |
+| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended; `unimate` (UniMate's recipe, `fbx_cache` source, manifests from `tools/write_unimate_manifests.py`) has a partial `prepare:` (`up_axis`, `prune_unskinned`, `enforce_rigid`) and `reduce: []` until the recipe parts exist |
 | `configs/features/` | the model's feature blocks and their normalization (model-side) |
 | `configs/build.yaml` | corpus construction: a dataset plus a feature group, for both build scripts |
 | `configs/train.yaml`, `configs/sample.yaml` | a run: dataset, features, `configs/model/` (`anytop`, `modiffae`), `configs/process/` (`gaussian`, `flow`), `configs/trainer/` (`default`, `debug`), conditioners, augmentations, losses |

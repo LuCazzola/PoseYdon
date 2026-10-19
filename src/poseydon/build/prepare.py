@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -64,6 +65,20 @@ def _entry(entry) -> dict:
     return {"type": entry} if isinstance(entry, str) else dict(entry)
 
 
+@dataclass(frozen=True)
+class RigEvidence:
+    """What a rig-wide decision looks at beyond the rest pose: the rig's clips and
+    its skin weights. `PrepareChain.fit_rig` hands each stage that
+    ``uses_evidence`` the clips as the preceding stages left them.
+
+    ``skin`` is the largest skin weight per joint name on the rig's main mesh;
+    ``None`` when the source carries none (a BVH).
+    """
+
+    clips: tuple[Animation, ...] = ()
+    skin: Mapping[str, float] | None = None
+
+
 class PrepareStage(ABC):
     """One invertible step of the source-to-prepared transform.
 
@@ -79,6 +94,9 @@ class PrepareStage(ABC):
     #: Stages that must run before this one when the chain has them (the order
     #: check in `PrepareChain`); ``"*"`` means every other stage.
     after: ClassVar[tuple[str, ...]] = ()
+    #: ``True`` for a stage that decides from the rig's clips and skin
+    #: (`RigEvidence`) and so is fitted by `fit_evidence`, not `fit`.
+    uses_evidence: ClassVar[bool] = False
 
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
@@ -88,6 +106,10 @@ class PrepareStage(ABC):
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
         """Parameters derived from ``anim`` as it stands at this point in the chain."""
         return {}
+
+    def fit_evidence(self, anim: Animation, resolved: Any, evidence: RigEvidence) -> dict[str, np.ndarray]:
+        """`fit`, for a stage with ``uses_evidence``: ``anim`` is the rest pose."""
+        return self.fit(anim, resolved)
 
     @abstractmethod
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation: ...
@@ -122,14 +144,17 @@ class PrepareChain:
                 raise ValueError(f"prepare stage `{stage.name}` must come after {late}; the chain is {order}")
 
     def fit_rig(
-        self, rest: Animation, resolved: Any, audit: AuditSink | None = None
+        self, rest: Animation, resolved: Any, audit: AuditSink | None = None,
+        evidence: RigEvidence = RigEvidence(),
     ) -> dict[str, dict]:
         """Fit every stage against the rest pose.
 
         Each stage fits against the animation as the PRECEDING stages left it,
         which is why this applies as it goes: the scale factor is measured on an
         already-rest-relative skeleton, and the ground height on an already
-        scaled one.
+        scaled one. ``evidence.clips`` go through the same stages (a clip-scoped
+        one refitted per clip) up to the last stage that ``uses_evidence``, so
+        that stage sees them as it will see a clip.
 
         CLIP-scoped stages are fitted here too, and their results are kept
         rather than discarded. A clip refits them anyway -- `apply` overwrites
@@ -145,8 +170,16 @@ class PrepareChain:
         """
         params: dict[str, dict] = {}
         current = rest
-        for stage in self.stages:
-            params[stage.name] = stage.fit(current, _rebind(resolved, rest, current))
+        clips = evidence.clips
+        last = max((i for i, s in enumerate(self.stages) if s.uses_evidence), default=-1)
+        for i, stage in enumerate(self.stages):
+            bound = _rebind(resolved, rest, current)
+            if stage.uses_evidence:
+                params[stage.name] = stage.fit_evidence(current, bound, RigEvidence(clips, evidence.skin))
+            else:
+                params[stage.name] = stage.fit(current, bound)
+            if i < last:
+                clips = tuple(self._through(stage, clip, resolved, rest, params[stage.name]) for clip in clips)
             before = current
             current = stage.apply(current, params[stage.name])
             if audit is not None:
@@ -155,6 +188,13 @@ class PrepareChain:
                     parameters=params[stage.name], before=before, after=current,
                 )
         return params
+
+    @staticmethod
+    def _through(stage: PrepareStage, clip: Animation, resolved: Any, rest: Animation, rig_params) -> Animation:
+        """``clip`` after ``stage``: with the rig's parameters, or its own if clip-scoped."""
+        if stage.scope == CLIP:
+            rig_params = stage.fit(clip, _rebind(resolved, rest, clip))
+        return stage.apply(clip, rig_params)
 
     def apply(
         self, anim: Animation, resolved: Any, rig_params: dict[str, dict],

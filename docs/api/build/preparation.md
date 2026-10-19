@@ -1,8 +1,10 @@
 # build: preparation
 
-Stage 1 of [build](index.md): an invertible chain of geometry stages, fitted on
-the BVH and persisted with their parameters so a generated clip can return to
-the user's rig. Rig-scoped stages fit once on the rest pose; clip-scoped ones
+Stage 1 of [build](index.md): an invertible chain of stages, fitted on the raw
+clips and persisted with their parameters so a generated clip can return to the
+user's rig. Preparation may clean up the rig (a stage may remove joints, and
+records them); reduction is the model's lens
+([below](#rig-cleanup-versus-the-models-lens)). Rig-scoped stages fit once on the rest pose; clip-scoped ones
 (`FaceAxis`) fit per clip. `report.json` records each transform and the
 manifest's declared source authority. FBX enters only at export.
 
@@ -22,7 +24,54 @@ local +X runs along its bone, so identity is a straight chain and X is twist
 on every joint. World motion is the same either way; it exists to ablate the
 convention (`data=truebones_bone`).
 
+## Rig cleanup versus the model's lens
+
+Two groups of operations can change a rig's joint set, and the config keeps them
+in two lists. The owner considered merging them into one `preproc` list and chose
+to keep them separate, because separate groups keep the operations logically
+distinct instead of one giant list.
+
+- **Rig cleanup, `prepare:` (baked into the prepared corpus).** Removing what is
+  not part of the character: IK controls, helpers, an unskinned ground locator.
+  A property of the asset. `prune_unskinned` (`src/poseydon/build/cleanup.py`) is
+  the first stage that removes joints other than `promote_root`; it records each
+  removed joint by name with its bind pose, as the other stages record their
+  parameters, and decides from the whole rig, so it reads every clip and the skin
+  weights (`RigEvidence`, handed to `PrepareChain.fit_rig` by
+  `scripts/process_dataset_truebones.py`).
+- **The model's lens, `reduce:` (applied when features are read).** Which of the
+  character's remaining joints a model sees under a given feature layout
+  (`drop_end_sites`, `fold_into_root`, `drop_still`). It depends on the layout, so
+  it stays out of the corpus ([features: reduction](../features/reduction.md)).
+
+What the split preserves: one prepared corpus serves several feature layouts and
+reduction rule sets; the prepared level stays a full-character artifact (export
+`--representation prepared`, inspection in a DCC tool, its own round-trip check);
+a reduction rule that fits on every prepared clip of a rig (`drop_still`) sees
+settled geometry; and changing `reduce:` reruns stage 2 only. The contract is
+therefore "preparation may clean up the rig (recorded); reduction is the model's
+lens", where it used to be "preparation keeps structure".
+
+A cleaned rig is a new joint set for everything after it in the chain, which is
+why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
+`_rebind` re-resolves the manifest against the surviving joints.
+
 ## Limitations
+
+- **Removed joints come back at their bind pose, with no motion.** `prune_unskinned`
+  records each removed joint's rest local translation and rotation; `invert`
+  reinserts it there. The child of a merged pass-through joint (or of a folded
+  root) takes the composite, so it and its subtree are world-exact; the removed
+  joint itself is not what it was in any clip. This is the owner's decision. The
+  tests that choose what to remove read the clips of the source, so a prepared
+  corpus cannot be re-pruned from itself.
+- **`prune_unskinned` needs skin weights.** A `bvh_files` source has none
+  (`Source.skin` is `None`) and the stage raises; it applies to `fbx_cache`. Its
+  tests ran against Task 4's approximated armature (`fbx_cache` in
+  [build](index.md#limitations)); on the 61 rigs checked against UniMate's
+  published joint lists (Alligator to SabreToothTiger) the kept sets agree except
+  Isopetra, which keeps `Bip01_R_Toe0Nub` in UniMate's list and loses it here
+  (3 of its 9 clips were not yet cached when this was measured).
 
 - **Facing is two stages, and only one turns the joints.** `FaceRestAxis`
   (rig) turns the whole rig so the rest skeleton faces +Z; `FaceAxis` (clip)
@@ -89,12 +138,24 @@ classDiagram
     name: str
     scope: RIG | CLIP
     after: tuple
+    uses_evidence: bool
     fit(anim, resolved) dict
+    fit_evidence(anim, resolved, evidence) dict
     apply(anim, params)* Animation
     invert(anim, params)* Animation
   }
   class RestRelative
   class PromoteRoot
+  class PruneUnskinned {
+    offset_eps, pos_var_eps, rot_eps_deg
+    min_joints, skin_eps
+    consider_parent_rotate
+  }
+  class RigEvidence {
+    <<dataclass>>
+    clips: tuple
+    skin: Mapping
+  }
   class UpAxis
   class FaceRestAxis
   class FaceAxis
@@ -109,7 +170,7 @@ classDiagram
     <<dataclass>>
     stages: tuple
     entries: tuple
-    fit_rig(rest, resolved, audit) dict
+    fit_rig(rest, resolved, audit, evidence) dict
     apply(anim, resolved, rig_params, audit) tuple
     invert(anim, params, audit) Animation
   }
@@ -126,6 +187,9 @@ classDiagram
   }
   PrepareStage <|-- RestRelative
   PrepareStage <|-- PromoteRoot
+  PrepareStage <|-- PruneUnskinned
+  PruneUnskinned ..> RigEvidence : fit_evidence reads
+  PrepareChain ..> RigEvidence : passes to fit_evidence
   PrepareStage <|-- UpAxis
   PrepareStage <|-- FaceRestAxis
   PrepareStage <|-- FaceAxis
@@ -148,8 +212,8 @@ classDiagram
   PreparationReport o-- AuthorityPolicy : policy
   cssClass "PrepareStage,AuditSink" iface
   cssClass "PREPARE" impl
-  cssClass "UpAxis,RestRelative,PromoteRoot,FaceRestAxis,FaceAxis,EnforceRigid,CentreXZ,ScaleToMeanBoneLength,PutOnGround,BoneRelative,PrepareChain,PreparationReport" impl
-  cssClass "OperationRecord,JointDecision,SkinningDecision" data
+  cssClass "UpAxis,RestRelative,PromoteRoot,PruneUnskinned,FaceRestAxis,FaceAxis,EnforceRigid,CentreXZ,ScaleToMeanBoneLength,PutOnGround,BoneRelative,PrepareChain,PreparationReport" impl
+  cssClass "OperationRecord,JointDecision,SkinningDecision,RigEvidence" data
   cssClass "AuthorityPolicy" ext
 ```
 
@@ -162,5 +226,7 @@ The dataset config's `prepare:` list is the one definition of the stage order.
 ## Reference
 
 ::: poseydon.build.prepare
+
+::: poseydon.build.cleanup
 
 ::: poseydon.build.report

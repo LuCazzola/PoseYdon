@@ -24,8 +24,10 @@ source:
   skip: data/_raw/UniML3D/export/truebones/filtered_clips.txt
 
 prepare:
-  # Placeholder until the UniMate chain exists (Tasks 6-8); rationale not
-  # recorded for this choice, it is PoseYdon's own stand-in.
+  # Partial until the UniMate chain exists (Tasks 7-8); `enforce_rigid` is
+  # PoseYdon's own stand-in (rationale not recorded).
+  - {type: up_axis}
+  - {type: prune_unskinned}
   - {type: enforce_rigid}
 
 # UniMate keeps every joint its pruning leaves (Tasks 6-8 do that in `prepare`).

@@ -27,12 +27,17 @@ flowchart LR
 | level | joints | geometry | lives in |
 |---|---|---|---|
 | **source** | as authored | as authored | `data/_raw/truebones/<Rig>/` |
-| **prepared** | same as source | bind removed, root promoted, faced +Z, rigid, centred, scaled, grounded | `data/truebones/clips/<Rig>/` |
+| **prepared** | source, less any rig cleanup (`prune_unskinned`) | bind removed, root promoted, faced +Z, rigid, centred, scaled, grounded | `data/truebones/clips/<Rig>/` |
 | **model** | zero-length bones removed | as prepared | features, `skeleton.npz` |
 
-Preparation changes geometry and keeps structure. Reduction changes structure
-and keeps geometry. Keeping them separate is what makes each one exactly
-invertible on its own.
+Preparation changes geometry, and may clean up the rig (a stage such as
+`prune_unskinned` removes joints and records them); reduction is the model's
+lens: it changes structure and keeps geometry. The owner kept them as two
+lists, `prepare:` and `reduce:`, because separate groups keep the operations
+logically distinct instead of one giant list. That also lets one prepared
+corpus serve several feature layouts, keeps the prepared level a full-character
+artifact with its own round-trip check, and means changing `reduce:` reruns
+stage 2 only ([build: preparation](../../../api/build/preparation.md#rig-cleanup-versus-the-models-lens)).
 
 ## Going in: preparation
 
@@ -159,6 +164,10 @@ places by design. All numbers below come from the 2026-09-28 audit.
   joint-clips come back with a different constant bone vector, mostly props
   and locators.
 - **Removed locators above the root** come back at a constant pose.
+- **Joints removed by rig cleanup** (`prune_unskinned`, `data=unimate` only:
+  unskinned controls, helpers, locators) come back at their bind pose with no
+  motion. The children of a merged or folded joint land exactly where they were;
+  the removed joint itself is not its source motion.
 - **Twist on a reduced joint is gone.** For example, Bear's zero-offset but
   skinned forearm-twist bones leave the forearm skin up to 5.5% of the mesh
   extent off.

@@ -27,6 +27,7 @@ from poseydon.build.prepare import (
     BoneRelative,
     EnforceRigid,
     PrepareChain,
+    RigEvidence,
     RigTransform,
     chain_from,
 )
@@ -66,10 +67,17 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
         return 0, [f"{manifest.name}: {error}"]
 
     chain = chain_for(data.prepare, rest_channels)
+    # A stage that decides from the whole rig (`prune_unskinned`) reads every clip
+    # and the skin; those clips are then written from the same load.
+    loaded: dict[str, object] = {}
+    evidence = RigEvidence()
+    if any(stage.uses_evidence for stage in chain.stages):
+        loaded = {c.action: c for c in source.clips(data, manifest)}
+        evidence = RigEvidence(tuple(c.anim for c in loaded.values()), source.skin(data, manifest))
     report = PreparationReport.start("truebones", manifest.name, manifest.authority)
     with warnings_module.catch_warnings(record=True) as caught:   # e.g. `ground: mesh` falling back
         warnings_module.simplefilter("always")
-        rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report)
+        rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report, evidence=evidence)
     warnings.extend(str(w.message) for w in caught)
 
     clips_dir = out_root / "clips" / manifest.name
@@ -83,7 +91,7 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
         # __Take_001 has 43 joints against the T-pose's 51); those are reported
         # and skipped rather than aborting the other twenty.
         try:
-            clip = source.clip(data, manifest, action)
+            clip = loaded.get(action) or source.clip(data, manifest, action)
             resolved = resolve(manifest, clip.anim.names)
             prepared, params = chain.apply(clip.anim, resolved, rig_params, audit=report)
 
