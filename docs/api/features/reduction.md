@@ -2,8 +2,9 @@
 
 Dropping joints that carry nothing learnable, and putting them back. The
 reduction is applied at extraction time and never baked into the corpus: the
-corpus keeps every joint, because skin weights are indexed by the original
-joint order and a generated clip must come back on the user's rig. Which
+corpus keeps every joint the rig cleanup (`prune_unskinned`, a `prepare:` stage)
+did not remove, because the prepared level stays a full-character artifact and a
+generated clip must come back on the user's rig. Which
 joints drop depends on the rotation layout
 ([Two rotation layouts](index.md#two-rotation-layouts)).
 

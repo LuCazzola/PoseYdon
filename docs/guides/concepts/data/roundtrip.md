@@ -8,8 +8,8 @@ and reduced, because every step that changes the character records how to
 undo itself.
 
 That promise is why preparation is a chain of invertible stages rather than a
-preprocessing script, and why the corpus keeps every joint even though the
-model sees fewer. Without it, PoseYdon would be a benchmark rather than a tool
+preprocessing script, and why the corpus keeps every joint that rig cleanup
+(`prune_unskinned`) did not remove, even though the model sees fewer. Without it, PoseYdon would be a benchmark rather than a tool
 anyone can hand a rig to.
 
 ```mermaid

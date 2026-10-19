@@ -9,10 +9,10 @@ separate objects a config composes, not flags bolted onto a monolith.
 ## The pipeline
 
 Motion moves through three levels: **source** (as the vendor authored it),
-**prepared** (same joints; bind removed, faced +Z, rigid, scaled, grounded,
-centred) and **reduced** (degenerate joints removed, as features). Preparation
-changes geometry and keeps structure; reduction changes structure and keeps
-geometry. Both are invertible, which is what lets a generated clip go back onto
+**prepared** (the source's joints, less any rig cleanup; bind removed, faced +Z,
+rigid, scaled, grounded, centred) and **reduced** (degenerate joints removed, as features). Preparation
+changes geometry and may clean up the rig (recorded); reduction is the model's
+lens: it changes structure and keeps geometry. Both are invertible, which is what lets a generated clip go back onto
 the character the user supplied. The [round-trip guide](../guides/concepts/data/roundtrip.md)
 walks through it end to end.
 

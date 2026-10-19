@@ -30,10 +30,10 @@ them up:
 | level | joints | frame | where it lives |
 |---|---|---|---|
 | **source** | as the vendor authored them | as authored: the vendor's units, axes and placement | `data/_raw/truebones/source/<Rig>/` |
-| **prepared** | the same as source | the shared canonical frame (below) | `data/truebones/clips/<Rig>/` |
+| **prepared** | the same as source, except joints removed by rig cleanup (`prune_unskinned`) | the shared canonical frame (below) | `data/truebones/clips/<Rig>/` |
 | **model view** | the prepared joints minus those that carry nothing | canonical | features, `skeleton.npz` |
 
-Preparation changes where things are and keeps the joints. Reduction removes
+Preparation changes where things are and keeps the joints, except what rig cleanup removes (recorded). Reduction removes
 joints and keeps where things are. [The round trip](roundtrip.md) shows how
 each is undone.
 

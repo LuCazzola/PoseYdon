@@ -71,13 +71,16 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
     # and the skin; those clips are then written from the same load.
     loaded: dict[str, object] = {}
     evidence = RigEvidence()
-    if any(stage.uses_evidence for stage in chain.stages):
-        loaded = {c.action: c for c in source.clips(data, manifest)}
-        evidence = RigEvidence(tuple(c.anim for c in loaded.values()), source.skin(data, manifest))
     report = PreparationReport.start("truebones", manifest.name, manifest.authority)
-    with warnings_module.catch_warnings(record=True) as caught:   # e.g. `ground: mesh` falling back
-        warnings_module.simplefilter("always")
-        rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report, evidence=evidence)
+    try:
+        if any(stage.uses_evidence for stage in chain.stages):
+            loaded = {c.action: c for c in source.clips(data, manifest)}
+            evidence = RigEvidence(tuple(c.anim for c in loaded.values()), source.skin(data, manifest))
+        with warnings_module.catch_warnings(record=True) as caught:   # e.g. `ground: mesh` falling back
+            warnings_module.simplefilter("always")
+            rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report, evidence=evidence)
+    except ValueError as error:
+        return 0, [f"{manifest.name}: {error}"]
     warnings.extend(str(w.message) for w in caught)
 
     clips_dir = out_root / "clips" / manifest.name

@@ -83,7 +83,8 @@ class Source(ABC):
 
     def skin(self, data, manifest: SkeletonManifest) -> dict[str, float] | None:
         """Largest skin weight per joint name on the rig's main mesh; ``None`` when
-        the format carries no skin."""
+        the format carries no skin at all (a BVH). A rig whose file has no skin mesh
+        is an empty mapping instead: every joint unskinned."""
         return None
 
 
@@ -341,6 +342,6 @@ class FbxCache(Source):
         armature, first = self._rig(manifest.name)
         d = self._load(manifest.name, first, world=False)
         if not len(d["skin_mesh"]):
-            return None
+            return {}   # no skin mesh: every joint unskinned, as UniMate treats it (None is a BVH, no skin information)
         row = int(np.argmax(d["skin_vertices"]))
         return {n: float(d["skin_max"][row, k]) for n, k in zip(armature.names, armature.nodes)}

@@ -113,6 +113,10 @@ class PruneUnskinned(PrepareStage):
         if not evidence.clips:
             raise ValueError("`prune_unskinned` decides from the rig's clips, and none were given")
         skin = evidence.skin
+        if not np.allclose(anim.offsets, anim.translations[0]):
+            # `invert` recovers a merged child's offset from `bind_offset`, which is
+            # the rest translation; that only equals the offset on such a rig.
+            raise ValueError("`prune_unskinned` needs a rest pose whose translations equal its offsets")
         rest, clips = anim, list(evidence.clips)
         source_names, source_parents = np.array(anim.names), np.asarray(anim.parents, dtype=np.int64)
         log: list[tuple[str, str, np.ndarray, np.ndarray]] = []

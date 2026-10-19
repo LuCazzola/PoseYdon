@@ -6,9 +6,9 @@ more per character -- every End Site, plus the odd dummy -- and they inflate the
 feature tensor by roughly a fifth with columns that duplicate a neighbour.
 
 Reduction is applied at FEATURE EXTRACTION time and never baked into the corpus.
-Skin weights are indexed by the original joint order, so a generated clip has to
-come back on the rig the user supplied; the corpus therefore keeps every joint
-and this module is the lens the model looks through.
+A generated clip has to come back on the rig the user supplied, so the corpus
+keeps every joint that preparation's rig cleanup (`prune_unskinned`) did not
+remove, and this module is the lens the model looks through.
 
 Two cases, and they are not interchangeable:
 
