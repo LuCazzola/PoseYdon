@@ -176,9 +176,7 @@ places by design. All numbers below come from the 2026-09-28 audit.
   unskinned controls, helpers, locators) come back at their bind pose with no
   motion. The children of a merged or folded joint land exactly where they were;
   the removed joint itself is not its source motion. `test_round_trip` checks it
-  to a stated bound (see the [testing guide](../../how-to/testing.md)); a removed
-  joint hanging off a joint that is then a leaf is not checked, because a BVH
-  stores no rotation for a leaf.
+  to a stated bound (see the [testing guide](../../how-to/testing.md)).
 - **Twist on a reduced joint is gone.** For example, Bear's zero-offset but
   skinned forearm-twist bones leave the forearm skin up to 5.5% of the mesh
   extent off.

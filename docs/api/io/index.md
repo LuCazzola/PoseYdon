@@ -4,7 +4,10 @@ The boundary between files and `Animation`
 ([core](../core/index.md)): BVH and FBX in and out, plus the shot framing and
 stick-figure renderer. A reader records exactly what the file declares: any
 joint may carry position channels, and End Sites are joints. Making bones
-rigid is a later, explicit `Animation.as_rigid_body()`. Preparing, aligning or
+rigid is a later, explicit `Animation.as_rigid_body()`. A BVH leaf has no
+channels, so a leaf joint's rotation is lost in a plain file; `BVH.from_animation(...,
+leaf_rotations=True)` (stage 1 on a pruned rig) writes it as a JOINT with a
+zero-offset `End Site #synthetic` below, which `BVH.read` drops again. Preparing, aligning or
 reducing is not done here ([build](../build/index.md),
 [ingest](../ingest/index.md), [features](../features/index.md)), and neither
 is choosing what to export ([export](../export/index.md)).

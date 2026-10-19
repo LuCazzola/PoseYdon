@@ -120,11 +120,14 @@ def process_species(
                 report.write(out_root / "rigs" / manifest.name / "report.json")
                 return 0, [f"{manifest.name}: skipped, {reason}"], 0
 
+    # A rig `prune_unskinned` cut leaves joints childless that had a rotation of
+    # their own; the files keep it (`BVH.from_animation`, `leaf_rotations`).
+    pruned = any(stage.name == "prune_unskinned" for stage in chain.stages)
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
     clip_params: dict[str, dict] = {}
     if ops and manifest.rest_pose is None:   # the bind pose is this rig's rest (`rest_action`)
-        BVH.from_animation(prepared_rest).write(clips_dir / f"{BIND_POSE_ACTION}.bvh")
+        BVH.from_animation(prepared_rest, leaf_rotations=pruned).write(clips_dir / f"{BIND_POSE_ACTION}.bvh")
         clip_params[BIND_POSE_ACTION] = {   # stage 2 reads its facing like any clip's
             stage.name: rest_params[stage.name] for stage in chain.stages if stage.scope == CLIP
         } | {"frames": {"window": np.array((0, 1, 1))}}
@@ -165,7 +168,7 @@ def process_species(
             continue
         for i, (piece, window, params) in enumerate(kept):
             name = f"{action}_w{i:03d}" if windowed else action
-            BVH.from_animation(piece).write(clips_dir / f"{name}.bvh")
+            BVH.from_animation(piece, leaf_rotations=pruned).write(clips_dir / f"{name}.bvh")
             clip_params[name] = {
                 stage.name: params[stage.name] for stage in chain.stages
                 if stage.scope == CLIP

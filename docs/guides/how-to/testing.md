@@ -40,12 +40,12 @@ the whole clip). It asserts:
 - every observable joint's world rotation matches, to 1e-3 degrees;
 - non-root joints don't translate;
 - a joint `prune_unskinned` removed (`data=unimate`) sits, against its nearest
-  kept ancestor, within the largest distance a joint turning less than 2 degrees
-  can travel (`2 d sin(1 deg)` per removed ancestor at distance `d`) plus the
-  distance its source translation strays from its bind offset, summed along the
-  removed chain; its world rotation is not compared. No joint is skipped by name
-  (`PRUNED_SKIP` is empty). A removed joint whose nearest kept ancestor is left
-  a leaf is not checked: see [todo](../../index/todo.md);
+  kept ancestor, where the source made rigid the way `EnforceRigid` does puts
+  it, to the largest distance a joint turning less than 2 degrees can travel
+  (`2 d sin(1 deg)` per removed ancestor at distance `d`); its world rotation
+  is not compared. `PRUNED_SKIP` names the one exception (Scorpion2
+  `jt_Tail10_C`: its removed parent sits 2.6 degrees off its bind rotation in
+  every clip, because pruning measures the turn from frame 0);
 - in both rotation layouts (`rot6d_joint` and `rot6d_bone`), features rebuild
   the model view's positions and every rotation that orients something; the
   `rot6d_bone` reduction makes no real joint but a still one a leaf,

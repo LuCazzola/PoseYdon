@@ -58,7 +58,7 @@ rig with `--rigs <Rig>`.
   no-op. Each written clip records the source frames it came from as
   `clip/<name>/frames/window` (`start, stop, step`) in `preproc.npz`; a dropped clip
   or rig writes nothing and is named with its reason in `rigs/<Rig>/report.json`
-  and `<paths.root>/dropped.json`. Without `clips:` (`truebones`) nothing changes. A rig grounded on the mesh without a current
+  and `<paths.root>/dropped.json`. Without `clips:` (`truebones`) nothing changes. A chain with `prune_unskinned` writes its BVHs with `leaf_rotations` (a joint left childless keeps its rotation, as a JOINT above a zero-offset `End Site #synthetic` that `BVH.read` drops); `truebones` files are unchanged. A rig grounded on the mesh without a current
   `rest_mesh.npz` (run `tools/build_rest_mesh.py` first) is grounded on its
   lowest joint, with a warning. It then checks each rig's written rest
   clip and warns, without failing, if frame 0 or the rest skeleton does not
