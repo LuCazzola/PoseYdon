@@ -1,0 +1,53 @@
+# UniMate's Truebones recipe (arXiv 2609.05415) rebuilt in PoseYdon, switchable
+# part by part. Everything but `paths`, `source` and the stage-2 sections below
+# is filled by later tasks; until then stage 1 only writes the clips unturned.
+# Manifests are generated, not authored: tools/write_unimate_manifests.py.
+#
+# Built by: scripts/process_dataset_truebones.py (stage 1) and
+# scripts/build_features.py (stage 2), both through `configs/build.yaml`.
+
+custom_imports: []
+
+paths:
+  raw: data/_raw/truebones             # UniMate reads the same Truebones release
+  root: data/unimate
+  rigs: data/unimate/rigs
+  index: data/unimate/index.jsonl
+
+source:
+  type: fbx_cache
+  # UniMate's own clip index (HF Truebones-ZOO-Annotations, `clips.csv`): the
+  # `linked` rows are its clips.
+  index: data/_raw/UniML3D/truebones_annotations/clips.csv
+  cache: data/unimate/cache/fbx        # scripts/build_fbx_cache.py
+  # UniMate's export skip list (data/_raw/UniML3D/export/truebones/filtered_clips.txt).
+  skip: data/_raw/UniML3D/export/truebones/filtered_clips.txt
+
+prepare:
+  # Placeholder until the UniMate chain exists (Tasks 6-8); rationale not
+  # recorded for this choice, it is PoseYdon's own stand-in.
+  - {type: enforce_rigid}
+
+# UniMate keeps every joint its pruning leaves (Tasks 6-8 do that in `prepare`).
+reduce: []
+
+# Below: PoseYdon defaults, not part of UniMate's recipe, copied from
+# truebones.yaml so the config composes.
+labels:
+  joint_names: {type: humanize, lowercase: true, expand_sides: true}
+  contact:
+    max_height: 0.30
+    max_speed: 0.044721359549995794
+
+corpus: {type: per_rig_directory, pattern: "*.bvh"}
+
+filter:
+  blacklist:
+    skeletons: []
+    clips: []
+
+loader:
+  batch_size: 16
+  num_workers: 4
+  balanced: true
+  window: {type: random_crop, length: 40}

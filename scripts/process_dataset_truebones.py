@@ -127,9 +127,11 @@ def _sanity_check(
     # is the module's one source of truth for that slug; re-deriving it
     # inline here would be a second copy of the rule this plan exists to
     # de-duplicate.
-    rest_clip_action = rest_action(manifest)
-    subject = clips_dir / f"{rest_clip_action}.bvh"
-    if not subject.is_file():
+    # A rig without `rest_pose:` (`fbx_cache`) has no rest clip on disk: any
+    # clip is read, and the identity check below is skipped.
+    has_rest_clip = manifest.rest_pose is not None
+    subject = clips_dir / f"{rest_action(manifest)}.bvh" if has_rest_clip else written[0]
+    if has_rest_clip and not subject.is_file():
         # Falling back silently would measure facing/identity on an
         # arbitrary clip and report plausible-looking numbers under a slug
         # drift -- name both files so the substitution is visible.
@@ -199,15 +201,16 @@ def _sanity_check(
 
     # Every joint but the root (which carries `FaceAxis`'s turn) reads as
     # identity at the rest frame.
-    identity_err = float(
-        np.abs(np.abs((anim.rotations[0, 1:] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max()
-    )
-    print(f"{label} T-pose frame max |1 - dot(rot, identity)| = {identity_err:.4f}")
-    if identity_err > 1e-3:
-        warnings.append(
-            f"{manifest.name}: T-pose frame does not read as identity after bind "
-            f"removal (max deviation {identity_err:.4f})"
+    if has_rest_clip:
+        identity_err = float(
+            np.abs(np.abs((anim.rotations[0, 1:] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max()
         )
+        print(f"{label} T-pose frame max |1 - dot(rot, identity)| = {identity_err:.4f}")
+        if identity_err > 1e-3:
+            warnings.append(
+                f"{manifest.name}: T-pose frame does not read as identity after bind "
+                f"removal (max deviation {identity_err:.4f})"
+            )
 
     return warnings
 

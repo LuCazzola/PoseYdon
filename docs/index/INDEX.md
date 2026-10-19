@@ -65,6 +65,7 @@ meant to be deleted once read.
 | `tools/probe_jointset_spread.py` | per rig: whether clips agree with each other and the T-pose on their joint set | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_tpose_gap.py` | which joints the gutted rigs' T-poses omit | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_rest_override.py` | validates a proposed per-rig rest-pose override against the modal joint set | [tooling](tooling.md#tools-and-probes) |
+| `tools/write_unimate_manifests.py` | per-species manifests for `data=unimate` from UniMate's facing pairs and the FBX cache | [tooling](tooling.md#tools-and-probes) |
 | `tools/write_rest_pose.py` | emits a `rest_pose:` line per rig for review before applying | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_resolve_after_reduce.py` | whether `resolve()` survives joint reduction, for every rig | [tooling](tooling.md#tools-and-probes) |
 | `tools/probe_tukan.py` | inspects the Tukan T-pose: joint count, mean bone, branching | [tooling](tooling.md#tools-and-probes) |

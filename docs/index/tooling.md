@@ -53,7 +53,8 @@ rig with `--rigs <Rig>`.
   lowest joint, with a warning. It then checks each rig's written rest
   clip and warns, without failing, if frame 0 or the rest skeleton does not
   face +Z (after the manifest's `extra_yaw_deg`), if a non-root joint is not
-  identity at the rest frame, or if the rest skeleton is not upright (a wrong `up_axis:` or a
+  identity at the rest frame (skipped for a rig without `rest_pose:`, which
+  checks its first clip instead), or if the rest skeleton is not upright (a wrong `up_axis:` or a
   facing pair that is not left/right).
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) with the dataset's `reduce:` and
@@ -123,6 +124,7 @@ nothing. Files whose docstring says *throwaway* exist to be deleted.
 
 | subject | files |
 |---|---|
+| UniMate manifests | `tools/write_unimate_manifests.py`: `data/unimate/rigs/<Species>/manifest.yaml` from UniMate's `face_joint_names.json` (raw joint names; Anaconda's body-axis pair gets `extra_yaw_deg: 90`, derivation in its docstring) and the cached clips' `up_axis`; a species not cached yet is reported and skipped, a rerun fills it in. Run in `test` |
 | root and hierarchy shape | `tools/probe_floating_root.py`, `tools/probe_promote_table.py`, `tools/probe_root_chain.py`, `tools/probe_root_shape.py`, `tools/probe_tukan.py` |
 | rest pose and joint sets | `tools/probe_jointset_spread.py`, `tools/probe_tpose_gap.py`, `tools/probe_rest_override.py`, `tools/write_rest_pose.py`, `tools/probe_resolve_after_reduce.py`, `tools/tpose_author.py` (authored T-poses: `build` in the `fbxsdk` service, then `pose` / `ref` / `paw` / `flips` / `save` in `train`; workflow and lessons in its docstring) |
 | inverse kinematics | `tools/ik_grid_search.py`, `tools/ik_contact_compare.py` |
@@ -146,7 +148,7 @@ and is named after its module is listed in `custom_imports:`.
 
 | config | holds |
 |---|---|
-| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended |
+| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended; `unimate` (UniMate's recipe, `fbx_cache` source, manifests from `tools/write_unimate_manifests.py`) has a placeholder `prepare:` (`enforce_rigid` only) and `reduce: []` until the recipe parts exist |
 | `configs/features/` | the model's feature blocks and their normalization (model-side) |
 | `configs/build.yaml` | corpus construction: a dataset plus a feature group, for both build scripts |
 | `configs/train.yaml`, `configs/sample.yaml` | a run: dataset, features, `configs/model/` (`anytop`, `modiffae`), `configs/process/` (`gaussian`, `flow`), `configs/trainer/` (`default`, `debug`), conditioners, augmentations, losses |
