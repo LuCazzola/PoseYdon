@@ -45,6 +45,7 @@ See [overview](overview.md) for how the pipeline fits together.
 | `scripts/fetch_fbx_sdk.sh` | downloads the Autodesk FBX Python SDK into the gitignored `third_party/fbxsdk/`, after `--accept-license` | [tooling](tooling.md#dependencies) |
 | `scripts/build_stage_samples.py` | one clip per rig at every round-trip stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/` | [tooling](tooling.md#scripts) |
 | `scripts/fetch_unimate_annotations.sh` | fetches UniMate's Truebones clip index and FBX repair scripts (pinned HF commit) into `data/_raw/UniML3D/truebones_annotations/`, and links `data/_raw/unimate` to `truebones` | [tooling](tooling.md#scripts) |
+| `scripts/build_fbx_cache.py` | UniMate's linked Truebones FBX clips read once with the FBX SDK into `data/unimate/cache/fbx/` (world matrices of every node, bind, skin summary); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 
 ### Probes and one-off tools
 

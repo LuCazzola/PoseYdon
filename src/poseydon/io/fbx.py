@@ -80,6 +80,22 @@ def _time_mode(fps: float):
             return mode
     raise ValueError(f"{fps} fps has no FBX time mode; only standard rates are written")
 
+@dataclass(frozen=True)
+class Skin:
+    """One skin deformer's weights, per node of the file.
+
+    ``max_weight`` and ``weight_sum`` are ``(N,)`` over every node: the largest
+    single weight and the summed weight a node's cluster gives its vertices
+    (0 for a node with no cluster). Enough to tell a bone that moves the mesh
+    from one that is only a bind-time joint, without keeping per-vertex weights.
+    """
+
+    mesh: str
+    n_vertices: int
+    max_weight: np.ndarray
+    weight_sum: np.ndarray
+
+
 @dataclass
 class FBX:
     """One loaded FBX scene, its node hierarchy and its single take."""
@@ -164,6 +180,93 @@ class FBX:
         start = span.GetStart().GetFrameCount(self._mode)
         stop = span.GetStop().GetFrameCount(self._mode)
         return np.arange(start, stop + 1)
+
+    def node_types(self) -> tuple[str, ...]:
+        """Attribute type name per node (``"eSkeleton"``, ``"eMesh"``, ...; ``""`` if none)."""
+        return tuple(
+            "" if (a := node.GetNodeAttribute()) is None else a.GetAttributeType().name
+            for node in self.nodes
+        )
+
+    def bind_matrices(self) -> np.ndarray:
+        """``(N, 4, 4)`` world bind matrix per node, NaN where the file has none.
+
+        A skin cluster's ``TransformLinkMatrix`` wins (it is what the skin was
+        bound against); else the scene's bind `FbxPose`. Read straight from the
+        file: no animation evaluated, no transform-model check.
+        """
+        out = np.full((len(self.nodes), 4, 4), np.nan)
+        # Python proxies of one SDK object are not identical: match by unique id.
+        by_uid = {node.GetUniqueID(): j for j, node in enumerate(self.nodes)}
+        for pose_i in range(self.scene.GetPoseCount()):
+            pose = self.scene.GetPose(pose_i)
+            if not pose.IsBindPose():
+                continue
+            for k in range(pose.GetCount()):
+                node = pose.GetNode(k)
+                at = by_uid.get(node.GetUniqueID()) if node is not None else None
+                if at is not None and np.isnan(out[at, 0, 0]):
+                    out[at] = _matrix(pose.GetMatrix(k))
+        for skin in self._skins():
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                at = by_uid.get(cluster.GetLink().GetUniqueID())
+                if at is not None:
+                    link = fbx.FbxAMatrix()
+                    cluster.GetTransformLinkMatrix(link)
+                    out[at] = _matrix(link)
+        return out
+
+    def key_range(self) -> tuple[float, float]:
+        """First and last key time, in frames, over every curve of the first take.
+
+        What a Blender import calls the action's frame range. ``(0, 0)`` for a
+        file with no keys.
+        """
+        stack = self._stack()
+        if stack is None:
+            return 0.0, 0.0
+        times = []
+        layers = stack.GetMemberCount(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId))
+        kind = fbx.FbxCriteria.ObjectType(fbx.FbxAnimCurveNode.ClassId)
+        for i in range(layers):
+            layer = stack.GetMember(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId), i)
+            for n in range(layer.GetSrcObjectCount(kind)):
+                curve_node = layer.GetSrcObject(kind, n)
+                for channel in range(curve_node.GetChannelsCount()):
+                    for c in range(curve_node.GetCurveCount(channel)):
+                        curve = curve_node.GetCurve(channel, c)
+                        for k in (0, curve.KeyGetCount() - 1):
+                            if k >= 0:
+                                times.append(curve.KeyGetTime(k).GetFrameCountPrecise(self._mode))
+        return (min(times), max(times)) if times else (0.0, 0.0)
+
+    def up_axis(self) -> str:
+        """The file's up axis from its global axis system: ``"+Y"``, ``"-Z"``, ..."""
+        up, sign = self.scene.GetGlobalSettings().GetAxisSystem().GetUpVector()
+        return ("+" if sign >= 0 else "-") + up.name[1]
+
+    def _skins(self) -> list:
+        kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
+        return [self.scene.GetSrcObject(kind, s) for s in range(self.scene.GetSrcObjectCount(kind))]
+
+    def skins(self) -> list[Skin]:
+        """Every skin deformer's per-node weight summary (see `Skin`)."""
+        by_uid = {node.GetUniqueID(): j for j, node in enumerate(self.nodes)}
+        out = []
+        for skin in self._skins():
+            geometry = skin.GetGeometry()
+            top = np.zeros(len(self.nodes))
+            total = np.zeros(len(self.nodes))
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                at = by_uid.get(cluster.GetLink().GetUniqueID())
+                weight = np.array(cluster.GetControlPointWeights(), dtype=float)
+                if at is not None and weight.size:
+                    top[at], total[at] = weight.max(), weight.sum()
+            node = geometry.GetNode()
+            out.append(Skin(node.GetName() if node else "", geometry.GetControlPointsCount(), top, total))
+        return out
 
     def world(self, frames: np.ndarray | None = None) -> np.ndarray:
         """``(F, N, 4, 4)`` world matrices of every node, evaluated by the SDK."""

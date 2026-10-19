@@ -80,6 +80,18 @@ Train or sample on it with `data=truebones_bone`; check it with
   script, into `data/_raw/UniML3D/truebones_annotations/` (gitignored). It also
   links `data/_raw/unimate` to `truebones`. Idempotent: present files are kept.
 
+- `scripts/build_fbx_cache.py` (`fbxsdk` service, about 1 to 10 s a clip here):
+  reads the `linked` clips of `clips.csv` once with the FBX SDK and caches, per
+  clip, `data/unimate/cache/fbx/<Species>/<Action>.npz`: node names, parents,
+  attribute types, the world matrix of every node at every integer frame of the
+  key range, bind, fps, up axis and a per-node skin weight summary, so
+  everything after runs in `test`. Options: `--species`, `--clips`
+  (`Alligator-Big_Mouth`), `--print` (summary, writes nothing), `--force`;
+  resumable by source size and mtime. KingCobra is read from repaired copies
+  under `data/unimate/cache/repaired/` (`A01` colourway kept; `walk.fbx` gets
+  `run.fbx`'s mesh, with the Geometry/Pose declarations the graft probe omits
+  added, otherwise the SDK drops the mesh).
+
 There is no FBX preparation pass: preparation runs on the BVH, and FBX enters
 only at the two ends, through `poseydon export --format fbx`.
 
