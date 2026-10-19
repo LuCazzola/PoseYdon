@@ -260,3 +260,54 @@ class PruneUnskinned(PrepareStage):
                 names, anim.fps,
             )
         return anim
+
+
+@dataclass(frozen=True)
+class BfsOrder(PrepareStage):
+    """Renumber a rig's joints in breadth-first order from the root.
+
+    UniMate's `bfs_reorder_joints` (data_process/utils/skeleton.py): children are
+    visited by subtree size, largest first, then by rest offset length, shortest
+    first, so two rigs of the same shape list their limbs alike. Parents still
+    precede children. `invert` restores the source order exactly; the permutation
+    is the stored parameter, with the BFS joint names so a BVH's depth-first
+    re-listing is undone by name.
+    """
+
+    name: ClassVar[str] = "bfs_order"
+    after: ClassVar[tuple[str, ...]] = ("prune_unskinned",)
+    scope: ClassVar[str] = RIG
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        kids = _children(anim.parents)
+        size = np.ones(anim.n_joints, dtype=np.int64)
+        for j in range(anim.n_joints - 1, 0, -1):   # parents precede children
+            size[anim.parents[j]] += size[j]
+        length = np.linalg.norm(anim.offsets, axis=-1)
+        order, queue = [], [0]
+        for j in queue:
+            order.append(j)
+            queue.extend(sorted(kids[j], key=lambda c: (-size[c], length[c])))
+        return {"order": np.array(order, dtype=np.int64), "names": np.array([anim.names[j] for j in order])}
+
+    @staticmethod
+    def _reorder(anim: Animation, order: np.ndarray) -> Animation:
+        """``anim`` with joint ``order[k]`` at position ``k``; parents follow."""
+        new = np.argsort(order)
+        old = anim.parents[order]
+        return type(anim)(
+            anim.rotations[:, order], anim.translations[:, order], anim.offsets[order],
+            np.where(old >= 0, new[np.maximum(old, 0)], -1).astype(np.int32),
+            tuple(anim.names[j] for j in order), anim.fps,
+        )
+
+    def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        return self._reorder(anim, params["order"])
+
+    def invert(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
+        # A BVH lists joints depth-first whatever order they were written in, so a
+        # prepared file read back is first put into the stored BFS order by name.
+        bfs = [str(n) for n in params["names"]]
+        if list(anim.names) != bfs:
+            anim = self._reorder(anim, np.array([anim.names.index(n) for n in bfs]))
+        return self._reorder(anim, np.argsort(params["order"]))

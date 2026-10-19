@@ -23,6 +23,7 @@ from omegaconf import DictConfig
 from poseydon.build.corpus import rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
+    _diameter,
     CLIP,
     BoneRelative,
     EnforceRigid,
@@ -114,19 +115,22 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
     RigTransform(rig_params=rig_params, clip_params=clip_params, chain=chain.entries).save(
         out_root / "rigs" / manifest.name / "preproc.npz"
     )
-    warnings.extend(_sanity_check(manifest, clips_dir, rig_params.get("bone_relative")))
+    warnings.extend(_sanity_check(manifest, clips_dir, rig_params.get("bone_relative"), chain))
     return n_written, warnings
 
 
 def _sanity_check(
     manifest: SkeletonManifest, clips_dir: Path,
-    bone_relative: dict[str, np.ndarray] | None,
+    bone_relative: dict[str, np.ndarray] | None, chain: PrepareChain,
 ) -> list[str]:
     """Print diagnostics for the written files; warn (not fail) if one looks off.
 
     Reads the BVHs back off disk rather than re-deriving them in memory, so
-    anything the write/read round trip itself breaks shows up here too.
+    anything the write/read round trip itself breaks shows up here too. Checks
+    that belong to a stage the chain lacks (the rest skeleton facing needs
+    `face_rest_axis`) are skipped for it.
     """
+    stages = {stage.name: stage for stage in chain.stages}
     warnings: list[str] = []
     written = sorted(clips_dir.glob("*.bvh"))
     if not written:
@@ -185,6 +189,15 @@ def _sanity_check(
 
     rest = rest_skeleton_positions(anim)
     rest_dot = facing_dot(rest, resolved.facing_indices)
+    for clip in written if "ground_clip" in stages else ():
+        low = float(BVH.read(clip).to_animation().global_positions()[..., 1].min())
+        if abs(low) > 1e-4:
+            warnings.append(f"{manifest.name}/{clip.stem}: lowest joint is at y = {low:.5f}, not 0")
+    scale = stages.get("scale")
+    if scale is not None and scale.mode == "diameter":
+        diameter = _diameter(anim.offsets, anim.parents)
+        if abs(diameter - scale.target) > 1e-3 * scale.target:
+            warnings.append(f"{manifest.name}: rest diameter is {diameter:.4f}, not {scale.target}")
     # Upright, or a wrong or missing `up_axis:` in the manifest. On its side,
     # the right-to-left direction across hips and shoulders turns vertical;
     # upside down, the feet sit clearly above the hips and shoulders.
@@ -199,11 +212,12 @@ def _sanity_check(
             f"{sideways:.2f} vertical, feet {(feet - body) / extent:+.2f} of extent "
             "above hips/shoulders); check `up_axis` and the facing pairs in the manifest"
         )
+    rest_facing = "face_rest_axis" in stages
     print(
-        f"{label} frame-0 forward . +Z = {posed_dot:.4f}   "
-        f"rest-skeleton forward . +Z = {rest_dot:.4f}"
+        f"{label} frame-0 forward . +Z = {posed_dot:.4f}"
+        + (f"   rest-skeleton forward . +Z = {rest_dot:.4f}" if rest_facing else "")
     )
-    for what, value in (("frame-0 pose", posed_dot), ("rest skeleton", rest_dot)):
+    for what, value in (("frame-0 pose", posed_dot), ("rest skeleton", rest_dot if rest_facing else 1.0)):
         if value < 0.99:
             warnings.append(
                 f"{manifest.name}: {what} is not aligned to +Z ({value:.4f}) in "

@@ -13,8 +13,9 @@ onto +Z with ``between``. Call the unturned forward ``f``: the rotation it appli
 is R = Ry(theta) with ``R Ry(-90) f = +Z``, so on the real joints ``R f =
 Ry(+90) +Z = +X``. PoseYdon's ``facing_quats`` returns ``yaw * between(f, +Z)``
 with ``yaw = Ry(extra_yaw_deg)``, i.e. ``f -> Ry(extra_yaw_deg) +Z``. The two
-agree for ``extra_yaw_deg = +90``. Not yet checked through stage 1: its sanity
-check undoes ``extra_yaw_deg``, and no prepare stage turns rigs yet.
+agree for ``extra_yaw_deg = +90``. Measured through stage 1 (``data=unimate``): in
+all 18 Anaconda clips, frame 0's head-minus-tail direction projected on XZ has
+dot 1.0000 with +Z, as UniMate's snake faces +Z along its body.
 
 A species with no cached clip yet is reported and skipped; rerun once
 ``scripts/build_fbx_cache.py`` has cached it.

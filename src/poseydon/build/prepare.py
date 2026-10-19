@@ -45,6 +45,10 @@ if TYPE_CHECKING:
 RIG = "rig"
 CLIP = "clip"
 
+#: Smallest horizontal component of the unit facing-pair vector that still defines
+#: a facing (UniMate's `FACING_EPS`).
+FACING_EPS = 1e-6
+
 
 #: Every preparation stage, by the name its parameters are stored under. A stage
 #: joins by subclassing `PrepareStage` with a ``name`` (see `PrepareStage`), so a
@@ -710,6 +714,10 @@ class FaceAxis(PrepareStage):
     """
 
     axis: str = "+Z"
+    #: What to do when frame 0's facing pair has no sideways spread (coincident,
+    #: or one above the other): ``"error"`` refuses; ``"nearest"`` takes the first
+    #: frame whose spread exceeds `FACING_EPS`, as UniMate's `get_root_facing_quat`.
+    on_degenerate: str = "error"
 
     name: ClassVar[str] = "face_axis"
     #: After `enforce_rigid`, for the same reason as `face_rest_axis`.
@@ -717,8 +725,19 @@ class FaceAxis(PrepareStage):
     scope: ClassVar[str] = CLIP
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        positions = anim.global_positions()
+        if self.on_degenerate not in ("error", "nearest"):
+            raise ValueError(f"on_degenerate must be `error` or `nearest`, got `{self.on_degenerate}`")
+        frame = 0
+        if self.on_degenerate == "nearest":
+            across = sum(positions[:, r] - positions[:, l] for r, l in resolved.facing_indices)
+            across = across / np.maximum(np.linalg.norm(across, axis=-1, keepdims=True), 1e-8)
+            valid = np.flatnonzero(np.hypot(across[:, 2], across[:, 0]) > FACING_EPS)   # |Y x across|
+            if not len(valid):
+                raise ValueError("the facing pair has no sideways spread in any frame; the facing is undefined")
+            frame = int(valid[0])
         rotation = facing_quats(
-            anim.global_positions()[:1],
+            positions[frame:frame + 1],
             resolved.facing_indices,
             resolved.manifest.extra_yaw_deg,
             axis_vector(self.axis),
@@ -838,6 +857,89 @@ class CentreXZ(PrepareStage):
         return _with_root(anim, anim.root_pos + params["root_xz"])
 
 
+def _moved(anim: Animation, shift: np.ndarray) -> Animation:
+    """``anim`` with the root translated by ``shift``; other joints, rigid or not, untouched."""
+    translations = anim.translations.copy()
+    translations[:, 0] += shift
+    return type(anim)(anim.rotations, translations, anim.offsets, anim.parents, anim.names, anim.fps)
+
+
+def _scaled(anim: Animation, factor: float) -> Animation:
+    """``anim`` uniformly scaled: every translation and offset, so a non-rigid clip stays itself."""
+    return type(anim)(
+        anim.rotations, anim.translations * factor, anim.offsets * factor, anim.parents, anim.names, anim.fps
+    )
+
+
+def _diameter(offsets: np.ndarray, parents: np.ndarray) -> float:
+    """Longest bone-length path between two joints: two sweeps, as UniMate's `get_skeleton_diameter`.
+
+    The farthest joint from the root is one end of a longest path in a tree;
+    the farthest joint from it is the other.
+    """
+    adjacent: list[list[tuple[int, float]]] = [[] for _ in parents]
+    for joint, parent in enumerate(parents):
+        if parent >= 0:
+            length = float(np.linalg.norm(offsets[joint]))
+            adjacent[joint].append((int(parent), length))
+            adjacent[parent].append((joint, length))
+
+    def farthest(start: int) -> tuple[int, float]:
+        dist, queue = {start: 0.0}, [start]
+        for node in queue:
+            for other, length in adjacent[node]:
+                if other not in dist:
+                    dist[other] = dist[node] + length
+                    queue.append(other)
+        end = max(dist, key=dist.get)
+        return end, dist[end]
+
+    return farthest(farthest(0)[0])[1]
+
+
+@dataclass(frozen=True)
+class CentreXZClip(PrepareStage):
+    """`CentreXZ` per clip: the root's frame-0 XZ goes to the origin (UniMate's `per_motion` centring).
+
+    Clip-scoped, so the shift is recorded per clip for `invert`.
+    """
+
+    name: ClassVar[str] = "centre_xz_clip"
+    after: ClassVar[tuple[str, ...]] = ("face_axis",)
+    scope: ClassVar[str] = CLIP
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        return {"root_xz": anim.translations[0, 0] * np.array([1.0, 0.0, 1.0])}
+
+    def apply(self, anim, params):
+        return _moved(anim, -params["root_xz"])
+
+    def invert(self, anim, params):
+        return _moved(anim, params["root_xz"])
+
+
+@dataclass(frozen=True)
+class GroundClip(PrepareStage):
+    """Put each clip on ``y = 0``: its own lowest joint over all its frames (UniMate's `per_motion` grounding).
+
+    Unlike `PutOnGround` this flattens the height difference between a crouch and a
+    stand, and between clips that fly and clips that walk; that is UniMate's choice.
+    """
+
+    name: ClassVar[str] = "ground_clip"
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "scale")
+    scope: ClassVar[str] = CLIP
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        return {"height": np.float64(anim.global_positions()[..., 1].min())}
+
+    def apply(self, anim, params):
+        return _moved(anim, np.array([0.0, -float(params["height"]), 0.0]))
+
+    def invert(self, anim, params):
+        return _moved(anim, np.array([0.0, float(params["height"]), 0.0]))
+
+
 @dataclass(frozen=True)
 class ScaleToMeanBoneLength(PrepareStage):
     """Uniformly scale so the rig's MEAN bone length equals ``target``.
@@ -855,35 +957,33 @@ class ScaleToMeanBoneLength(PrepareStage):
     #: cross-rig inconsistency this stage exists to remove. Matches the tolerance
     #: `features.reduce` uses to identify the same joints.
     tolerance: float = 1e-8
+    #: ``"mean_bone"``, or ``"diameter"``: scale so the longest bone-length path
+    #: between two joints equals ``target`` (UniMate uses 2.0).
+    mode: str = "mean_bone"
 
     name: ClassVar[str] = "scale"
     #: After `promote_root`: a locator-to-body connector is not an anatomical bone and must not enter the mean.
-    after: ClassVar[tuple[str, ...]] = ("promote_root", "centre_xz")
+    after: ClassVar[tuple[str, ...]] = ("promote_root", "centre_xz", "centre_xz_clip")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
-        lengths = np.linalg.norm(anim.offsets[1:], axis=-1)
-        real = lengths[lengths > self.tolerance]
-        if real.size == 0:
+        if self.mode == "diameter":
+            size = _diameter(anim.offsets, anim.parents)
+        elif self.mode == "mean_bone":
+            lengths = np.linalg.norm(anim.offsets[1:], axis=-1)
+            real = lengths[lengths > self.tolerance]
+            size = float(real.mean()) if real.size else 0.0
+        else:
+            raise ValueError(f"scale mode must be `mean_bone` or `diameter`, got `{self.mode}`")
+        if size <= 0.0:
             raise ValueError("skeleton has zero mean bone length; cannot scale")
-        mean_length = float(real.mean())
-        return {"factor": np.float64(self.target / mean_length)}
+        return {"factor": np.float64(self.target / size)}
 
     def apply(self, anim, params):
-        factor = float(params["factor"])
-        return RigidBodyAnimation.from_root_motion(
-            rotations=anim.rotations, root_pos=anim.root_pos * factor,
-            offsets=anim.offsets * factor, parents=anim.parents,
-            names=anim.names, fps=anim.fps,
-        )
+        return _scaled(anim, float(params["factor"]))
 
     def invert(self, anim, params):
-        factor = float(params["factor"])
-        return RigidBodyAnimation.from_root_motion(
-            rotations=anim.rotations, root_pos=anim.root_pos / factor,
-            offsets=anim.offsets / factor, parents=anim.parents,
-            names=anim.names, fps=anim.fps,
-        )
+        return _scaled(anim, 1.0 / float(params["factor"]))
 
 
 #: Each rig's rest-pose mesh, cached under `rig_cache()` by `tools/build_rest_mesh.py`

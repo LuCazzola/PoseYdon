@@ -1,6 +1,5 @@
 # UniMate's Truebones recipe (arXiv 2609.05415) rebuilt in PoseYdon, switchable
-# part by part. Everything but `paths`, `source` and the stage-2 sections below
-# is filled by later tasks; until then stage 1 only writes the clips unturned.
+# part by part. The stage-2 sections below are filled by later tasks.
 # Manifests are generated, not authored: tools/write_unimate_manifests.py.
 #
 # Built by: scripts/process_dataset_truebones.py (stage 1) and
@@ -24,13 +23,18 @@ source:
   skip: data/_raw/UniML3D/export/truebones/filtered_clips.txt
 
 prepare:
-  # Partial until the UniMate chain exists (Tasks 7-8); `enforce_rigid` is
-  # PoseYdon's own stand-in (rationale not recorded).
+  # UniMate's order: rig cleanup, BFS joint order, then canonicalization (face,
+  # centre XZ, scale, ground; `canonicalize_anim`). No `rest_relative`,
+  # `face_rest_axis` or `promote_root`: UniMate has no counterpart.
   - {type: up_axis}
   - {type: prune_unskinned}
-  - {type: enforce_rigid}
+  - {type: bfs_order}
+  - {type: face_axis, axis: "+Z", on_degenerate: nearest}
+  - {type: centre_xz_clip}
+  - {type: scale, mode: diameter, target: 2.0}
+  - {type: ground_clip}
 
-# UniMate keeps every joint its pruning leaves (Tasks 6-8 do that in `prepare`).
+# UniMate keeps every joint its pruning leaves (`prepare` above).
 reduce: []
 
 # Below: PoseYdon defaults, not part of UniMate's recipe, copied from

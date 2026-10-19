@@ -62,11 +62,19 @@ reads the saved parameters and never refits. The stages Truebones lists:
 | 9 | [`PutOnGround`][poseydon.build.PutOnGround] | rig | puts the rest pose on y = 0: its lowest mesh vertex (`mode: mesh`, from `rest_mesh.npz`) or lowest joint (`mode: joints`, or a manifest's `ground: joints`) | the offset |
 | 10 | [`BoneRelative`][poseydon.build.BoneRelative] | rig | only in `data=truebones_bone`: re-expresses every local rotation in a bone-aligned frame, so identity is a straight chain | the per-joint frames |
 
+`data=unimate` lists UniMate's own variants of this chain instead: `up_axis`,
+`prune_unskinned`, `bfs_order` (rig; renumbers joints breadth-first; undone with
+the stored permutation), `face_axis` (`on_degenerate: nearest`), `centre_xz_clip`
+(**clip**; the clip's own frame-0 root XZ), `scale` (`mode: diameter`, 2.0) and
+`ground_clip` (**clip**; the clip's own lowest joint over all frames). No
+`rest_relative`, `face_rest_axis`, `promote_root` or `enforce_rigid`.
+
 **Rig scope versus clip scope** decides what survives. Rig stages fit once on
 the rest pose and are shared by every clip of the character. Fitting
 grounding per clip would put a flying creature on the floor and erase the
 height difference between a crouch and a stand. `FaceAxis` is the only clip
-stage, so it is the only parameter recorded per clip.
+stage of the Truebones chain, so it is the only parameter recorded per clip
+(`data=unimate` adds `centre_xz_clip` and `ground_clip`).
 
 You run preparation with `scripts/process_dataset_truebones.py`. It runs on
 the BVH only; FBX enters at the two ends, at export. Each rig also gets a

@@ -5,7 +5,7 @@ clips and persisted with their parameters so a generated clip can return to the
 user's rig. Preparation may clean up the rig (a stage may remove joints, and
 records them); reduction is the model's lens
 ([below](#rig-cleanup-versus-the-models-lens)). Rig-scoped stages fit once on the rest pose; clip-scoped ones
-(`FaceAxis`) fit per clip. `report.json` records each transform and the
+(`FaceAxis`, and `CentreXZClip` and `GroundClip`, which UniMate's recipe uses) fit per clip. `report.json` records each transform and the
 manifest's declared source authority. FBX enters only at export.
 
 The chain is the dataset config's `prepare:` list, built in order from the
@@ -23,6 +23,39 @@ to use it, re-expresses that as LAFAN1 / 3ds Max Biped does: each joint's
 local +X runs along its bone, so identity is a straight chain and X is twist
 on every joint. World motion is the same either way; it exists to ablate the
 convention (`data=truebones_bone`).
+
+## UniMate's canonicalization, as options
+
+`data=unimate` lists, after `prune_unskinned`: `bfs_order`, `face_axis`
+(`on_degenerate: nearest`), `centre_xz_clip`, `scale` (`mode: diameter`,
+`target: 2.0`) and `ground_clip`, UniMate's `canonicalize_anim` order (facing,
+centre XZ, scale, ground). Each is an option or sibling of an existing stage, so
+`data=truebones` is unchanged.
+
+- `BfsOrder` (`src/poseydon/build/cleanup.py`) renumbers joints breadth-first from
+  the root, children by subtree size (largest first) then rest offset length
+  (shortest first), as `bfs_reorder_joints`. It stores the permutation and the BFS
+  names; `invert` restores the source order exactly and also accepts a BVH read
+  back, whose joints come depth-first, by putting them in the stored BFS order by
+  name first.
+- `ScaleToMeanBoneLength.mode: diameter` scales the longest bone-length path between
+  two joints to `target`, found by two sweeps from the root (`get_skeleton_diameter`).
+  Zero-length End Sites add nothing to a path. The scale now works on a non-rigid
+  animation too (translations and offsets are scaled), which `data=unimate` needs
+  since it has no `enforce_rigid`.
+- `FaceAxis.on_degenerate: nearest` takes the first frame whose facing pair has a
+  horizontal component above 1e-6 (`FACING_EPS`) when frame 0's does not; `error`
+  (default) keeps refusing.
+- `CentreXZClip` puts each clip's root frame-0 XZ at the origin; `GroundClip` puts
+  each clip's lowest joint over all its frames at y = 0 (UniMate's `per_motion`).
+  `GroundClip` erases the height difference between a crouch and a stand, which
+  `PutOnGround` avoids by being rig-scoped; the choice is UniMate's, rationale not
+  recorded.
+
+Measured with stage 1 on Alligator, Anaconda and Horse: the frame-0 facing is
+along +Z in every clip (dot 1.0000), and the rest diameter is 2.0. Anaconda's
+`extra_yaw_deg: +90` was checked on its 18 clips: head minus tail, projected on XZ,
+points to +Z (dot 1.0000 in every clip).
 
 ## Rig cleanup versus the model's lens
 
@@ -131,6 +164,19 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   lacks `__chain__`, so `RigTransform.prepare_chain` (and with it export)
   refuses it; rebuild stage 1.
 
+- **A moving leaf joint loses its translation in a written BVH.** A joint with no
+  children is written as an End Site, which has no channels; a skinned leaf that
+  translates (Horse's `BN_Halter_*`, up to 0.12 of a rig of diameter 2) is read back
+  at its rest offset. With `enforce_rigid` dropped (`data=unimate`) the prepared BVH
+  is then not the in-memory animation: on Horse 13 of 28 clips have their lowest
+  joint off y = 0 on disk (up to 0.07).
+- **A BVH lists joints depth-first, so `bfs_order` does not show on disk.**
+  `BfsOrder.invert` copes by name; anything reading prepared BVHs and expecting
+  UniMate's joint order has to reorder.
+- **`ground_clip` and `centre_xz_clip` are fitted on the rest pose too.** `fit_rig`
+  fits clip-scoped stages on the rest; their rest values are kept but not used by
+  `data=unimate`.
+
 ## Class diagram
 
 ```mermaid
@@ -149,6 +195,9 @@ classDiagram
   }
   class RestRelative
   class PromoteRoot
+  class BfsOrder
+  class CentreXZClip
+  class GroundClip
   class PruneUnskinned {
     offset_eps, pos_var_eps, rot_eps_deg
     min_joints, skin_eps
@@ -161,10 +210,16 @@ classDiagram
   }
   class UpAxis
   class FaceRestAxis
-  class FaceAxis
+  class FaceAxis {
+    axis: str
+    on_degenerate: error | nearest
+  }
   class EnforceRigid
   class CentreXZ
-  class ScaleToMeanBoneLength
+  class ScaleToMeanBoneLength {
+    target: float
+    mode: mean_bone | diameter
+  }
   class PutOnGround
   class BoneRelative {
     enabled: bool
@@ -191,6 +246,9 @@ classDiagram
   PrepareStage <|-- RestRelative
   PrepareStage <|-- PromoteRoot
   PrepareStage <|-- PruneUnskinned
+  PrepareStage <|-- BfsOrder
+  PrepareStage <|-- CentreXZClip
+  PrepareStage <|-- GroundClip
   PruneUnskinned ..> RigEvidence : fit_evidence reads
   PrepareChain ..> RigEvidence : passes to fit_evidence
   PrepareStage <|-- UpAxis
@@ -215,7 +273,7 @@ classDiagram
   PreparationReport o-- AuthorityPolicy : policy
   cssClass "PrepareStage,AuditSink" iface
   cssClass "PREPARE" impl
-  cssClass "UpAxis,RestRelative,PromoteRoot,PruneUnskinned,FaceRestAxis,FaceAxis,EnforceRigid,CentreXZ,ScaleToMeanBoneLength,PutOnGround,BoneRelative,PrepareChain,PreparationReport" impl
+  cssClass "UpAxis,RestRelative,PromoteRoot,PruneUnskinned,BfsOrder,CentreXZClip,GroundClip,FaceRestAxis,FaceAxis,EnforceRigid,CentreXZ,ScaleToMeanBoneLength,PutOnGround,BoneRelative,PrepareChain,PreparationReport" impl
   cssClass "OperationRecord,JointDecision,SkinningDecision,RigEvidence" data
   cssClass "AuthorityPolicy" ext
 ```

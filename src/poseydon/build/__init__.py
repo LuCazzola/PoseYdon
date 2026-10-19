@@ -1,12 +1,14 @@
 """Turning a raw corpus into a prepared one, invertibly."""
 
-from poseydon.build.cleanup import PruneUnskinned
+from poseydon.build.cleanup import BfsOrder, PruneUnskinned
 from poseydon.build.prepare import (
     BoneRelative,
     CentreXZ,
+    CentreXZClip,
     EnforceRigid,
     FaceAxis,
     FaceRestAxis,
+    GroundClip,
     PrepareChain,
     PrepareStage,
     PutOnGround,
@@ -18,6 +20,9 @@ from poseydon.build.prepare import (
 )
 
 __all__ = [
+    "BfsOrder",
+    "CentreXZClip",
+    "GroundClip",
     "BoneRelative",
     "CentreXZ",
     "EnforceRigid",
