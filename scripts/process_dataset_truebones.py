@@ -15,13 +15,14 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import shutil
 import warnings as warnings_module
 from pathlib import Path
 
 import numpy as np
 from omegaconf import DictConfig
 
-from poseydon.build.clips import CLIP_OPS, apply_clip_ops
+from poseydon.build.clips import CLIP_OPS, MaxLength, apply_clip_ops
 from poseydon.build.corpus import rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
@@ -69,7 +70,7 @@ def process_species(
     warnings: list[str] = []
     dropped = {} if dropped is None else dropped
     ops = CLIP_OPS.build_all(data.get("clips"))
-    windowed = any(getattr(op, "mode", None) == "windows" for op in ops)
+    windowed = any(isinstance(op, MaxLength) and op.mode == "windows" for op in ops)
     out_root = Path(data.paths.root)
     source = SOURCES.build(data.source)
     try:
@@ -95,16 +96,23 @@ def process_species(
     except ValueError as error:
         return 0, [f"{manifest.name}: {error}"], 0
     warnings.extend(str(w.message) for w in caught)
-    dropped.update(source.dropped)
-    report.dropped.update(source.dropped)
+    if ops:   # `clips:` set: its drops are recorded, `data=truebones` writes what it always did
+        dropped.update(source.dropped)
+        report.dropped.update(source.dropped)
 
     # A rig-level op judges the skeleton as the clips will have it.
-    prepared_rest, _ = chain.apply(rest, resolve(manifest, rest.names), rig_params)
-    for op in ops:
-        if reason := op.rig(prepared_rest, manifest.name):
-            dropped[manifest.name] = report.dropped[manifest.name] = reason
-            report.write(out_root / "rigs" / manifest.name / "report.json")
-            return 0, [f"{manifest.name}: skipped, {reason}"], 0
+    if ops:
+        try:
+            prepared_rest, _ = chain.apply(rest, resolve(manifest, rest.names), rig_params)
+        except Exception as error:  # noqa: BLE001 - one rig must not abort the corpus
+            return 0, [f"{manifest.name}: {type(error).__name__}: {error}"], 0
+        for op in ops:
+            if reason := op.rig(prepared_rest, manifest.name):
+                dropped[manifest.name] = report.dropped[manifest.name] = reason
+                shutil.rmtree(out_root / "clips" / manifest.name, ignore_errors=True)   # an earlier run's
+                (out_root / "rigs" / manifest.name / "preproc.npz").unlink(missing_ok=True)
+                report.write(out_root / "rigs" / manifest.name / "report.json")
+                return 0, [f"{manifest.name}: skipped, {reason}"], 0
 
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)

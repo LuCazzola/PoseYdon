@@ -68,7 +68,8 @@ def apply_clip_ops(
                 continue
             for start, stop, step in result:
                 piece = replace(
-                    sub, rotations=sub.rotations[start:stop:step], translations=sub.translations[start:stop:step]
+                    sub, rotations=sub.rotations[start:stop:step], translations=sub.translations[start:stop:step],
+                    fps=sub.fps / step,   # a halved clip plays at half the rate, not twice the speed
                 )
                 first, every = b0 + bstep * start, bstep * step
                 kept.append((piece, (first, first + every * piece.n_frames, every)))
