@@ -277,9 +277,17 @@ class RigRecord:
         position channels gets them back, carrying its rest offset, so the file
         is structurally the rig the user supplied and the bones still do not
         stretch.
+
+        ``None`` (the writers' default layout) where the source has no layout
+        (`fbx_cache`) or the recorded one is for another skeleton: `EnforceRigid`
+        infers it on the pruned, BFS-ordered joints, while a restored clip has
+        every joint `prune_unskinned` removed back.
         """
         recorded = self.params.get("enforce_rigid", {}).get("source_channels")
-        return None if recorded is None else tuple(tuple(spec) for spec in recorded)
+        restored = self.params.get("prune_unskinned", {}).get("source_names")
+        if recorded is None or (restored is not None and len(recorded) != len(restored)):
+            return None
+        return tuple(tuple(spec) for spec in recorded)
 
     def calibration(self, space: str = "source") -> FbxCalibration:
         """The rig's FBX calibration for clips in ``space``, "source" or "prepared".

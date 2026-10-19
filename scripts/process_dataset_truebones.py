@@ -205,14 +205,12 @@ def _sanity_check(
     # The identity check below only holds at the rest frame itself, so this
     # must read back the rest source's own written clip -- not just any
     # clip -- by the same action-slug it was written under. `rest_action`
-    # is the module's one source of truth for that slug; re-deriving it
+    # is the module's one source of truth for that slug (a rig without
+    # `rest_pose:` has its bind pose, `bind_pose.bvh`); re-deriving it
     # inline here would be a second copy of the rule this plan exists to
     # de-duplicate.
-    # A rig without `rest_pose:` (`fbx_cache`) has no rest clip on disk: any
-    # clip is read, and the identity check below is skipped.
-    has_rest_clip = manifest.rest_pose is not None
-    subject = clips_dir / f"{rest_action(manifest)}.bvh" if has_rest_clip else written[0]
-    if has_rest_clip and not subject.is_file():
+    subject = clips_dir / f"{rest_action(manifest)}.bvh"
+    if not subject.is_file():
         # Falling back silently would measure facing/identity on an
         # arbitrary clip and report plausible-looking numbers under a slug
         # drift -- name both files so the substitution is visible.
@@ -292,8 +290,10 @@ def _sanity_check(
             )
 
     # Every joint but the root (which carries `FaceAxis`'s turn) reads as
-    # identity at the rest frame.
-    if has_rest_clip:
+    # identity at the rest frame. Only `rest_relative` makes it so: a chain
+    # without it (`data=unimate`, whose bind pose keeps its joints' own frames)
+    # skips the check.
+    if "rest_relative" in stages:
         identity_err = float(
             np.abs(np.abs((anim.rotations[0, 1:] * QUAT_IDENTITY).sum(axis=-1)) - 1.0).max()
         )

@@ -63,8 +63,8 @@ rig with `--rigs <Rig>`.
   lowest joint, with a warning. It then checks each rig's written rest
   clip and warns, without failing, if frame 0 or the rest skeleton does not
   face +Z (after the manifest's `extra_yaw_deg`), if a non-root joint is not
-  identity at the rest frame (skipped for a rig without `rest_pose:`, which
-  checks its first clip instead), or if the rest skeleton is not upright (a wrong `up_axis:` or a
+  identity at the rest frame (skipped for a chain without `rest_relative`, i.e.
+  `data=unimate`), or if the rest skeleton is not upright (a wrong `up_axis:` or a
   facing pair that is not left/right).
   `--check-against DIR` (`data=unimate`, DIR = `data/_raw/UniML3D/export/truebones`)
   compares the build with UniMate's published sidecars and prints four lines: joint

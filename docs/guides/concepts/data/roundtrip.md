@@ -175,7 +175,10 @@ places by design. All numbers below come from the 2026-09-28 audit.
 - **Joints removed by rig cleanup** (`prune_unskinned`, `data=unimate` only:
   unskinned controls, helpers, locators) come back at their bind pose with no
   motion. The children of a merged or folded joint land exactly where they were;
-  the removed joint itself is not its source motion.
+  the removed joint itself is not its source motion. `test_round_trip` checks it
+  to a stated bound (see the [testing guide](../../how-to/testing.md)); a removed
+  joint hanging off a joint that is then a leaf is not checked, because a BVH
+  stores no rotation for a leaf.
 - **Twist on a reduced joint is gone.** For example, Bear's zero-offset but
   skinned forearm-twist bones leave the forearm skin up to 5.5% of the mesh
   extent off.
@@ -184,7 +187,7 @@ places by design. All numbers below come from the 2026-09-28 audit.
 
 | check | what it proves |
 |---|---|
-| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset: features rebuild the model view in both rotation layouts, and the restored clip written to disk matches the **raw source file** in names, hierarchy, `CHANNELS`, frames, offsets, root trajectory and every observable world rotation, with rigid bones |
+| `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset (`--dataset truebones` or `unimate`): features rebuild the model view in both rotation layouts, and the restored clip written to disk matches the **raw source**, read through the dataset's `source:` and cut to the kept frames, in names, hierarchy, frames, root trajectory and every observable world rotation, with rigid bones; for a BVH source also `CHANNELS` and offsets; removed joints to a stated bound |
 | `tests/test_roundtrip.py::test_round_trip_fbx` | the rig's vendor FBX and raw BVH calibrate to within 1e-4 of the extent; the restored clip written as FBX holds exactly the restored clip on the vendor's node hierarchy; prepared and model FBX, on the same asset in canonical space, read back with the prepared joint positions (`fbxsdk` container) |
 | `scripts/build_stage_samples.py` | one clip per rig at every stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/<Rig>/`, to open side by side |
 

@@ -28,14 +28,24 @@ clip, with id `<Rig>/<action>`.
 
 Each clip goes prepared `.npz` → reduced model view → features → `fk` → back,
 then [`RigRecord.restore`][poseydon.export.rig.RigRecord.restore] and [`BVH.from_animation`][poseydon.io.bvh.BVH.from_animation] → a file on disk → read back. The file
-is compared against the **raw source BVH**, the one reference the pipeline did
-not produce. It asserts:
+is compared against the **raw source**, the one reference the pipeline did
+not produce. The test reads it through the dataset's own `source:` (a BVH file
+for `data=truebones`, UniMate's FBX cache for `data=unimate`) and cuts it to the
+frames the clip kept (`clip_params[action]["frames"]["window"]`, absent meaning
+the whole clip). It asserts:
 
-- names, hierarchy, `CHANNELS` layout, frame count, frame rate and the OFFSET
-  block all match the source;
+- names, hierarchy, frame count and frame rate match the source, and for a BVH
+  source the `CHANNELS` layout and the OFFSET block too;
 - the root's world trajectory matches (the promoted root, on promoted rigs);
 - every observable joint's world rotation matches, to 1e-3 degrees;
 - non-root joints don't translate;
+- a joint `prune_unskinned` removed (`data=unimate`) sits, against its nearest
+  kept ancestor, within the largest distance a joint turning less than 2 degrees
+  can travel (`2 d sin(1 deg)` per removed ancestor at distance `d`) plus the
+  distance its source translation strays from its bind offset, summed along the
+  removed chain; its world rotation is not compared. No joint is skipped by name
+  (`PRUNED_SKIP` is empty). A removed joint whose nearest kept ancestor is left
+  a leaf is not checked: see [todo](../../index/todo.md);
 - in both rotation layouts (`rot6d_joint` and `rot6d_bone`), features rebuild
   the model view's positions and every rotation that orients something; the
   `rot6d_bone` reduction makes no real joint but a still one a leaf,
@@ -43,6 +53,10 @@ not produce. It asserts:
   is folded into a joint but the root; still joints come back within the
   `drop_still` rule's `degrees` (as `skeleton.npz` records it), every other
   joint exactly.
+
+`test_up_axis` and `test_round_trip_fbx` skip a dataset whose source is not raw
+BVH files (they calibrate against the vendor FBX and BVH of one clip), with the
+reason in the skip message.
 
 `test_up_axis` turns one real rig to Z-up, declares `up_axis: +Z`, and checks
 that preparation gives the same clip as the Y-up original and that inverting
@@ -61,7 +75,8 @@ translation, the locator chain above a promoted root (and Tukan's dead
 subtree), and the root's own rotation where the reduction folded a joint into
 it. A leaf's rotation is unobservable, so it isn't compared either.
 
-On the 2026-10-13 corpus all 1145 Truebones clips pass the BVH test.
+On the 2026-10-13 corpus all 1145 Truebones clips pass the BVH test; on
+2026-10-20 so do all 1023 `data=unimate` training clips (`--dataset unimate`).
 
 ## Not covered
 

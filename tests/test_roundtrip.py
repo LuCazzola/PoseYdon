@@ -8,8 +8,11 @@
 
 Each leg is checked on its own, so a failure names the step that broke: the
 reduction, one preparation stage by name, the features, or the written file.
-The file is then compared against the RAW SOURCE FILE: the one reference the
-pipeline did not produce.
+The file is then compared against the RAW SOURCE: the one reference the
+pipeline did not produce. It is read through the dataset's own `source:` (a
+BVH file, or UniMate's FBX cache) and cut to the frames the clip kept
+(`clip_params[action]["frames"]["window"]`); what only a BVH has (CHANNELS, the
+OFFSET block) is asserted for `bvh_files` alone.
 
 `test_round_trip_fbx` closes the same loop in FBX, the format animators use.
 It needs the Autodesk FBX SDK, which only the `fbxsdk` container has, and runs
@@ -25,7 +28,9 @@ bones rigid. What it loses by design is not asserted: per-joint translation
 (`EnforceRigid`, one rigid geometry per rig), the locator chain above a
 promoted root and its dead subtree (constant pose), and the root's own
 rotation where the reduction folded a joint into it (End Sites, the only
-joints it drops, carry none). The features leg
+joints it drops, carry none). Joints `prune_unskinned` removed come back at
+their bind pose with no motion: their world rotation is not asserted and their
+position only to the bound `_pruned_tolerance` states. The features leg
 checks both rotation layouts; only `rot6d_joint` brings every joint's own
 rotation back (`rot6d_bone` has no slot for a leaf's).
 """
@@ -41,8 +46,8 @@ import pytest
 from scripts.process_dataset_truebones import chain_for
 
 from poseydon.build.corpus import rest_source
-from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.build.pipeline import compose_build
+from poseydon.build.sources import SOURCES
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.core.rotations import quat_between, quat_inverse, quat_mul
 from poseydon.core.skeleton import SkeletonManifest, contact_defaults, resolve
@@ -66,6 +71,8 @@ EXACT_TOL = 1e-9  # same, for legs that never touch a file
 # 27-joint spine reaches 1.35e-5 in its tip's frame. Any real error is far larger.
 FBX_TOL = 1e-4
 ROT_TOL_DEG = 1e-3
+#: Removed joints whose position is not checked, with the reason. None yet.
+PRUNED_SKIP: dict[tuple[str, str], str] = {}
 
 
 def pytest_generate_tests(metafunc):
@@ -97,11 +104,72 @@ def _record(corpus: Path, raw: Path, rig: str, layout: str = "rot6d_joint") -> R
     return _records[rig, layout]
 
 
-def _raw_source(raw: Path, rig: str, action: str) -> Path:
-    for path in sorted((raw / "source" / rig).glob("*.bvh")):
-        if strip_skeleton_prefix(action_slug(path.stem), rig) == action:
-            return path
-    pytest.fail(f"{rig}/{action}: no raw .bvh under {raw / 'source' / rig} maps to this clip")
+_sources: dict = {}
+
+
+def _raw_source(dataset: str, manifest: SkeletonManifest, action: str, window=None):
+    """The raw clip as its source gives it, cut to the frames the prepared clip kept.
+
+    Returns the `SourceClip` (its `channels` are the file's, BVH only) with its
+    animation windowed to ``(start, stop, step)``; no window is the whole clip."""
+    data = _config(dataset).data
+    if dataset not in _sources:
+        _sources[dataset] = SOURCES.build(data.source)
+    try:
+        clip = _sources[dataset].clip(data, manifest, action)
+    except ValueError as error:
+        pytest.fail(f"{manifest.name}/{action}: the source cannot read this clip: {error}")
+    if window is not None:
+        start, stop, step = (int(x) for x in window)
+        a = clip.anim
+        clip = replace(clip, anim=replace(
+            a, rotations=a.rotations[start:stop:step], translations=a.translations[start:stop:step],
+            fps=a.fps / step,
+        ))
+    return clip
+
+
+def _pruned_tolerance(source, pruned: set[int]) -> dict[int, tuple[int, float]]:
+    """For each joint `prune_unskinned` removed whose nearest kept ancestor k has a kept
+    child (else k is a leaf of the prepared rig, and a leaf's rotation is stored nowhere,
+    End Site style, so the joint hangs off an unknown turn): k, and how far the vector from k to the joint may sit from the source's,
+    in world units.
+
+    Measured from k, not the world origin: a kept joint's position is only as exact
+    as its chain's translations, which `EnforceRigid` drops by design, while its world
+    rotation is exact. A removed joint comes back at its bind pose, motionless, so the
+    vector k to j is off through the removed joints between them, j included:
+
+    - rotation: a removed joint a above j turns less than 2 degrees from its first
+      frame, and turning a point at distance d by 2 degrees moves it 2 d sin(1 deg),
+      with d the distance from a to j in the source's frame 0;
+    - translation: the pruning also removes joints that translate or never carry
+      a translation (a source node with none, a stretching leaf), and the restored
+      one sits at its bind offset: the largest distance the source's local
+      translation strays from it, over the clip.
+
+    The bound is the sum of both over the chain. What only the pruning's own tests
+    can say (a control bone that moves far, a leaf that stretches) shows as a miss
+    over the bound and goes in `PRUNED_SKIP` by name, with the reason.
+    """
+    pos = source.global_positions()[0]
+    turn = 2 * np.sin(np.radians(1.0))
+    stray = np.linalg.norm(source.translations - source.offsets, axis=-1).max(axis=0)
+    parents = source.parents
+    out = {}
+    for j in pruned:
+        total, a = stray[j], int(parents[j])
+        while a in pruned:
+            total += turn * np.linalg.norm(pos[j] - pos[a]) + stray[a]
+            a = int(parents[a])
+        if a >= 0 and any(c not in pruned for c in np.flatnonzero(parents == a)):
+            out[j] = (a, total)
+    return out
+
+
+def _bvh_only(dataset: str, why: str) -> None:
+    if _config(dataset).data.source.type != "bvh_files":
+        pytest.skip(f"{dataset}'s source is not raw BVH files: {why}")
 
 
 def _angle_deg(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -112,9 +180,10 @@ def _angle_deg(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 def _assert_same_world(got, want, tol: float, what: str, skip=()) -> None:
     """World positions agree to `tol` of the rig's extent; the message names the joint.
 
-    Joints named in `skip` are not compared."""
-    assert got.names == want.names, f"{what}: joints differ"
-    a, b = got.global_positions(), want.global_positions()
+    Joints named in `skip` are not compared. The same joints in another order
+    compare by name (re-applying `bfs_order` puts them in BFS order again)."""
+    assert sorted(got.names) == sorted(want.names), f"{what}: joints differ"
+    a, b = got.global_positions()[:, [got.names.index(n) for n in want.names]], want.global_positions()
     err = np.linalg.norm(a - b, axis=-1).max(axis=0) / np.ptp(b[0], axis=0).max()
     err[[j for j, name in enumerate(want.names) if name in skip]] = 0.0
     worst = int(err.argmax())
@@ -126,7 +195,9 @@ def test_round_trip(clip: Path, tmp_path, request):
     corpus, raw = Path("data") / dataset, Path("data/_raw") / dataset
     rig, action = clip.parent.name, clip.stem
     record = _record(corpus, raw, rig)
-    source = BVH.read(_raw_source(raw, rig, action))
+    manifest_rig = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml")
+    clip_source = _raw_source(dataset, manifest_rig, action, record.clip_params[action].get("frames", {}).get("window"))
+    source = clip_source.anim
 
     # The model's view, read the way training reads it (data/dataset.py).
     prepared = RigidBodyAnimation.load(clip).as_rigid_body(joint_translation="drop")
@@ -219,35 +290,49 @@ def test_round_trip(clip: Path, tmp_path, request):
 
     assert back.names == source.names, "export leg: joint names differ from the source"
     np.testing.assert_array_equal(back.parents, source.parents, "export leg: hierarchy differs")
-    assert back.channels == source.channels, "export leg: CHANNELS layout differs"
+    if clip_source.channels is not None:   # a BVH source only
+        assert back.channels == clip_source.channels, "export leg: CHANNELS layout differs"
     assert back.rotations.shape == source.rotations.shape, "export leg: frame count differs"
     assert back.fps == pytest.approx(source.fps), "export leg: frame time differs"
 
-    src_pos, src_rot = source.to_animation().global_transforms()
+    src_pos, src_rot = source.global_transforms()
     back_pos, back_rot = back.to_animation().global_transforms()
     extent = np.ptp(src_pos[0], axis=0).max()
-    np.testing.assert_allclose(
-        back.offsets, source.offsets, rtol=0, atol=POS_TOL * extent,
-        err_msg="export leg: OFFSET block differs from the source",
-    )
+    if clip_source.channels is not None:   # the OFFSET block of a BVH
+        np.testing.assert_allclose(
+            back.offsets, source.offsets, rtol=0, atol=POS_TOL * extent,
+            err_msg="export leg: OFFSET block differs from the source",
+        )
 
     # Joints the round trip drops by design: the locator chain above a promoted
     # root and its dead subtree, then whatever the reduction removed.
-    promote = record.params["promote_root"]
-    root = int(promote["n_removed"])
-    locators = set(range(root)) | {int(i) for i in promote["dead_indices"]}
+    promote = record.params.get("promote_root")   # data=unimate has none
+    root = int(promote["n_removed"]) if promote else 0
+    locators = set(range(root)) | ({int(i) for i in promote["dead_indices"]} if promote else set())
     # Reduction names joints on the promoted rig, so map them back by name.
     names = source.names
     ops = record.reduction.ops
     removed = {names.index(op.name) for op in ops if op.kind == DROP}
     removed |= {names.index(op.parent) for op in ops if op.kind == COLLAPSE}
+    # Joints `prune_unskinned` removed: motionless at their bind pose.
+    prune = record.params.get("prune_unskinned", {})
+    pruned = {names.index(str(n)) for n in prune.get("removed", ())}
+    removed |= pruned
+    # `prune_unskinned` also takes off the roots above the real one (`kind` root),
+    # the unimate counterpart of the locator chain `promote_root` strips.
+    above = {names.index(str(n)) for n, kind in zip(prune.get("removed", ()), prune.get("kind", ())) if kind == "root"}
+    locators |= above
+    if above:   # the one joint left under them
+        root = next(j for j in range(len(names)) if j not in pruned and int(source.parents[j]) in above | {-1})
 
     err = np.linalg.norm(back_pos[:, root] - src_pos[:, root], axis=-1).max() / extent
     assert err <= POS_TOL, f"export leg: root `{source.names[root]}` off by {err:.2e} of extent"
 
     # A joint's world rotation is observable only through its children.
+    # (a removed child, back at its bind pose, shows nothing of it).
     has_child = np.zeros(len(names), dtype=bool)
-    has_child[source.parents[source.parents >= 0]] = True
+    kept = np.array([j not in pruned for j in range(len(names))])
+    has_child[source.parents[(source.parents >= 0) & kept]] = True
     checked = [
         j for j in range(len(names))
         if has_child[j] and j not in locators and j not in removed
@@ -258,6 +343,15 @@ def test_round_trip(clip: Path, tmp_path, request):
         f"export leg: `{source.names[checked[worst]]}` world rotation off by "
         f"{angles[worst]:.4f} deg"
     )
+
+    # A removed joint is where its kept ancestors put it, within the bound its
+    # removed ancestors' turns allow (`_pruned_tolerance`).
+    off = []
+    for j, (k, bound) in _pruned_tolerance(source, pruned).items():
+        miss = np.linalg.norm((back_pos[:, j] - back_pos[:, k]) - (src_pos[:, j] - src_pos[:, k]), axis=-1).max()
+        if (rig, names[j]) not in PRUNED_SKIP and miss > bound + POS_TOL * extent:
+            off.append(f"`{names[j]}` {miss:.2e} from `{names[k]}`'s frame (bound {bound:.2e})")
+    assert not off, f"export leg: removed joints off the source: {'; '.join(off)}"
 
     # The documented loss, asserted rather than assumed: bones are rigid.
     moving = np.ptp(back.translations[:, 1:], axis=0).max()
@@ -272,6 +366,7 @@ def test_up_axis(request):
     `UpAxis`.
     """
     dataset = request.config.getoption("--dataset")
+    _bvh_only(dataset, "needs the rest and a clip as raw .bvh files")
     corpus, raw = Path("data") / dataset, Path("data/_raw") / dataset
     rig = sorted(p.name for p in (corpus / "rigs").iterdir() if p.is_dir())[0]
     manifest = SkeletonManifest.load(corpus / "rigs" / rig / "manifest.yaml")
@@ -317,6 +412,7 @@ def test_round_trip_fbx(clip: Path, tmp_path, request):
         "poseydon.io.fbx", reason="needs the fbxsdk container", exc_type=ImportError
     )
     dataset = request.config.getoption("--dataset")
+    _bvh_only(dataset, "calibrates against the vendor FBX and raw BVH of one clip")
     corpus, raw = Path("data") / dataset, Path("data/_raw") / dataset
     rig, action = clip.parent.name, clip.stem
     record = _record(corpus, raw, rig)
