@@ -27,6 +27,10 @@ asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
 - **A stage-1 change invalidates everything after it.** Nothing detects a
   stale corpus: rebuild stage 1, then stage 2, and retrain checkpoints trained
   on the old corpus.
+- **A rig without `rest_pose:` uses its first clip as the rest clip.**
+  `build_skeleton` takes the first prepared clip alphabetically (`data=unimate`)
+  and records it as `rest_action`; the `rest_frame` conditioner is that clip's
+  frame 0, not a neutral pose.
 - **The index leaves out clips shorter than two frames.** Velocity features
   need two frames, so such a clip (each authored `__TPOSE_authored.bvh`) has
   no feature frame; it is still written to `clips/`, as the rig's rest pose,

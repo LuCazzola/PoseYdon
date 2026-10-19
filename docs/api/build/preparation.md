@@ -101,12 +101,9 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   (`Source.skin` is `None`) and the stage raises; it applies to `fbx_cache`, where a
   rig with no skin mesh counts as all joints unskinned (an empty mapping, as UniMate
   treats it). It also raises if the rest pose's translations differ from its offsets,
-  which `invert` relies on. Its
-  tests ran against Task 4's approximated armature (`fbx_cache` in
-  [build](index.md#limitations)); on the 61 rigs checked against UniMate's
-  published joint lists (Alligator to SabreToothTiger) the kept sets agree except
-  Isopetra, which keeps `Bip01_R_Toe0Nub` in UniMate's list and loses it here
-  (3 of its 9 clips were not yet cached when this was measured).
+  which `invert` relies on. On the
+  full cache the kept joint sets equal UniMate's `joint_names.json` on all 74 rigs
+  (`--check-against`, `docs/index/tooling.md`).
 
 - **Facing is two stages, and only one turns the joints.** `FaceRestAxis`
   (rig) turns the whole rig so the rest skeleton faces +Z; `FaceAxis` (clip)

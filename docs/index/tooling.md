@@ -66,9 +66,18 @@ rig with `--rigs <Rig>`.
   identity at the rest frame (skipped for a rig without `rest_pose:`, which
   checks its first clip instead), or if the rest skeleton is not upright (a wrong `up_axis:` or a
   facing pair that is not left/right).
+  `--check-against DIR` (`data=unimate`, DIR = `data/_raw/UniML3D/export/truebones`)
+  compares the build with UniMate's published sidecars and prints four lines: joint
+  sets (the prepared rest skeleton's names against `joint_names.json`, as sets),
+  export frames (the cached source clip's frame count, before any filter, against
+  `clip_frames.json`), training clips and frames against 1023 / 95491, and rigs whose
+  rest tree diameter is 2.0 within 1e-9. Mismatches, each with the stage or filter
+  responsible and the dropped clips by filter, go to `<paths.root>/replication.json`.
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) with the dataset's `reduce:` and
-  `labels:` and the feature group's blocks and normalization.
+  `labels:` and the feature group's blocks and normalization. A rig without
+  `rest_pose:` (`data=unimate`) takes its first clip, alphabetically, as the rest
+  clip recorded in `skeleton.npz`.
 
 The bone-relative ablation corpus is `data=truebones_bone`: the same chain
 with `bone_relative` appended, built into its own root `data/truebones_bone/`

@@ -23,7 +23,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from poseydon.build.clips import CLIP_OPS, MaxLength, apply_clip_ops
-from poseydon.build.corpus import rest_action
+from poseydon.build.corpus import cache_dir, rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
     CLIP,
@@ -60,12 +60,15 @@ def chain_for(prepare, source_channels: tuple[tuple[str, ...], ...] | None) -> P
 
 def process_species(
     manifest: SkeletonManifest, data: DictConfig, dropped: dict[str, str] | None = None,
+    prepared: dict[str, dict] | None = None,
 ) -> tuple[int, list[str], int]:
     """Prepare every raw clip for one rig. Returns (n_written, warnings, n_frames).
 
     The dataset's ``clips:`` ops (`poseydon.build.clips`) trim and filter around
     ``prepare:``. A clip they drop is written nowhere; it lands, with its reason,
     in the rig's ``report.json`` and in ``dropped`` (``Rig-action`` -> reason).
+    ``prepared``, if given, receives the rig's prepared rest skeleton (joint names
+    and tree diameter) for `--check-against`.
     """
     warnings: list[str] = []
     dropped = {} if dropped is None else dropped
@@ -106,6 +109,9 @@ def process_species(
             prepared_rest, _ = chain.apply(rest, resolve(manifest, rest.names), rig_params)
         except Exception as error:  # noqa: BLE001 - one rig must not abort the corpus
             return 0, [f"{manifest.name}: {type(error).__name__}: {error}"], 0
+        if prepared is not None:
+            prepared[manifest.name] = {"joints": list(prepared_rest.names),
+                                       "diameter": tree_diameter(prepared_rest.offsets, prepared_rest.parents)}
         for op in ops:
             if reason := op.rig(prepared_rest, manifest.name):
                 dropped[manifest.name] = report.dropped[manifest.name] = reason
@@ -290,9 +296,63 @@ def _sanity_check(
     return warnings
 
 
+def _float32_end_frames(end: float) -> int:
+    """Frames a Blender action ending at key-time ``end`` (frames) gets WITHOUT
+    UniMate's ``FRAME_RANGE_EPS``: Blender holds the time as float32, seconds first
+    (``f32(f32(ktime / 46186158000) * 30)``), and a plain ``ceil`` adds a frame to
+    ``119.0000076``. Measured to reproduce ``clip_frames.json`` on all 1,097 clips."""
+    ktime = round(end * 46186158000 / 30)
+    return int(np.ceil(np.float32(np.float32(ktime / 46186158000) * np.float32(30)))) + 1
+
+
+def check_against(reference: Path, data: DictConfig, prepared: dict[str, dict], dropped: dict[str, str],
+                  n_written: int, n_frames: int) -> None:
+    """Compare the build with UniMate's published Truebones sidecars; print four lines.
+
+    Per-rig and per-clip mismatches, each with the stage or filter responsible,
+    go to ``<paths.root>/replication.json``. Joint sets compare the prepared rest
+    skeleton's names with ``joint_names.json`` (as sets); export frames compare
+    the cached source clip's frame count (before any filter) with
+    ``clip_frames.json``.
+    """
+    names = json.loads((reference / "joint_names.json").read_text())
+    expected_frames = json.loads((reference / "clip_frames.json").read_text())
+    joints = {}
+    for rig, expected in names.items():
+        got = prepared.get(rig, {}).get("joints")
+        if got is None:
+            joints[rig] = {"stage": "rig skipped before the rest skeleton was prepared"}
+        elif set(got) != set(expected):
+            joints[rig] = {"stage": "source rig cleanup (prune_unskinned / armature rule)",
+                           "missing": sorted(set(expected) - set(got)), "extra": sorted(set(got) - set(expected))}
+    cache = cache_dir(data.paths.root) / "fbx"
+    frames = {}
+    for clip, expected in expected_frames.items():
+        rig, action = clip.split("-", 1)
+        with np.load(cache / rig / f"{action}.npz") as z:
+            got, end = len(z["frames"]), float(z["key_range"][1])
+        if got != expected:
+            frames[clip] = {"stage": "frame range (source)", "ours": got, "unimate": expected,
+                            "explained_by_float32_end_noise": _float32_end_frames(end) == expected}
+    diameters = {rig: p["diameter"] for rig, p in prepared.items() if abs(p["diameter"] - 2.0) > 1e-9}
+    dropped_by = {}
+    for clip, reason in dropped.items():
+        dropped_by.setdefault(reason.split(":")[0], []).append(clip)
+    Path(data.paths.root, "replication.json").write_text(json.dumps(
+        {"joint_sets": joints, "export_frames": frames, "diameter": diameters, "dropped_by_filter": dropped_by},
+        indent=2, sort_keys=True) + "\n")
+    print(f"joint sets: {len(names) - len(joints)}/{len(names)} match")
+    print(f"export frames: {len(expected_frames) - len(frames)}/{len(expected_frames)} match")
+    print(f"training clips: {n_written}/1023, frames: {n_frames}/95491")
+    print(f"diameter: {len(prepared) - len(diameters)}/{len(names)} at 2.0")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--rigs", nargs="*", default=None, help="rig names to process (default: every rig under paths.rigs)")
+    parser.add_argument("--check-against", type=Path, default=None, metavar="DIR",
+                        help="UniMate's published sidecars (data=unimate): print the replication report, "
+                             "write <paths.root>/replication.json")
     parser.add_argument("--config-name", default="build")
     parser.add_argument("overrides", nargs="*", help="Hydra overrides, e.g. data=truebones_bone")
     args = parser.parse_args()
@@ -305,11 +365,12 @@ def main() -> None:
 
     total_written = total_frames = 0
     dropped: dict[str, str] = {}
+    prepared: dict[str, dict] = {}
     all_warnings: list[str] = []
     for rig_name in rig_names:
         manifest = SkeletonManifest.load(Path(data.paths.rigs) / rig_name / "manifest.yaml")
         print(f"{manifest.name}:")
-        n_written, warnings, n_frames = process_species(manifest, data, dropped)
+        n_written, warnings, n_frames = process_species(manifest, data, dropped, prepared)
         print(f"  wrote {n_written} clips -> {Path(data.paths.root) / 'clips' / manifest.name}")
         total_written += n_written
         total_frames += n_frames
@@ -319,6 +380,8 @@ def main() -> None:
     if data.get("clips"):
         Path(data.paths.root, "dropped.json").write_text(json.dumps(dropped, indent=2, sort_keys=True) + "\n")
         print(f"training clips: {total_written}, frames: {total_frames}; dropped: {len(dropped)}")
+    if args.check_against is not None:
+        check_against(args.check_against, data, prepared, dropped, total_written, total_frames)
     if all_warnings:
         print(f"\n{len(all_warnings)} warning(s):")
         for warning in all_warnings:
