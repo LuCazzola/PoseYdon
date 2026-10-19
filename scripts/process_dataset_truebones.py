@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import warnings as warnings_module
 from pathlib import Path
 
 import numpy as np
 from omegaconf import DictConfig
 
+from poseydon.build.clips import CLIP_OPS, apply_clip_ops
 from poseydon.build.corpus import rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
@@ -55,9 +57,19 @@ def chain_for(prepare, source_channels: tuple[tuple[str, ...], ...] | None) -> P
     return PrepareChain(stages, chain.entries)
 
 
-def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, list[str]]:
-    """Prepare every raw clip for one rig. Returns (n_written, warnings)."""
+def process_species(
+    manifest: SkeletonManifest, data: DictConfig, dropped: dict[str, str] | None = None,
+) -> tuple[int, list[str], int]:
+    """Prepare every raw clip for one rig. Returns (n_written, warnings, n_frames).
+
+    The dataset's ``clips:`` ops (`poseydon.build.clips`) trim and filter around
+    ``prepare:``. A clip they drop is written nowhere; it lands, with its reason,
+    in the rig's ``report.json`` and in ``dropped`` (``Rig-action`` -> reason).
+    """
     warnings: list[str] = []
+    dropped = {} if dropped is None else dropped
+    ops = CLIP_OPS.build_all(data.get("clips"))
+    windowed = any(getattr(op, "mode", None) == "windows" for op in ops)
     out_root = Path(data.paths.root)
     source = SOURCES.build(data.source)
     try:
@@ -65,7 +77,7 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
         rest_channels = source.rest_channels(data, manifest)
         actions = source.actions(data, manifest)
     except ValueError as error:
-        return 0, [f"{manifest.name}: {error}"]
+        return 0, [f"{manifest.name}: {error}"], 0
 
     chain = chain_for(data.prepare, rest_channels)
     # A stage that decides from the whole rig (`prune_unskinned`) reads every clip
@@ -81,42 +93,74 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
             warnings_module.simplefilter("always")
             rig_params = chain.fit_rig(rest, resolve(manifest, rest.names), audit=report, evidence=evidence)
     except ValueError as error:
-        return 0, [f"{manifest.name}: {error}"]
+        return 0, [f"{manifest.name}: {error}"], 0
     warnings.extend(str(w.message) for w in caught)
+    dropped.update(source.dropped)
+    report.dropped.update(source.dropped)
+
+    # A rig-level op judges the skeleton as the clips will have it.
+    prepared_rest, _ = chain.apply(rest, resolve(manifest, rest.names), rig_params)
+    for op in ops:
+        if reason := op.rig(prepared_rest, manifest.name):
+            dropped[manifest.name] = report.dropped[manifest.name] = reason
+            report.write(out_root / "rigs" / manifest.name / "report.json")
+            return 0, [f"{manifest.name}: skipped, {reason}"], 0
 
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
 
     clip_params: dict[str, dict] = {}
-    n_written = 0
+    n_written = n_frames = 0
     for action in actions:
         # One bad clip must not cost a whole species. Some Truebones species
         # ship clips rigged differently from their own T-pose (Elephant's
         # __Take_001 has 43 joints against the T-pose's 51); those are reported
         # and skipped rather than aborting the other twenty.
+        clip_id = f"{manifest.name}-{action}"
+        kept, reason = [], None
         try:
             clip = loaded.get(action) or source.clip(data, manifest, action)
             resolved = resolve(manifest, clip.anim.names)
-            prepared, params = chain.apply(clip.anim, resolved, rig_params, audit=report)
-
-            BVH.from_animation(prepared).write(clips_dir / f"{action}.bvh")
-            clip_params[action] = {
-                stage.name: params[stage.name] for stage in chain.stages
-                if stage.scope == CLIP
-            }
+            # Head trim and fps halving first, so `face_axis` fits on the trimmed
+            # clip's frame 0; the other ops judge the prepared clip.
+            trimmed = apply_clip_ops(ops, clip.anim, clip_id, "source")
+            if isinstance(trimmed, str):
+                reason = trimmed
+            else:
+                for sub, window in trimmed:
+                    prepared, params = chain.apply(sub, resolved, rig_params, audit=report)
+                    result = apply_clip_ops(ops, prepared, clip_id, "prepared", base=window)
+                    if isinstance(result, str):
+                        reason = result
+                    else:
+                        kept += [(piece, w, params) for piece, w in result]
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus
             warnings.append(
                 f"{manifest.name}/{action}: {type(error).__name__}: {error}"
             )
             continue
-        n_written += 1
+        if not kept:
+            dropped[clip_id] = report.dropped[clip_id] = reason
+            (clips_dir / f"{action}.bvh").unlink(missing_ok=True)   # a file an earlier run wrote
+            continue
+        for i, (piece, window, params) in enumerate(kept):
+            name = f"{action}_w{i:03d}" if windowed else action
+            BVH.from_animation(piece).write(clips_dir / f"{name}.bvh")
+            clip_params[name] = {
+                stage.name: params[stage.name] for stage in chain.stages
+                if stage.scope == CLIP
+            }
+            # Source-frame `range(start, stop, step)` this clip came from.
+            clip_params[name]["frames"] = {"window": np.array(window)}
+            n_written += 1
+            n_frames += piece.n_frames
 
     report.write(out_root / "rigs" / manifest.name / "report.json")
     RigTransform(rig_params=rig_params, clip_params=clip_params, chain=chain.entries).save(
         out_root / "rigs" / manifest.name / "preproc.npz"
     )
     warnings.extend(_sanity_check(manifest, clips_dir, rig_params.get("bone_relative"), chain))
-    return n_written, warnings
+    return n_written, warnings, n_frames
 
 
 def _sanity_check(
@@ -251,17 +295,22 @@ def main() -> None:
         wanted = set(args.rigs)
         rig_names = [name for name in rig_names if name in wanted]
 
-    total_written = 0
+    total_written = total_frames = 0
+    dropped: dict[str, str] = {}
     all_warnings: list[str] = []
     for rig_name in rig_names:
         manifest = SkeletonManifest.load(Path(data.paths.rigs) / rig_name / "manifest.yaml")
         print(f"{manifest.name}:")
-        n_written, warnings = process_species(manifest, data)
+        n_written, warnings, n_frames = process_species(manifest, data, dropped)
         print(f"  wrote {n_written} clips -> {Path(data.paths.root) / 'clips' / manifest.name}")
         total_written += n_written
+        total_frames += n_frames
         all_warnings.extend(warnings)
 
     print(f"\ntotal: {total_written} clips written across {len(rig_names)} rigs")
+    if data.get("clips"):
+        Path(data.paths.root, "dropped.json").write_text(json.dumps(dropped, indent=2, sort_keys=True) + "\n")
+        print(f"training clips: {total_written}, frames: {total_frames}; dropped: {len(dropped)}")
     if all_warnings:
         print(f"\n{len(all_warnings)} warning(s):")
         for warning in all_warnings:

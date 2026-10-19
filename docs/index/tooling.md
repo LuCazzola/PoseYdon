@@ -49,7 +49,16 @@ rig with `--rigs <Rig>`.
   dataset's `prepare:` chain (a stage that decides from the whole rig, `prune_unskinned`,
   is given every clip of the rig and its skin weights first), and writes `clips/<Rig>/<action>.bvh` plus
   `rigs/<Rig>/preproc.npz`, which holds the fitted transform, its inverse and
-  the chain itself. A rig grounded on the mesh without a current
+  the chain itself. The dataset's optional `clips:` group (registered ops,
+  `src/poseydon/build/clips.py`) trims and filters in UniMate's order: `head_trim`
+  and `halve_fps` on the source clip before `prepare:`, then `trim_static`,
+  `min_frames`, `max_length` (`mode: first` or `windows`, which names clips
+  `<action>_w000`...), `low_activity` and `jump` on the prepared clip; `joint_range`
+  skips a rig by its prepared joint count. A skip-list file that does not exist is a
+  no-op. Each written clip records the source frames it came from as
+  `clip/<name>/frames/window` (`start, stop, step`) in `preproc.npz`; a dropped clip
+  or rig writes nothing and is named with its reason in `rigs/<Rig>/report.json`
+  and `<paths.root>/dropped.json`. Without `clips:` (`truebones`) nothing changes. A rig grounded on the mesh without a current
   `rest_mesh.npz` (run `tools/build_rest_mesh.py` first) is grounded on its
   lowest joint, with a warning. It then checks each rig's written rest
   clip and warns, without failing, if frame 0 or the rest skeleton does not
@@ -149,7 +158,7 @@ and is named after its module is listed in `custom_imports:`.
 
 | config | holds |
 |---|---|
-| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended; `unimate` (UniMate's recipe, `fbx_cache` source, manifests from `tools/write_unimate_manifests.py`) has UniMate's `prepare:` (`up_axis`, `prune_unskinned`, `bfs_order`, `enforce_rigid`, `face_axis` with `on_degenerate: nearest`, `centre_xz_clip`, `scale` by diameter 2.0, `ground_clip`) and `reduce: []` |
+| `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended; `unimate` (UniMate's recipe, `fbx_cache` source, manifests from `tools/write_unimate_manifests.py`) has UniMate's `clips:` and `prepare:` (`up_axis`, `prune_unskinned`, `bfs_order`, `enforce_rigid`, `face_axis` with `on_degenerate: nearest`, `centre_xz_clip`, `scale` by diameter 2.0, `ground_clip`) and `reduce: []` |
 | `configs/features/` | the model's feature blocks and their normalization (model-side) |
 | `configs/build.yaml` | corpus construction: a dataset plus a feature group, for both build scripts |
 | `configs/train.yaml`, `configs/sample.yaml` | a run: dataset, features, `configs/model/` (`anytop`, `modiffae`), `configs/process/` (`gaussian`, `flow`), `configs/trainer/` (`default`, `debug`), conditioners, augmentations, losses |

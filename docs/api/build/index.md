@@ -18,7 +18,9 @@ registered `source:` (`src/poseydon/build/sources.py`): `bvh_files`, the raw
 Truebones BVHs, or `fbx_cache`, UniMate's Truebones FBX clips as
 `scripts/build_fbx_cache.py` cached them, with the skeleton rebuilt as Blender's
 FBX importer would have. Driven by `scripts/process_dataset_truebones.py`
-(stage 1) and `scripts/build_features.py` (stage 2).
+(stage 1) and `scripts/build_features.py` (stage 2). Between source and
+preparation it also trims and filters clips, as the dataset's ``clips:`` group
+asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
 
 ## Limitations
 
@@ -39,6 +41,17 @@ FBX importer would have. Driven by `scripts/process_dataset_truebones.py`
   an animated unbound node gets offsets that include that motion.
   Where a species' clips differ in joints, the largest group defines the rig
   and a clip missing one of its joints is left out (`FbxCache.dropped`).
+
+- **`clips:` windows describe frames, not content.** A clip's recorded
+  `frames/window` maps its prepared frames to source frames only while the
+  ops are the ones that made it; in `windows` mode, a window an op drops is not
+  recorded (only a clip with none left is). `face_axis` and the other clip-scoped
+  stages are fitted once on the whole trimmed clip, not per window.
+  `low_activity` and `jump` thresholds are UniMate's, measured on the prepared
+  (centred, scaled, grounded) positions; nothing checks they still mean the
+  same after a change to `prepare:`.
+- **Only a dropped clip's own BVH is deleted on a rerun.** The `_wNNN` files of
+  an earlier `windows` run stay on disk.
 
 ## Class diagram
 
@@ -70,6 +83,20 @@ classDiagram
     skin(data, manifest) dict
   }
   class SourceClip { <<dataclass>> }
+  class ClipOp {
+    <<abstract>>
+    when
+    rig(rest, rig) str
+    windows(anim, clip_id) list
+  }
+  ClipOp <|-- HeadTrim
+  ClipOp <|-- HalveFps
+  ClipOp <|-- TrimStatic
+  ClipOp <|-- MinFrames
+  ClipOp <|-- MaxLength
+  ClipOp <|-- LowActivity
+  ClipOp <|-- Jump
+  ClipOp <|-- JointRange
   Source <|-- BvhFiles
   Source <|-- FbxCache
   Source ..> SourceClip : clip(...)
@@ -79,7 +106,7 @@ classDiagram
   BuildConfig ..> RigTransform : transform(rig)
   BuildConfig ..> SkeletonManifest : manifest(rig)
   CorpusIndex o-- ClipRecord : one per clip
-  cssClass "CorpusIndex,PerRigDirectory,Humanize,BvhFiles,FbxCache" impl
+  cssClass "CorpusIndex,PerRigDirectory,Humanize,BvhFiles,FbxCache,HeadTrim,HalveFps,TrimStatic,MinFrames,MaxLength,LowActivity,Jump,JointRange" impl
   cssClass "BuildConfig,ClipRecord,SourceClip" data
   cssClass "BlockPolicy,SkeletonManifest,RigTransform" ext
 ```
@@ -96,6 +123,8 @@ classDiagram
       members: false
 
 ::: poseydon.build.authority
+
+::: poseydon.build.clips
 
 ::: poseydon.build.corpus
 

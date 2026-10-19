@@ -35,6 +35,20 @@ prepare:
   - {type: scale, mode: diameter, target: 2.0}
   - {type: ground_clip}
 
+# UniMate's frame and clip filters (`src/poseydon/build/clips.py`), in its order:
+# the source ops run before `prepare`, the rest on the prepared clip. A skip list
+# that does not exist is a no-op (UniMate's "auto"); Truebones ships only
+# filtered_clips.txt (`source.skip`).
+clips:
+  - {type: joint_range, min: 8, max: 150}
+  - {type: head_trim, file: data/_raw/UniML3D/export/truebones/clip_trims.txt}
+  - {type: halve_fps}
+  - {type: trim_static, threshold: 1.0e-5}
+  - {type: min_frames, n: 8}
+  - {type: max_length, frames: 200, mode: first}   # their default; `windows` strides 110
+  - {type: low_activity, threshold: 0.02, top_k_ratio: 0.25, top_k_min: 2, keep_file: data/_raw/UniML3D/export/truebones/activity_keep.txt}
+  - {type: jump, step: 0.2, ratio: 8.0}
+
 # UniMate keeps every joint its pruning leaves (`prepare` above).
 reduce: []
 

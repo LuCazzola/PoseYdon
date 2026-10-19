@@ -82,6 +82,8 @@ class PreparationReport:
     operations: list[OperationRecord] = field(default_factory=list)
     joint_decisions: list[JointDecision] = field(default_factory=list)
     skinning_decisions: list[SkinningDecision] = field(default_factory=list)
+    #: clip (``Rig-action``) or rig left out of the corpus -> why; written only when non-empty
+    dropped: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def start(cls, dataset: str, rig: str, policy: AuthorityPolicy) -> PreparationReport:
@@ -100,6 +102,7 @@ class PreparationReport:
 
     def semantic_dict(self) -> dict[str, JsonValue]:
         return _json({
+            **({"dropped": self.dropped} if self.dropped else {}),
             "dataset": self.dataset, "rig": self.rig, "policy": asdict(self.policy),
             "operations": [asdict(item) for item in self.operations],
             "joint_decisions": [asdict(item) for item in self.joint_decisions],
