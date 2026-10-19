@@ -857,21 +857,7 @@ class CentreXZ(PrepareStage):
         return _with_root(anim, anim.root_pos + params["root_xz"])
 
 
-def _moved(anim: Animation, shift: np.ndarray) -> Animation:
-    """``anim`` with the root translated by ``shift``; other joints, rigid or not, untouched."""
-    translations = anim.translations.copy()
-    translations[:, 0] += shift
-    return type(anim)(anim.rotations, translations, anim.offsets, anim.parents, anim.names, anim.fps)
-
-
-def _scaled(anim: Animation, factor: float) -> Animation:
-    """``anim`` uniformly scaled: every translation and offset, so a non-rigid clip stays itself."""
-    return type(anim)(
-        anim.rotations, anim.translations * factor, anim.offsets * factor, anim.parents, anim.names, anim.fps
-    )
-
-
-def _diameter(offsets: np.ndarray, parents: np.ndarray) -> float:
+def tree_diameter(offsets: np.ndarray, parents: np.ndarray) -> float:
     """Longest bone-length path between two joints: two sweeps, as UniMate's `get_skeleton_diameter`.
 
     The farthest joint from the root is one end of a longest path in a tree;
@@ -898,7 +884,7 @@ def _diameter(offsets: np.ndarray, parents: np.ndarray) -> float:
 
 
 @dataclass(frozen=True)
-class CentreXZClip(PrepareStage):
+class CentreXZClip(CentreXZ):
     """`CentreXZ` per clip: the root's frame-0 XZ goes to the origin (UniMate's `per_motion` centring).
 
     Clip-scoped, so the shift is recorded per clip for `invert`.
@@ -907,15 +893,6 @@ class CentreXZClip(PrepareStage):
     name: ClassVar[str] = "centre_xz_clip"
     after: ClassVar[tuple[str, ...]] = ("face_axis",)
     scope: ClassVar[str] = CLIP
-
-    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
-        return {"root_xz": anim.translations[0, 0] * np.array([1.0, 0.0, 1.0])}
-
-    def apply(self, anim, params):
-        return _moved(anim, -params["root_xz"])
-
-    def invert(self, anim, params):
-        return _moved(anim, params["root_xz"])
 
 
 @dataclass(frozen=True)
@@ -934,10 +911,12 @@ class GroundClip(PrepareStage):
         return {"height": np.float64(anim.global_positions()[..., 1].min())}
 
     def apply(self, anim, params):
-        return _moved(anim, np.array([0.0, -float(params["height"]), 0.0]))
+        shift = np.array([0.0, float(params["height"]), 0.0])
+        return _with_root(anim, anim.root_pos - shift)
 
     def invert(self, anim, params):
-        return _moved(anim, np.array([0.0, float(params["height"]), 0.0]))
+        shift = np.array([0.0, float(params["height"]), 0.0])
+        return _with_root(anim, anim.root_pos + shift)
 
 
 @dataclass(frozen=True)
@@ -968,7 +947,7 @@ class ScaleToMeanBoneLength(PrepareStage):
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
         if self.mode == "diameter":
-            size = _diameter(anim.offsets, anim.parents)
+            size = tree_diameter(anim.offsets, anim.parents)
         elif self.mode == "mean_bone":
             lengths = np.linalg.norm(anim.offsets[1:], axis=-1)
             real = lengths[lengths > self.tolerance]
@@ -980,10 +959,20 @@ class ScaleToMeanBoneLength(PrepareStage):
         return {"factor": np.float64(self.target / size)}
 
     def apply(self, anim, params):
-        return _scaled(anim, float(params["factor"]))
+        factor = float(params["factor"])
+        return RigidBodyAnimation.from_root_motion(
+            rotations=anim.rotations, root_pos=anim.root_pos * factor,
+            offsets=anim.offsets * factor, parents=anim.parents,
+            names=anim.names, fps=anim.fps,
+        )
 
     def invert(self, anim, params):
-        return _scaled(anim, 1.0 / float(params["factor"]))
+        factor = float(params["factor"])
+        return RigidBodyAnimation.from_root_motion(
+            rotations=anim.rotations, root_pos=anim.root_pos / factor,
+            offsets=anim.offsets / factor, parents=anim.parents,
+            names=anim.names, fps=anim.fps,
+        )
 
 
 #: Each rig's rest-pose mesh, cached under `rig_cache()` by `tools/build_rest_mesh.py`

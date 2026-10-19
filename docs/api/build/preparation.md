@@ -26,7 +26,8 @@ convention (`data=truebones_bone`).
 
 ## UniMate's canonicalization, as options
 
-`data=unimate` lists, after `prune_unskinned`: `bfs_order`, `face_axis`
+`data=unimate` lists, after `prune_unskinned`: `bfs_order`, `enforce_rigid`
+(UniMate rebuilds positions from rest offsets, only the root moves), `face_axis`
 (`on_degenerate: nearest`), `centre_xz_clip`, `scale` (`mode: diameter`,
 `target: 2.0`) and `ground_clip`, UniMate's `canonicalize_anim` order (facing,
 centre XZ, scale, ground). Each is an option or sibling of an existing stage, so
@@ -40,9 +41,7 @@ centre XZ, scale, ground). Each is an option or sibling of an existing stage, so
   name first.
 - `ScaleToMeanBoneLength.mode: diameter` scales the longest bone-length path between
   two joints to `target`, found by two sweeps from the root (`get_skeleton_diameter`).
-  Zero-length End Sites add nothing to a path. The scale now works on a non-rigid
-  animation too (translations and offsets are scaled), which `data=unimate` needs
-  since it has no `enforce_rigid`.
+  Zero-length End Sites add nothing to a path (`tree_diameter`).
 - `FaceAxis.on_degenerate: nearest` takes the first frame whose facing pair has a
   horizontal component above 1e-6 (`FACING_EPS`) when frame 0's does not; `error`
   (default) keeps refusing.
@@ -164,12 +163,6 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   lacks `__chain__`, so `RigTransform.prepare_chain` (and with it export)
   refuses it; rebuild stage 1.
 
-- **A moving leaf joint loses its translation in a written BVH.** A joint with no
-  children is written as an End Site, which has no channels; a skinned leaf that
-  translates (Horse's `BN_Halter_*`, up to 0.12 of a rig of diameter 2) is read back
-  at its rest offset. With `enforce_rigid` dropped (`data=unimate`) the prepared BVH
-  is then not the in-memory animation: on Horse 13 of 28 clips have their lowest
-  joint off y = 0 on disk (up to 0.07).
 - **A BVH lists joints depth-first, so `bfs_order` does not show on disk.**
   `BfsOrder.invert` copes by name; anything reading prepared BVHs and expecting
   UniMate's joint order has to reorder.
@@ -247,7 +240,7 @@ classDiagram
   PrepareStage <|-- PromoteRoot
   PrepareStage <|-- PruneUnskinned
   PrepareStage <|-- BfsOrder
-  PrepareStage <|-- CentreXZClip
+  CentreXZ <|-- CentreXZClip
   PrepareStage <|-- GroundClip
   PruneUnskinned ..> RigEvidence : fit_evidence reads
   PrepareChain ..> RigEvidence : passes to fit_evidence

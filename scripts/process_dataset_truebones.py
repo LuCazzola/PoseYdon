@@ -23,7 +23,6 @@ from omegaconf import DictConfig
 from poseydon.build.corpus import rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
-    _diameter,
     CLIP,
     BoneRelative,
     EnforceRigid,
@@ -31,6 +30,7 @@ from poseydon.build.prepare import (
     RigEvidence,
     RigTransform,
     chain_from,
+    tree_diameter,
 )
 from poseydon.build.report import PreparationReport
 from poseydon.build.sources import SOURCES
@@ -195,7 +195,7 @@ def _sanity_check(
             warnings.append(f"{manifest.name}/{clip.stem}: lowest joint is at y = {low:.5f}, not 0")
     scale = stages.get("scale")
     if scale is not None and scale.mode == "diameter":
-        diameter = _diameter(anim.offsets, anim.parents)
+        diameter = tree_diameter(anim.offsets, anim.parents)
         if abs(diameter - scale.target) > 1e-3 * scale.target:
             warnings.append(f"{manifest.name}: rest diameter is {diameter:.4f}, not {scale.target}")
     # Upright, or a wrong or missing `up_axis:` in the manifest. On its side,
@@ -212,12 +212,10 @@ def _sanity_check(
             f"{sideways:.2f} vertical, feet {(feet - body) / extent:+.2f} of extent "
             "above hips/shoulders); check `up_axis` and the facing pairs in the manifest"
         )
-    rest_facing = "face_rest_axis" in stages
-    print(
-        f"{label} frame-0 forward . +Z = {posed_dot:.4f}"
-        + (f"   rest-skeleton forward . +Z = {rest_dot:.4f}" if rest_facing else "")
-    )
-    for what, value in (("frame-0 pose", posed_dot), ("rest skeleton", rest_dot if rest_facing else 1.0)):
+    # The rest skeleton faces +Z only where `face_rest_axis` turned it.
+    checks = [("frame-0 pose", posed_dot)] + ([("rest skeleton", rest_dot)] if "face_rest_axis" in stages else [])
+    print(f"{label} " + "   ".join(f"{what} forward . +Z = {value:.4f}" for what, value in checks))
+    for what, value in checks:
         if value < 0.99:
             warnings.append(
                 f"{manifest.name}: {what} is not aligned to +Z ({value:.4f}) in "

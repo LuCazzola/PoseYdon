@@ -29,6 +29,7 @@ prepare:
   - {type: up_axis}
   - {type: prune_unskinned}
   - {type: bfs_order}
+  - {type: enforce_rigid, joint_translation: drop}   # UniMate rebuilds positions from rest offsets, only the root moves
   - {type: face_axis, axis: "+Z", on_degenerate: nearest}
   - {type: centre_xz_clip}
   - {type: scale, mode: diameter, target: 2.0}

@@ -64,10 +64,10 @@ reads the saved parameters and never refits. The stages Truebones lists:
 
 `data=unimate` lists UniMate's own variants of this chain instead: `up_axis`,
 `prune_unskinned`, `bfs_order` (rig; renumbers joints breadth-first; undone with
-the stored permutation), `face_axis` (`on_degenerate: nearest`), `centre_xz_clip`
+the stored permutation), `enforce_rigid` (drop), `face_axis` (`on_degenerate: nearest`), `centre_xz_clip`
 (**clip**; the clip's own frame-0 root XZ), `scale` (`mode: diameter`, 2.0) and
 `ground_clip` (**clip**; the clip's own lowest joint over all frames). No
-`rest_relative`, `face_rest_axis`, `promote_root` or `enforce_rigid`.
+`rest_relative`, `face_rest_axis` or `promote_root`.
 
 **Rig scope versus clip scope** decides what survives. Rig stages fit once on
 the rest pose and are shared by every clip of the character. Fitting
