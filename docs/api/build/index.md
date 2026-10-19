@@ -27,10 +27,10 @@ asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
 - **A stage-1 change invalidates everything after it.** Nothing detects a
   stale corpus: rebuild stage 1, then stage 2, and retrain checkpoints trained
   on the old corpus.
-- **A rig without `rest_pose:` uses its first clip as the rest clip.**
-  `build_skeleton` takes the first prepared clip alphabetically (`data=unimate`)
-  and records it as `rest_action`; the `rest_frame` conditioner is that clip's
-  frame 0, not a neutral pose.
+- **A rig without `rest_pose:` has its bind pose as the rest.** Stage 1 writes
+  the prepared rest skeleton as the one-frame clip `clips/<Rig>/bind_pose.bvh`
+  (`rest_action` returns `bind_pose`); like any one-frame clip it is left out of
+  the index, and the `rest_frame` conditioner is its frame 0.
 - **The index leaves out clips shorter than two frames.** Velocity features
   need two frames, so such a clip (each authored `__TPOSE_authored.bvh`) has
   no feature frame; it is still written to `clips/`, as the rig's rest pose,
@@ -39,8 +39,8 @@ asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
 - **`fbx_cache` approximates Blender's armature.** Bones are `eSkeleton` nodes
   or skin-cluster-linked nodes plus non-bone nodes between them; the largest
   tree is kept. Not modelled: Blender's bone re-orientation and FBX unit scale
-  (clips stay in the file's units and axes); the joint sets are checked against
-  UniMate's published lists only as a superset (they are pruned afterwards).
+  (clips stay in the file's units and axes); the joint sets, once
+  pruned, equal UniMate's `joint_names.json` on all 74 rigs (`--check-against`).
   A node without a bind takes its frame-0 world as rest, so a bound child under
   an animated unbound node gets offsets that include that motion.
   Where a species' clips differ in joints, the largest group defines the rig

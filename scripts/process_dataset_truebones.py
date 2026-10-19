@@ -23,7 +23,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from poseydon.build.clips import CLIP_OPS, MaxLength, apply_clip_ops
-from poseydon.build.corpus import cache_dir, rest_action
+from poseydon.build.corpus import BIND_POSE_ACTION, cache_dir, rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
     CLIP,
@@ -106,7 +106,7 @@ def process_species(
     # A rig-level op judges the skeleton as the clips will have it.
     if ops:
         try:
-            prepared_rest, _ = chain.apply(rest, resolve(manifest, rest.names), rig_params)
+            prepared_rest, rest_params = chain.apply(rest, resolve(manifest, rest.names), rig_params)
         except Exception as error:  # noqa: BLE001 - one rig must not abort the corpus
             return 0, [f"{manifest.name}: {type(error).__name__}: {error}"], 0
         if prepared is not None:
@@ -122,8 +122,14 @@ def process_species(
 
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
-
     clip_params: dict[str, dict] = {}
+    if ops and manifest.rest_pose is None:   # the bind pose is this rig's rest (`rest_action`)
+        BVH.from_animation(prepared_rest).write(clips_dir / f"{BIND_POSE_ACTION}.bvh")
+        clip_params[BIND_POSE_ACTION] = {   # stage 2 reads its facing like any clip's
+            stage.name: rest_params[stage.name] for stage in chain.stages if stage.scope == CLIP
+        } | {"frames": {"window": np.array((0, 1, 1))}}
+
+    cropped: set[str] = set()   # clips a `clips:` op cut, whose lowest joint is no longer the grounded one
     n_written = n_frames = 0
     for action in actions:
         # One bad clip must not cost a whole species. Some Truebones species
@@ -166,6 +172,8 @@ def process_species(
             }
             # Source-frame `range(start, stop, step)` this clip came from.
             clip_params[name]["frames"] = {"window": np.array(window)}
+            if tuple(window) != (0, clip.anim.n_frames, 1):
+                cropped.add(name)
             n_written += 1
             n_frames += piece.n_frames
 
@@ -173,13 +181,13 @@ def process_species(
     RigTransform(rig_params=rig_params, clip_params=clip_params, chain=chain.entries).save(
         out_root / "rigs" / manifest.name / "preproc.npz"
     )
-    warnings.extend(_sanity_check(manifest, clips_dir, rig_params.get("bone_relative"), chain))
+    warnings.extend(_sanity_check(manifest, clips_dir, rig_params.get("bone_relative"), chain, cropped))
     return n_written, warnings, n_frames
 
 
 def _sanity_check(
     manifest: SkeletonManifest, clips_dir: Path,
-    bone_relative: dict[str, np.ndarray] | None, chain: PrepareChain,
+    bone_relative: dict[str, np.ndarray] | None, chain: PrepareChain, cropped: set[str] = frozenset(),
 ) -> list[str]:
     """Print diagnostics for the written files; warn (not fail) if one looks off.
 
@@ -247,7 +255,10 @@ def _sanity_check(
 
     rest = rest_skeleton_positions(anim)
     rest_dot = facing_dot(rest, resolved.facing_indices)
+    # UniMate grounds before trimming, so a cropped clip may sit above y = 0.
     for clip in written if "ground_clip" in stages else ():
+        if clip.stem in cropped or clip.stem == BIND_POSE_ACTION:
+            continue
         low = float(BVH.read(clip).to_animation().global_positions()[..., 1].min())
         if abs(low) > 1e-4:
             warnings.append(f"{manifest.name}/{clip.stem}: lowest joint is at y = {low:.5f}, not 0")
@@ -336,13 +347,19 @@ def check_against(reference: Path, data: DictConfig, prepared: dict[str, dict], 
                             "explained_by_float32_end_noise": _float32_end_frames(end) == expected}
     diameters = {rig: p["diameter"] for rig, p in prepared.items() if abs(p["diameter"] - 2.0) > 1e-9}
     dropped_by = {}
+    skip = reference / "filtered_clips.txt"
+    for line in skip.read_text().splitlines() if skip.is_file() else ():
+        if line.split("#")[0].strip():
+            dropped_by.setdefault("skip list", []).append(line.split()[0])
     for clip, reason in dropped.items():
         dropped_by.setdefault(reason.split(":")[0], []).append(clip)
     Path(data.paths.root, "replication.json").write_text(json.dumps(
         {"joint_sets": joints, "export_frames": frames, "diameter": diameters, "dropped_by_filter": dropped_by},
         indent=2, sort_keys=True) + "\n")
     print(f"joint sets: {len(names) - len(joints)}/{len(names)} match")
-    print(f"export frames: {len(expected_frames) - len(frames)}/{len(expected_frames)} match")
+    explained = sum(f["explained_by_float32_end_noise"] for f in frames.values())
+    print(f"export frames: {len(expected_frames) - len(frames)}/{len(expected_frames)} match, "
+          f"{explained} of the {len(frames)} others explained (+1 frame, float32 end noise)")
     print(f"training clips: {n_written}/1023, frames: {n_frames}/95491")
     print(f"diameter: {len(prepared) - len(diameters)}/{len(names)} at 2.0")
 

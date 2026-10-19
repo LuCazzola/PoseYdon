@@ -149,10 +149,9 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
     `preproc.npz`, which this file inherits by folding `rig_params` in.
     """
     manifest = config.manifest(rig)
-    # A rig without `rest_pose:` (`fbx_cache`: the clips carry no T-pose clip)
-    # stands for itself with its first clip, alphabetically.
-    action = rest_action(manifest) if manifest.rest_pose else config.corpus.clips(config.root, rig)[0].stem
-    rest = BVH.read(config.root / "clips" / rig / f"{action}.bvh").to_animation()
+    rest = BVH.read(
+        config.root / "clips" / rig / f"{rest_action(manifest)}.bvh"
+    ).to_animation()
 
     # This reduction must equal the one `build_stats` fits under, or
     # `skeleton.npz`'s `reduction_source_of` would describe a different lens
@@ -193,7 +192,7 @@ def build_skeleton(config: BuildConfig, rig: str) -> None:
         "reduction_still_names": np.array(list(still), dtype="<U64"),
         "reduction_still_rotations": np.array(list(still.values())).reshape(-1, 4),
         "reduction_rules": np.array(json.dumps(rule_entries(config.reduce))),
-        "rest_action": np.array(action),
+        "rest_action": np.array(rest_action(manifest)),
     }
     # Fold stage 1's rig constants in, so the training-facing file is
     # self-contained and stage 2 can be re-run without Blender.

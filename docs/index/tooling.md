@@ -72,12 +72,11 @@ rig with `--rigs <Rig>`.
   export frames (the cached source clip's frame count, before any filter, against
   `clip_frames.json`), training clips and frames against 1023 / 95491, and rigs whose
   rest tree diameter is 2.0 within 1e-9. Mismatches, each with the stage or filter
-  responsible and the dropped clips by filter, go to `<paths.root>/replication.json`.
+  responsible and the dropped clips by filter (the skip list included, so the account adds up to 1097), go to `<paths.root>/replication.json`.
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) with the dataset's `reduce:` and
   `labels:` and the feature group's blocks and normalization. A rig without
-  `rest_pose:` (`data=unimate`) takes its first clip, alphabetically, as the rest
-  clip recorded in `skeleton.npz`.
+  `rest_pose:` (`data=unimate`) has stage 1's one-frame `bind_pose` clip as its rest.
 
 The bone-relative ablation corpus is `data=truebones_bone`: the same chain
 with `bone_relative` appended, built into its own root `data/truebones_bone/`

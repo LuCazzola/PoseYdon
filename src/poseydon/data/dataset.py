@@ -148,7 +148,7 @@ class MotionDataset:
         return self._manifests[skeleton]
 
     def rest_action(self, skeleton: str) -> str:
-        """The action of the rig's DECLARED rest clip.
+        """The action of the rig's rest clip: the DECLARED one, or `bind_pose`.
 
         Read from `skeleton.npz`, not re-derived from the manifest:
         `build_skeleton` recorded the very action it reduced under, so the two
@@ -161,7 +161,7 @@ class MotionDataset:
             return str(data["rest_action"])
 
     def _rest_clip(self, skeleton: str) -> RigidBodyAnimation:
-        """The rig's DECLARED rest clip, as a rigid body."""
+        """The rig's rest clip (declared, or the one-frame `bind_pose`), as a rigid body."""
         return RigidBodyAnimation.load(
             self.root / "clips" / skeleton / f"{self.rest_action(skeleton)}.npz"
         ).as_rigid_body(joint_translation="drop")
@@ -247,10 +247,11 @@ class MotionDataset:
         return self._normalizers[skeleton]
 
     def _extract_rest(self, skeleton: str) -> np.ndarray:
-        """Frame 0 of the rig's DECLARED rest clip, normalized.
+        """Frame 0 of the rig's rest clip, normalized.
 
-        `manifest.rest_pose` is authored for all 73 rigs (plan A1) exactly so
-        this is never guessed, and `build_skeleton` copied that choice into
+        `manifest.rest_pose` is authored for all 73 Truebones rigs (plan A1)
+        exactly so this is never guessed; a rig without one (`data=unimate`) has
+        its bind pose, written by stage 1 as the one-frame `bind_pose` clip. `build_skeleton` copied that choice into
         `skeleton.npz`. The old fallback took the first clip the index happened
         to list, which for Crab -- whose rest pose is `__Walk.bvh` and whose
         first indexed clip is `attack1` -- described the rig with an attack
