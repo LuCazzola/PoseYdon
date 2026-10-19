@@ -14,15 +14,13 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import math
 import warnings as warnings_module
 from pathlib import Path
 
 import numpy as np
 from omegaconf import DictConfig
 
-from poseydon.build.corpus import rest_action, rest_source
-from poseydon.build.index import action_slug, strip_skeleton_prefix
+from poseydon.build.corpus import rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
     CLIP,
@@ -33,6 +31,7 @@ from poseydon.build.prepare import (
     chain_from,
 )
 from poseydon.build.report import PreparationReport
+from poseydon.build.sources import SOURCES
 from poseydon.core.rotations import QUAT_IDENTITY, euler_to_quat, quat_apply, quat_inverse
 from poseydon.core.skeleton import SkeletonManifest, resolve
 from poseydon.ingest.pipeline import available_rigs
@@ -58,22 +57,15 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
     """Prepare every raw clip for one rig. Returns (n_written, warnings)."""
     warnings: list[str] = []
     out_root = Path(data.paths.root)
-    species_dir = Path(data.paths.raw) / "source" / manifest.name
-    if not species_dir.is_dir():
-        return 0, [f"{manifest.name}: no raw directory at {species_dir}, skipped"]
-
-    clip_paths = sorted(species_dir.glob(data.source.pattern))
-    if not clip_paths:
-        return 0, [f"{manifest.name}: no .bvh files found in {species_dir}, skipped"]
-
+    source = SOURCES.build(data.source)
     try:
-        rest_path = rest_source(manifest, clip_paths)
+        rest = source.rest(data, manifest)
+        rest_channels = source.rest_channels(data, manifest)
+        actions = source.actions(data, manifest)
     except ValueError as error:
         return 0, [f"{manifest.name}: {error}"]
 
-    rest_bvh = BVH.read(rest_path)
-    rest = rest_bvh.to_animation()
-    chain = chain_for(data.prepare, rest_bvh.channels)
+    chain = chain_for(data.prepare, rest_channels)
     report = PreparationReport.start("truebones", manifest.name, manifest.authority)
     with warnings_module.catch_warnings(record=True) as caught:   # e.g. `ground: mesh` falling back
         warnings_module.simplefilter("always")
@@ -85,20 +77,16 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
 
     clip_params: dict[str, dict] = {}
     n_written = 0
-    for clip_path in clip_paths:
+    for action in actions:
         # One bad clip must not cost a whole species. Some Truebones species
         # ship clips rigged differently from their own T-pose (Elephant's
         # __Take_001 has 43 joints against the T-pose's 51); those are reported
         # and skipped rather than aborting the other twenty.
         try:
-            source = BVH.read(clip_path).to_animation()
-            fps = manifest.fps or data.source.get("fps")
-            if fps is not None and not math.isclose(fps, source.fps, rel_tol=1e-3):
-                raise ValueError(f"the dataset requires {fps} fps but this clip is {source.fps:.4f}")
-            resolved = resolve(manifest, source.names)
-            prepared, params = chain.apply(source, resolved, rig_params, audit=report)
+            clip = source.clip(data, manifest, action)
+            resolved = resolve(manifest, clip.anim.names)
+            prepared, params = chain.apply(clip.anim, resolved, rig_params, audit=report)
 
-            action = strip_skeleton_prefix(action_slug(clip_path.stem), manifest.name)
             BVH.from_animation(prepared).write(clips_dir / f"{action}.bvh")
             clip_params[action] = {
                 stage.name: params[stage.name] for stage in chain.stages
@@ -106,7 +94,7 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
             }
         except Exception as error:  # noqa: BLE001 - collect, don't abort the corpus
             warnings.append(
-                f"{manifest.name}/{clip_path.name}: {type(error).__name__}: {error}"
+                f"{manifest.name}/{action}: {type(error).__name__}: {error}"
             )
             continue
         n_written += 1
@@ -115,12 +103,12 @@ def process_species(manifest: SkeletonManifest, data: DictConfig) -> tuple[int, 
     RigTransform(rig_params=rig_params, clip_params=clip_params, chain=chain.entries).save(
         out_root / "rigs" / manifest.name / "preproc.npz"
     )
-    warnings.extend(_sanity_check(manifest, clips_dir, rest_path, rig_params.get("bone_relative")))
+    warnings.extend(_sanity_check(manifest, clips_dir, rig_params.get("bone_relative")))
     return n_written, warnings
 
 
 def _sanity_check(
-    manifest: SkeletonManifest, clips_dir: Path, rest_path: Path,
+    manifest: SkeletonManifest, clips_dir: Path,
     bone_relative: dict[str, np.ndarray] | None,
 ) -> list[str]:
     """Print diagnostics for the written files; warn (not fail) if one looks off.

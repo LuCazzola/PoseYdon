@@ -43,7 +43,9 @@ pick another dataset with a Hydra override (`data=truebones_bone`), and one
 rig with `--rigs <Rig>`.
 
 - `scripts/process_dataset_truebones.py` (stage 1, `test` container). Reads
-  each rig's raw clips under `paths.raw/source/<Rig>/`, runs them through the
+  each rig's raw clips through the dataset's `source:` (`type: bvh_files`, the
+  BVHs under `paths.raw/source/<Rig>/`; or `type: fbx_cache`, the cache of
+  `scripts/build_fbx_cache.py`; `src/poseydon/build/sources.py`), runs them through the
   dataset's `prepare:` chain, and writes `clips/<Rig>/<action>.bvh` plus
   `rigs/<Rig>/preproc.npz`, which holds the fitted transform, its inverse and
   the chain itself. A rig grounded on the mesh without a current

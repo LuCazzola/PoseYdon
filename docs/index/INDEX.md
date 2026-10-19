@@ -16,7 +16,7 @@ See [overview](overview.md) for how the pipeline fits together.
 | path | owns | read |
 |---|---|---|
 | `src/poseydon/augment/` | data augmentation applied to training windows | [augment](../api/augment/index.md) |
-| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation, skeleton, statistics, index, reports | [build](../api/build/index.md) |
+| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation, sources (`sources.py`: raw BVH or the UniMate FBX cache), skeleton, statistics, index, reports | [build](../api/build/index.md) |
 | `src/poseydon/conditioners/` | declared conditioning: the only extra data a batch carries | [conditioners](../api/conditioners/index.md) |
 | `src/poseydon/core/` | the contracts: animation containers, skeleton manifests, `FeatureSpec`, `MotionBatch`, kinematics, rotations, registry | [core](../api/core/index.md) |
 | `src/poseydon/data/` | reading a prepared corpus into feature windows, normalization, rig-balanced sampling, collation | [data](../api/data/index.md) |
