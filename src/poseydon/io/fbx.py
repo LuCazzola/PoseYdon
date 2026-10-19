@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from poseydon.core.rotations import rotation_part
+
 if TYPE_CHECKING:
     from poseydon.core.animation import Animation
     from poseydon.export.rig import FbxCalibration
@@ -45,14 +47,6 @@ except ImportError as error:  # pragma: no cover - depends on the image
 def _matrix(m) -> np.ndarray:
     """An FbxAMatrix (row-vector convention) as a column-vector 4x4."""
     return np.array([[m.Get(r, c) for c in range(4)] for r in range(4)]).T
-
-
-def _polar(linear: np.ndarray) -> np.ndarray:
-    """The rotation part of ``(..., 3, 3)`` rotation-times-scale matrices."""
-    u, _, vt = np.linalg.svd(linear)
-    fix = np.ones(linear.shape[:-1])
-    fix[..., -1] = np.sign(np.linalg.det(u @ vt))
-    return (u * fix[..., None, :]) @ vt
 
 
 def _frame(frame: int, mode):
@@ -420,7 +414,7 @@ class FBX:
     @staticmethod
     def _euler(linear: np.ndarray) -> np.ndarray:
         """``(F, 3)`` LclRotation degrees giving these local linear parts."""
-        euler = Rotation.from_matrix(_polar(linear)).as_euler("xyz")
+        euler = Rotation.from_matrix(rotation_part(linear)).as_euler("xyz")
         # Any branch reproduces the rotation exactly; unwrapping only keeps
         # neighbouring keys close so that an interpolating reader does not spin.
         return np.degrees(np.unwrap(euler, axis=0))

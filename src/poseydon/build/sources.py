@@ -30,7 +30,7 @@ from poseydon.build.corpus import rest_source
 from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.core.animation import Animation
 from poseydon.core.registry import Registry
-from poseydon.core.rotations import matrix_to_quat
+from poseydon.core.rotations import matrix_to_quat, rotation_part
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.io.bvh import BVH
 
@@ -49,6 +49,9 @@ class Source(ABC):
     """Stage 1's input. ``rigs`` are the raw rig names (a rig is a species);
     everything else is per ``manifest`` (the rig). Raises `ValueError` for a
     rig or clip that cannot be read; stage 1 reports it and goes on."""
+
+    def __init__(self) -> None:
+        self.dropped: dict[str, str] = {}   # "Rig-action" -> why `clips` or the rig's grouping left it out
 
     @abstractmethod
     def rigs(self, data) -> list[str]: ...
@@ -69,13 +72,13 @@ class Source(ABC):
     def clip(self, data, manifest: SkeletonManifest, action: str) -> SourceClip: ...
 
     def clips(self, data, manifest: SkeletonManifest) -> list[SourceClip]:
-        """Every readable clip; one that raises `ValueError` is left out."""
+        """Every readable clip; one that raises `ValueError` is left out and recorded in `dropped`."""
         out = []
         for action in self.actions(data, manifest):
             try:
                 out.append(self.clip(data, manifest, action))
-            except ValueError:
-                continue
+            except ValueError as error:
+                self.dropped[f"{manifest.name}-{action}"] = str(error)
         return out
 
     def skin(self, data, manifest: SkeletonManifest) -> dict[str, float] | None:
@@ -95,6 +98,7 @@ class BvhFiles(Source):
     each clip unless the manifest declares its own."""
 
     def __init__(self, pattern: str = "*.bvh", fps: float | None = None) -> None:
+        super().__init__()
         self.pattern = pattern
         self.fps = fps
 
@@ -212,9 +216,7 @@ def _local(world: np.ndarray, parents: np.ndarray) -> np.ndarray:
 
 def _animation(local: np.ndarray, offsets: np.ndarray | None, parents, names, fps) -> Animation:
     """An `Animation` from ``(F, J, 4, 4)`` local matrices (scale removed from the rotation)."""
-    rot = local[..., :3, :3]
-    rot = rot / np.linalg.norm(rot, axis=-2, keepdims=True)
-    q = matrix_to_quat(rot)
+    q = matrix_to_quat(rotation_part(local[..., :3, :3]))
     # a quaternion and its negation are one rotation: keep each joint's path continuous
     flip = np.cumprod(np.where((q[1:] * q[:-1]).sum(-1) < 0, -1.0, 1.0), axis=0)
     q[1:] *= flip[..., None]
@@ -246,6 +248,7 @@ class FbxCache(Source):
 
     def __init__(self, index: str, cache: str, skip: str | None = None,
                  min_frames: int = 5, fps: float | None = 30) -> None:
+        super().__init__()
         self.cache, self.min_frames, self.fps = Path(cache), min_frames, fps
         skipped = set()
         if skip is not None:
@@ -254,17 +257,17 @@ class FbxCache(Source):
                 if line:
                     skipped.add(line.split()[0])
         self._actions: dict[str, list[str]] = {}
-        for row in csv.DictReader(open(index)):
-            if row["status"] != "linked":
-                continue
-            species, action = row["normalized_name"].removesuffix(".fbx").split("-", 1)
-            if f"{species}-{action}" not in skipped:
-                self._actions.setdefault(species, []).append(action)
+        with open(index) as handle:
+            for row in csv.DictReader(handle):
+                if row["status"] != "linked":
+                    continue
+                species, action = row["normalized_name"].removesuffix(".fbx").split("-", 1)
+                if f"{species}-{action}" not in skipped:
+                    self._actions.setdefault(species, []).append(action)
         self._actions = {s: sorted(a) for s, a in sorted(self._actions.items())}
         self._rigs: dict[str, tuple] = {}
         self._offsets: dict[str, np.ndarray] = {}
         self.dropped_trees: dict[str, tuple[str, ...]] = {}
-        self.dropped: dict[str, str] = {}   # "Species-Action" -> why `clips` left it out
 
     def rigs(self, data=None) -> list[str]:
         return list(self._actions)
@@ -288,7 +291,14 @@ class FbxCache(Source):
     def _rig(self, species: str):
         """``(armature, main-group actions, representative cache)`` of a species."""
         if species not in self._rigs:
-            armatures = {a: armature_of(self._load(species, a, world=False)) for a in self._actions[species]}
+            armatures = {}
+            for a in self._actions[species]:
+                try:
+                    armatures[a] = armature_of(self._load(species, a, world=False))
+                except ValueError as error:   # `clip` raises the same for this action
+                    self.dropped[f"{species}-{a}"] = str(error)
+            if not armatures:
+                raise ValueError(f"{species}: no clip could be loaded from the cache")
             groups = Counter(frozenset(x.names) for x in armatures.values())
             key = max(groups, key=lambda g: groups[g])   # first-inserted wins a tie
             first = next(a for a, x in armatures.items() if frozenset(x.names) == key)
@@ -309,8 +319,9 @@ class FbxCache(Source):
         armature, _ = self._rig(manifest.name)
         d = self._load(manifest.name, action)
         label = f"{manifest.name}-{action}"
-        if self.fps is not None and not math.isclose(self.fps, float(d["fps"]), rel_tol=1e-3):
-            raise ValueError(f"the dataset requires {self.fps} fps but this clip is {float(d['fps']):.4f}")
+        fps = manifest.fps or self.fps
+        if fps is not None and not math.isclose(fps, float(d["fps"]), rel_tol=1e-3):
+            raise ValueError(f"the dataset requires {fps} fps but this clip is {float(d['fps']):.4f}")
         if len(d["frames"]) < self.min_frames:
             raise ValueError(f"{len(d['frames'])} frames, fewer than {self.min_frames}")
         names = [str(x) for x in d["names"]]
@@ -318,22 +329,13 @@ class FbxCache(Source):
         if missing:
             raise ValueError(f"{label} lacks {len(missing)} of the rig's joints ({', '.join(missing[:4])}...)")
         world = d["world"][:, [names.index(n) for n in armature.names]]
-        return SourceClip(action, _animation(_local(world, armature.parents), self.rest_offsets(data, manifest),
+        return SourceClip(action, _animation(_local(world, armature.parents), self._rest_offsets(data, manifest),
                                              armature.parents, armature.names, float(d["fps"])), None)
 
-    def rest_offsets(self, data, manifest) -> np.ndarray:
+    def _rest_offsets(self, data, manifest) -> np.ndarray:
         if manifest.name not in self._offsets:
             self._offsets[manifest.name] = self.rest(data, manifest).offsets
         return self._offsets[manifest.name]
-
-    def clips(self, data, manifest) -> list[SourceClip]:
-        out = []
-        for action in self.actions(data, manifest):
-            try:
-                out.append(self.clip(data, manifest, action))
-            except ValueError as error:
-                self.dropped[f"{manifest.name}-{action}"] = str(error)
-        return out
 
     def skin(self, data, manifest) -> dict[str, float] | None:
         armature, first = self._rig(manifest.name)

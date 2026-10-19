@@ -35,6 +35,8 @@ FBX importer would have. Driven by `scripts/process_dataset_truebones.py`
   tree is kept. Not modelled: Blender's bone re-orientation and FBX unit scale
   (clips stay in the file's units and axes); the joint sets are checked against
   UniMate's published lists only as a superset (they are pruned afterwards).
+  A node without a bind takes its frame-0 world as rest, so a bound child under
+  an animated unbound node gets offsets that include that motion.
   Where a species' clips differ in joints, the largest group defines the rig
   and a clip missing one of its joints is left out (`FbxCache.dropped`).
 
@@ -62,6 +64,7 @@ classDiagram
     rigs(data) list
     actions(data, manifest) list
     rest(data, manifest) Animation
+    rest_channels(data, manifest) tuple
     clip(data, manifest, action) SourceClip
     clips(data, manifest) list
     skin(data, manifest) dict

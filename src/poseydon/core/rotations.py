@@ -59,6 +59,14 @@ def euler_to_quat(angles_deg: np.ndarray, order: str) -> np.ndarray:
     return flat.as_quat().reshape(*angles.shape[:-1], 4)
 
 
+def rotation_part(linear: np.ndarray) -> np.ndarray:
+    """The rotation part of ``(..., 3, 3)`` rotation-times-scale matrices (polar decomposition)."""
+    u, _, vt = np.linalg.svd(linear)
+    fix = np.ones(linear.shape[:-1])
+    fix[..., -1] = np.sign(np.linalg.det(u @ vt))
+    return (u * fix[..., None, :]) @ vt
+
+
 def quat_to_euler(q: np.ndarray, order: str) -> np.ndarray:
     """Quaternion to intrinsic Euler angles in degrees, in ``order``."""
     q = np.asarray(q, dtype=np.float64)
