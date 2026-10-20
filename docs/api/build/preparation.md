@@ -114,10 +114,12 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   nothing but the round-trip test's checks would notice it coming back.
 - **The up axis is declared, not detected.** `UpAxis` turns the manifest's
   `up_axis:` (default `+Y`) to +Y; a BVH records none. A Z-up rig left at the
-  default goes through on its side; stage 1 warns when the rest skeleton is
+  default goes through on its side; stage 1 warns when the posed rest frame is
   not upright (`scripts/process_dataset_truebones.py`), which is a heuristic:
   it also fires on a facing pair that is not left/right (Crow's, until
-  2026-10-16).
+  2026-10-16). Until 2026-10-20 it read the offsets alone, which on
+  `data=unimate` (no `rest_relative`) are not the rest pose and falsely
+  flagged Raptor3, Roach, Crab and Jaws.
 - **Facing is measured after `EnforceRigid`.** Before it, a Biped clip's
   per-joint translations place joints elsewhere than its offsets, and a facing
   fitted there came out up to ~90° off (Ant, Bat, Bird) until 2026-10-13. A

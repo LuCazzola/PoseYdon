@@ -254,8 +254,6 @@ def _sanity_check(
             positions[joint] = positions[anim.parents[joint]] + anim.offsets[joint]
         return positions
 
-    rest = rest_skeleton_positions(anim)
-    rest_dot = facing_dot(rest, resolved.facing_indices)
     # UniMate grounds before trimming, so a cropped clip may sit above y = 0.
     for clip in written if "ground_clip" in stages else ():
         if clip.stem in cropped or clip.stem == BIND_POSE_ACTION:
@@ -270,20 +268,25 @@ def _sanity_check(
             warnings.append(f"{manifest.name}: rest diameter is {diameter:.4f}, not {scale.target}")
     # Upright, or a wrong or missing `up_axis:` in the manifest. On its side,
     # the right-to-left direction across hips and shoulders turns vertical;
-    # upside down, the feet sit clearly above the hips and shoulders.
-    across = sum(rest[r] - rest[l] for r, l in resolved.facing_indices)
+    # upside down, the feet sit clearly above the hips and shoulders. Read on
+    # the posed rest frame: without `rest_relative` (`data=unimate`) the rest
+    # rotations carry the shape and the offsets alone are not the rest pose.
+    pose = anim.global_positions()[0]
+    across = sum(pose[r] - pose[l] for r, l in resolved.facing_indices)
     sideways = abs(across[1]) / np.linalg.norm(across)
-    extent = np.ptp(rest, axis=0).max()
-    body = rest[[j for pair in resolved.facing_indices for j in pair], 1].mean()
-    feet = rest[list(resolved.foot_indices), 1].mean() if resolved.foot_indices else body
+    extent = np.ptp(pose, axis=0).max()
+    body = pose[[j for pair in resolved.facing_indices for j in pair], 1].mean()
+    feet = pose[list(resolved.foot_indices), 1].mean() if resolved.foot_indices else body
     if sideways > 0.5 or feet - body > 0.1 * extent:
         warnings.append(
-            f"{manifest.name}: rest skeleton is not upright (right-left axis "
+            f"{manifest.name}: rest frame is not upright (right-left axis "
             f"{sideways:.2f} vertical, feet {(feet - body) / extent:+.2f} of extent "
             "above hips/shoulders); check `up_axis` and the facing pairs in the manifest"
         )
     # The rest skeleton faces +Z only where `face_rest_axis` turned it.
-    checks = [("frame-0 pose", posed_dot)] + ([("rest skeleton", rest_dot)] if "face_rest_axis" in stages else [])
+    checks = [("frame-0 pose", posed_dot)]
+    if "face_rest_axis" in stages:
+        checks.append(("rest skeleton", facing_dot(rest_skeleton_positions(anim), resolved.facing_indices)))
     print(f"{label} " + "   ".join(f"{what} forward . +Z = {value:.4f}" for what, value in checks))
     for what, value in checks:
         if value < 0.99:
