@@ -164,7 +164,6 @@ def process_species(
             continue
         if not kept:
             dropped[clip_id] = report.dropped[clip_id] = reason
-            (clips_dir / f"{action}.bvh").unlink(missing_ok=True)   # a file an earlier run wrote
             continue
         for i, (piece, window, params) in enumerate(kept):
             name = f"{action}_w{i:03d}" if windowed else action
@@ -179,6 +178,13 @@ def process_species(
                 cropped.add(name)
             n_written += 1
             n_frames += piece.n_frames
+
+    # What an earlier run wrote and this one did not (a clip now dropped or skipped,
+    # `_wNNN` windows of another `max_length` mode, an action no longer listed) goes,
+    # stage 2's files of the same clip with it: stage 2 reads every BVH here.
+    for path in clips_dir.iterdir():
+        if path.suffix in (".bvh", ".npz", ".yaml") and path.stem not in clip_params:
+            path.unlink()
 
     report.write(out_root / "rigs" / manifest.name / "report.json")
     RigTransform(rig_params=rig_params, clip_params=clip_params, chain=chain.entries).save(
