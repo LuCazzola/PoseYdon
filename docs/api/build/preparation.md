@@ -169,6 +169,13 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   fits clip-scoped stages on the rest; their rest values are kept, and
   `RigRecord.restore(facing_from=None)` uses the rest-fitted `centre_xz_clip` and
   `ground_clip` values for a generated clip.
+- **A clip cut by `max_length` may sit above y = 0.** `ground_clip` grounds each
+  clip on its whole source motion, before `clips:` trims and crops it, as UniMate's
+  `_process_motion_file` does (per-motion grounding, then `trim_static_ends`, then
+  windowing). On `data=unimate` 14 clips keep their lowest joint above 0, all cut to
+  200 frames; worst is Trex `Long_Death` at 0.10 (diameter 2). Truebones grounds per
+  rig instead (`ground`, rig-scoped), which keeps cropped clips on the floor but
+  departs from UniMate.
 
 ## Class diagram
 
