@@ -76,8 +76,9 @@ height difference between a crouch and a stand. `FaceAxis` is the only clip
 stage of the Truebones chain, so it is the only parameter recorded per clip
 (`data=unimate` adds `centre_xz_clip` and `ground_clip`).
 
-You run preparation with `scripts/process_dataset_truebones.py`. It runs on
-the BVH only; FBX enters at the two ends, at export. Each rig also gets a
+You run preparation with `scripts/process_dataset_truebones.py`. With a `bvh_files` source
+it runs on the BVH only and FBX enters at export; `fbx_cache` reads FBX at stage 1
+through the cache. Each rig also gets a
 `report.json` recording what was done and why. See [build: preparation](../../../api/build/preparation.md).
 
 ## The model's view: reduction

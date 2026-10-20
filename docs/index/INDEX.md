@@ -83,6 +83,7 @@ meant to be deleted once read.
 | `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/how-to/testing.md) |
 | `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/concepts/data/layout.md) |
 | `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/concepts/data/layout.md) |
+| `data/unimate/` | the `data=unimate` corpus, gitignored as a whole (generated manifests included): `data/unimate/cache/`, the prepared layout, `dropped.json`, `replication.json` | [tooling](tooling.md#data) |
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
 | `docs/index/` | this index, the overview, tooling and the open-work list; each library package is documented on its API page | [overview](overview.md) |
 | `docs/guides/` | the guides: `docs/guides/concepts/` (design rationale, data) to read, `docs/guides/how-to/` (tutorials, how-tos) to follow; the nav is in `mkdocs.yml` | [docs](../README.md) |

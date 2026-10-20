@@ -167,7 +167,7 @@ def armature_of(d) -> _Armature:
        and named in ``dropped_trees``.
 
     Not modelled: Blender's bone re-orientation, FBX unit scale on the armature
-    (units stay the file's own), and UniMate's later pruning (Task 6).
+    (units stay the file's own), and UniMate's later pruning (`prune_unskinned`).
     """
     types, parents, names = d["types"], d["parents"], d["names"]
     n = len(names)

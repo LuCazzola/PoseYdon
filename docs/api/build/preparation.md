@@ -6,7 +6,7 @@ user's rig. Preparation may clean up the rig (a stage may remove joints, and
 records them); reduction is the model's lens
 ([below](#rig-cleanup-versus-the-models-lens)). Rig-scoped stages fit once on the rest pose; clip-scoped ones
 (`FaceAxis`, and `CentreXZClip` and `GroundClip`, which UniMate's recipe uses) fit per clip. `report.json` records each transform and the
-manifest's declared source authority. FBX enters only at export.
+manifest's declared source authority. A `bvh_files` source is read from the BVH only, and FBX enters at export; `fbx_cache` reads FBX at stage 1, through the cache.
 
 The chain is the dataset config's `prepare:` list, built in order from the
 `PREPARE` registry by `type:` (`chain_from`). Every stage registers itself
@@ -93,7 +93,7 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
 - **Removed joints come back at their bind pose, with no motion.** `prune_unskinned`
   records each removed joint's rest local translation and rotation; `invert`
   reinserts it there. The child of a merged pass-through joint (or of a folded
-  root) takes the composite, so it and its subtree are world-exact; the removed
+  root) takes the composite, so it and its subtree are world-exact for the stage alone (after `enforce_rigid` the subtree moves by about the offset times the angle between the joint's rotation and its bind); the removed
   joint itself is not what it was in any clip. This is the owner's decision. The
   tests that choose what to remove read the clips of the source, so a prepared
   corpus cannot be re-pruned from itself.
@@ -164,8 +164,9 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   `BfsOrder.invert` copes by name; anything reading prepared BVHs and expecting
   UniMate's joint order has to reorder.
 - **`ground_clip` and `centre_xz_clip` are fitted on the rest pose too.** `fit_rig`
-  fits clip-scoped stages on the rest; their rest values are kept but not used by
-  `data=unimate`.
+  fits clip-scoped stages on the rest; their rest values are kept, and
+  `RigRecord.restore(facing_from=None)` uses the rest-fitted `centre_xz_clip` and
+  `ground_clip` values for a generated clip.
 
 ## Class diagram
 

@@ -1,7 +1,7 @@
 """Cache each rig's rest-pose mesh for `ground: mesh` (`poseydon.build.prepare.PutOnGround`).
 
 The vendor FBX skin is posed on the first frame of the rig's `rest_pose:` clip
-and written, in the raw BVH's space, beside the manifest as
+and written, in the raw BVH's space, as
 `cache/rigs/<Rig>/rest_mesh.npz`: `rest_pose` (the clip it was made for), `names` and
 `joints` (that frame's joint positions) and `vertices`. The build maps it onto
 the rest pose as it stands at grounding, so it needs no FBX SDK; this does, so

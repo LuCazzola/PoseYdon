@@ -26,9 +26,9 @@ It does not own the transforms it inverts (`build.prepare`,
 | **source** | the source's own | source units, frame, names | `record.restore(anim, facing_from=...)` | `BVH.from_animation(anim, channels=record.source_channels)` | `FBX.from_animation(anim, record.calibration("source"))`: the vendor asset in its own space |
 
 `record.source_channels` is `None` (the writer's default layout) where the source
-has no CHANNELS layout (`fbx_cache`) or the recorded one is for another skeleton:
-`data=unimate` records it on the pruned joints, while a restored clip has every
-removed joint back.
+has no CHANNELS layout (`fbx_cache`: `EnforceRigid` then records `inferred`) or the
+recorded one is for another skeleton: `data=unimate` infers it on the pruned,
+BFS-ordered joints, while a restored clip has every removed joint back, in source order.
 
 Every FBX carries the rig's mesh; there is no bare-skeleton FBX
 (`poseydon export --bare-skeleton` writes BVH only). Joints the reduction

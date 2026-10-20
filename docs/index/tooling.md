@@ -58,7 +58,7 @@ rig with `--rigs <Rig>`.
   no-op. Each written clip records the source frames it came from as
   `clip/<name>/frames/window` (`start, stop, step`) in `preproc.npz`; a dropped clip
   or rig writes nothing and is named with its reason in `rigs/<Rig>/report.json`
-  and `<paths.root>/dropped.json`. Without `clips:` (`truebones`) nothing changes. A chain with `prune_unskinned` writes its BVHs with `leaf_rotations` (a joint left childless keeps its rotation, as a JOINT above a zero-offset `End Site #synthetic` that `BVH.read` drops); `truebones` files are unchanged. A rig grounded on the mesh without a current
+  and `<paths.root>/dropped.json`. Without `clips:` (`truebones`) the clips are unchanged; `preproc.npz` still gains `clip/<name>/frames/window`, harmlessly. A chain with `prune_unskinned` writes its BVHs with `leaf_rotations` (a joint left childless keeps its rotation, as a JOINT above a zero-offset `End Site #synthetic` that `BVH.read` drops); `truebones` files are unchanged. A rig grounded on the mesh without a current
   `rest_mesh.npz` (run `tools/build_rest_mesh.py` first) is grounded on its
   lowest joint, with a warning. It then checks each rig's written rest
   clip and warns, without failing, if frame 0 or the rest skeleton does not
@@ -71,7 +71,7 @@ rig with `--rigs <Rig>`.
   sets (the prepared rest skeleton's names against `joint_names.json`, as sets),
   export frames (the cached source clip's frame count, before any filter, against
   `clip_frames.json`), training clips and frames against 1023 / 95491, and rigs whose
-  rest tree diameter is 2.0 within 1e-9. Mismatches, each with the stage or filter
+  rest tree diameter is 2.0 within 1e-9. Known gap: UniMate's joint order after BFS (spec acceptance 1) is not checked, because the sidecar lacks its hierarchy. Mismatches, each with the stage or filter
   responsible and the dropped clips by filter (the skip list included, so the account adds up to 1097), go to `<paths.root>/replication.json`.
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) with the dataset's `reduce:` and
@@ -113,8 +113,8 @@ Train or sample on it with `data=truebones_bone`; check it with
   `run.fbx`'s mesh, with the Geometry/Pose declarations the graft probe omits
   added, otherwise the SDK drops the mesh).
 
-There is no FBX preparation pass: preparation runs on the BVH, and FBX enters
-only at the two ends, through `poseydon export --format fbx`.
+There is no FBX preparation pass for `bvh_files`: preparation runs on the BVH, and FBX enters
+at export, through `poseydon export --format fbx`. `fbx_cache` reads FBX at stage 1, through the cache.
 
 **Export and viewing**:
 
@@ -206,7 +206,9 @@ is described file by file in the [layout guide](../guides/concepts/data/layout.m
 Raw licensed vendor files live under `data/_raw/` and never mix into the
 prepared layout. Everything derived (`*.npz`, `*.bvh`, `*.fbx`, `index.jsonl`)
 is gitignored by extension, because authored and derived files sit side by side
-in the same directories.
+in the same directories. `data/unimate/` is gitignored as a whole (its generated
+manifests included): `cache/` (FBX and repaired clips), the prepared layout,
+`dropped.json` and `replication.json`.
 
 ## Containers
 
