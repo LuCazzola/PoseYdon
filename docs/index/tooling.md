@@ -73,6 +73,13 @@ rig with `--rigs <Rig>`.
   `clip_frames.json`), training clips and frames against 1023 / 95491, and rigs whose
   rest tree diameter is 2.0 within 1e-9. Known gap: UniMate's joint order after BFS (spec acceptance 1) is not checked, because the sidecar lacks its hierarchy. Mismatches, each with the stage or filter
   responsible and the dropped clips by filter (the skip list included, so the account adds up to 1097), go to `<paths.root>/replication.json`.
+  Export frames differ on 585 of 1097 clips, by design: UniMate's published export
+  (`clip_frames.json`, `summary.json`'s 111743 frames) was counted with a plain `ceil`
+  of Blender's float32 end time, without `FRAME_RANGE_EPS`, which adds a frame where the
+  last key lies just past an integer (`119.0000081`). The build follows the eps rule.
+  The extra frame repeats the pose just before it (sampled past the last key), so
+  `trim_static` (`clips:`, before any length-dependent op) strips it and the training
+  split is the same either way; the training totals (1023 / 95491) match.
 - `scripts/build_features.py` (stage 2, `test` container). Runs the four build
   passes (clips, skeleton, stats, index) with the dataset's `reduce:` and
   `labels:` and the feature group's blocks and normalization. A rig without
