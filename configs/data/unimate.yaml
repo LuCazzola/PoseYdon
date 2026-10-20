@@ -1,6 +1,5 @@
 # UniMate's Truebones recipe (arXiv 2609.05415) rebuilt in PoseYdon, switchable
-# part by part. The stage-2 sections below are filled by later tasks.
-# Manifests are generated, not authored: tools/write_unimate_manifests.py.
+# part by part. Manifests are generated, not authored: tools/write_unimate_manifests.py.
 #
 # Built by: scripts/process_dataset_truebones.py (stage 1) and
 # scripts/build_features.py (stage 2), both through `configs/build.yaml`.
@@ -15,6 +14,7 @@ paths:
 
 source:
   type: fbx_cache
+  fps: null                            # any rate: UniMate accepts it and halves (`halve_fps`)
   # UniMate's own clip index (HF Truebones-ZOO-Annotations, `clips.csv`): the
   # `linked` rows are its clips.
   index: data/_raw/UniML3D/truebones_annotations/clips.csv

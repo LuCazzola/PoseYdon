@@ -23,7 +23,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from poseydon.build.clips import CLIP_OPS, MaxLength, apply_clip_ops
-from poseydon.build.corpus import BIND_POSE_ACTION, cache_dir, rest_action
+from poseydon.build.corpus import BIND_POSE_ACTION, rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
     CLIP,
@@ -99,12 +99,12 @@ def process_species(
     except ValueError as error:
         return 0, [f"{manifest.name}: {error}"], 0
     warnings.extend(str(w.message) for w in caught)
-    if ops:   # `clips:` set: its drops are recorded, `data=truebones` writes what it always did
-        dropped.update(source.dropped)
-        report.dropped.update(source.dropped)
+    dropped.update(source.dropped)   # empty for `bvh_files`: `data=truebones` writes what it always did
+    report.dropped.update(source.dropped)
 
-    # A rig-level op judges the skeleton as the clips will have it.
-    if ops:
+    # A rig-level op judges the skeleton as the clips will have it; a rig with no
+    # rest pose of its own needs it prepared to write its bind pose.
+    if ops or manifest.rest_pose is None:
         try:
             prepared_rest, rest_params = chain.apply(rest, resolve(manifest, rest.names), rig_params)
         except Exception as error:  # noqa: BLE001 - one rig must not abort the corpus
@@ -126,7 +126,7 @@ def process_species(
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
     clip_params: dict[str, dict] = {}
-    if ops and manifest.rest_pose is None:   # the bind pose is this rig's rest (`rest_action`)
+    if manifest.rest_pose is None:   # the bind pose is this rig's rest (`rest_action`)
         BVH.from_animation(prepared_rest, leaf_rotations=pruned).write(clips_dir / f"{BIND_POSE_ACTION}.bvh")
         clip_params[BIND_POSE_ACTION] = {   # stage 2 reads its facing like any clip's
             stage.name: rest_params[stage.name] for stage in chain.stages if stage.scope == CLIP
@@ -339,7 +339,7 @@ def check_against(reference: Path, data: DictConfig, prepared: dict[str, dict], 
         elif set(got) != set(expected):
             joints[rig] = {"stage": "source rig cleanup (prune_unskinned / armature rule)",
                            "missing": sorted(set(expected) - set(got)), "extra": sorted(set(got) - set(expected))}
-    cache = cache_dir(data.paths.root) / "fbx"
+    cache = Path(data.source.cache)
     frames = {}
     for clip, expected in expected_frames.items():
         rig, action = clip.split("-", 1)

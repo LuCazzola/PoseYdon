@@ -829,7 +829,9 @@ class EnforceRigid(PrepareStage):
         # shape-inference heuristics that differ with the data.
         stored = np.empty(anim.n_joints, dtype=object)
         stored[:] = channels
-        return {"source_channels": stored}
+        # Recorded so `RigRecord.source_channels` does not hand a guessed layout
+        # to a writer as if it were the source's.
+        return {"source_channels": stored, "inferred": np.array(True)}
 
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
         return anim.as_rigid_body(joint_translation=self.joint_translation)

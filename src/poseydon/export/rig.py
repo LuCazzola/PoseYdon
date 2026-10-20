@@ -279,13 +279,16 @@ class RigRecord:
         stretch.
 
         ``None`` (the writers' default layout) where the source has no layout
-        (`fbx_cache`) or the recorded one is for another skeleton: `EnforceRigid`
-        infers it on the pruned, BFS-ordered joints, while a restored clip has
-        every joint `prune_unskinned` removed back.
+        (`fbx_cache`): `EnforceRigid` then infers one, flagged `inferred`, on the
+        pruned, BFS-ordered joints, which is not the order of a restored clip
+        (every joint `prune_unskinned` removed back, source order). A recorded
+        layout for another skeleton (joint count differs) is dropped too.
         """
-        recorded = self.params.get("enforce_rigid", {}).get("source_channels")
+        enforce = self.params.get("enforce_rigid", {})
+        recorded = enforce.get("source_channels")
         restored = self.params.get("prune_unskinned", {}).get("source_names")
-        if recorded is None or (restored is not None and len(recorded) != len(restored)):
+        if (recorded is None or "inferred" in enforce
+                or (restored is not None and len(recorded) != len(restored))):
             return None
         return tuple(tuple(spec) for spec in recorded)
 
