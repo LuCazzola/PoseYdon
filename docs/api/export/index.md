@@ -63,6 +63,10 @@ dropped are driven by `invert_reduction`'s reconstruction.
   under a root travelling 208), which a BVH must keep. A locator placed
   differently in the rest file than in a clip (Crow's `N_ALL`) sits where the
   rest file has it; nothing is skinned to it.
+- **Animated node scale is lost.** An `Animation` carries no scale, so an FBX
+  export holds every node at the asset's scale: Bear's `feast` and `groundpaw`
+  squash `NPC_Neck1` by up to 3.5%, and the export does not. Nothing in the
+  pipeline warns about it.
 - **A dataset whose motion is not read from FBX has no FBX export.**
   `RigRecord.asset` needs `rest.fbx`, which `tools/build_rest_fbx.py` builds only
   for `fbx_cache` datasets; a BVH-only rig has no mesh to drive.

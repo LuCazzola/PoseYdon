@@ -16,11 +16,11 @@ See [overview](overview.md) for how the pipeline fits together.
 | path | owns | read |
 |---|---|---|
 | `src/poseydon/augment/` | data augmentation applied to training windows | [augment](../api/augment/index.md) |
-| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation (`prepare.py`; `cleanup.py`: rig cleanup that removes joints), clip and frame filters (`clips.py`: the `clips:` group), sources (`sources.py`: raw BVH or the UniMate FBX cache), skeleton, statistics, index, reports | [build](../api/build/index.md) |
+| `src/poseydon/build/` | turning a raw corpus into a prepared one, invertibly: preparation (`prepare.py`; `cleanup.py`: rig cleanup that removes joints), clip and frame filters (`clips.py`: the `clips:` group), sources (`sources.py`: raw BVH or a dataset's FBX cache), skeleton, statistics, index, reports | [build](../api/build/index.md) |
 | `src/poseydon/conditioners/` | declared conditioning: the only extra data a batch carries | [conditioners](../api/conditioners/index.md) |
 | `src/poseydon/core/` | the contracts: animation containers, skeleton manifests, `FeatureSpec`, `MotionBatch`, kinematics, rotations, registry | [core](../api/core/index.md) |
 | `src/poseydon/data/` | reading a prepared corpus into feature windows, normalization, rig-balanced sampling, collation | [data](../api/data/index.md) |
-| `src/poseydon/export/` | `RigRecord`: a rig's recorded reduction, preparation and FBX calibrations; moves model output to the prepared character or the user's source rig, for `BVH`/`FBX.from_animation` to write | [export](../api/export/index.md) |
+| `src/poseydon/export/` | `RigRecord`: a rig's recorded reduction, preparation and rest asset; moves model output to the prepared character or the user's source rig, for `BVH`/`FBX.from_animation` to write | [export](../api/export/index.md) |
 | `src/poseydon/features/` | composable motion feature representations, extraction and recovery | [features](../api/features/index.md) |
 | `src/poseydon/ingest/` | BVH corpus to aligned animations plus a corpus index | [ingest](../api/ingest/index.md) |
 | `src/poseydon/io/` | BVH and FBX reading and writing (FBX through the Autodesk FBX SDK), shot framing, stick-figure rendering | [io](../api/io/index.md) |

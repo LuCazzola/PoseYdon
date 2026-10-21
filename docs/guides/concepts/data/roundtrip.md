@@ -133,13 +133,13 @@ Every FBX carries the vendor's mesh, re-bound to the rest pose. A source BVH nee
 placement), because neither is in an animation. The source clip is in the asset's
 own space, so its joints drive the asset's nodes by name: there is no calibration.
 
-**FBX goes through a calibration.** The vendor ships the same clip as
-BVH and as FBX, and the two are the same motion under one similarity (units,
-axes, placement) and a constant per-joint change of frame. The exporter
-measures both from one such pair and checks them on every frame, then writes
-the restored clip onto that FBX through the Autodesk FBX SDK. Nothing assumes
-the FBX bind pose equals the BVH rest pose, so all 73 Truebones rigs export;
-the old Blender path refused 13. See [export](../../../api/export/index.md).
+**FBX export needs no calibration.** Motion is read from the vendor FBX
+(`fbx_cache`), and the rest asset is that FBX re-bound to the rest pose
+(`tools/build_rest_fbx.py`), so a restored clip is already in the asset's space.
+The writer drives nodes by name through the Autodesk FBX SDK, holding the
+joints `RigRecord.fixed` lists at the asset's rest transform. All 73 Truebones
+rigs export; the old Blender path refused 13. See
+[export](../../../api/export/index.md).
 
 `poseydon export` takes a generated clip as `.anim.npz` or `.bvh`. Prefer the
 `.anim.npz` that `sample` and `retarget` write beside each BVH: it is the
@@ -161,8 +161,8 @@ error rather than substituting an identity rotation. That identity fallback
 was removed because it moved reinserted roots by 22–167% of the rig's extent.
 
 **Refusals.** Export fails loudly, never silently, when the generated topology
-doesn't match `skeleton.npz`, when a transform is missing, or when no vendor
-BVH/FBX pair of one clip agrees well enough to calibrate.
+doesn't match `skeleton.npz`, when a transform is missing, or (FBX) when the
+rig has no rest asset or no joint names a node of it.
 
 ## What it loses on purpose
 
@@ -192,7 +192,7 @@ places by design. All numbers below come from the 2026-09-28 audit.
 | check | what it proves |
 |---|---|
 | `tests/test_roundtrip.py::test_round_trip` | for every prepared clip of a dataset (`--dataset truebones` or `unimate`): features rebuild the model view in both rotation layouts, and the restored clip written to disk matches the **raw source**, read through the dataset's `source:` and cut to the kept frames, in names, hierarchy, frames, root trajectory and every observable world rotation, with rigid bones; for a BVH source also `CHANNELS` and offsets; removed joints to a stated bound |
-| `tests/test_roundtrip.py::test_round_trip_fbx` | the rig's vendor FBX and raw BVH calibrate to within 1e-4 of the extent; the restored clip written as FBX holds exactly the restored clip on the vendor's node hierarchy; prepared and model FBX, on the same asset in canonical space, read back with the prepared joint positions (`fbxsdk` container) |
+| `tests/test_roundtrip.py::test_round_trip_fbx` | the restored clip written onto the rest asset holds the **source FBX**'s root position and the orientation of every kept joint, leaves included, to 1e-4, with the asset's node scale and hierarchy; prepared and model FBX, on the same asset in canonical space, read back with the prepared joint positions (the model view: its expansion's) (`fbxsdk` container) |
 | `scripts/build_stage_samples.py` | one clip per rig at every stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/<Rig>/`, to open side by side |
 
 ```bash

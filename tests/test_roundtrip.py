@@ -470,20 +470,25 @@ def test_round_trip_fbx(clip: Path, tmp_path, request):
     err = np.abs(rotation_part(got[..., :3, :3]) - rotation_part(want[..., :3, :3])).max(axis=(0, 2, 3))
     worst = int(err.argmax())
     assert err[worst] <= FBX_TOL, f"original fbx: `{checked[worst]}` turned off the source FBX by {err[worst]:.2e}"
-    # Scale: the asset's, within the 1% its own clips spread over.
-    spread = np.abs(np.linalg.norm(got[..., :3, :3], axis=-2) / np.linalg.norm(want[..., :3, :3], axis=-2) - 1).max()
-    assert spread <= 1e-2, f"original fbx: a node's scale is {spread:.1%} off the source FBX's"
+    # Scale: the asset's (Bear's `feast` animates a neck's scale by 3.5%, which
+    # an `Animation` cannot carry).
+    rest = asset.world()[:1, [asset.names.index(n) for n in checked]]
+    spread = np.abs(np.linalg.norm(got[..., :3, :3], axis=-2) / np.linalg.norm(rest[..., :3, :3], axis=-2) - 1).max()
+    assert spread <= 1e-4, f"original fbx: a node's scale is {spread:.1%} off the asset's"
 
     # 2. Prepared and model FBX: the same asset, mesh and all, placed in
     #    canonical space with every joint where the prepared clip has it.
     for name, target in (("prepared", prepared), ("model", model)):
         placed, space = record.placement(target, facing_from=action)
+        # The model view against its own expansion: the reduction's still joints
+        # are approximate (FireAnt's `ProjectileNode_Fire`: 2.6e-4 of extent).
+        expected = prepared if target is prepared else record.expand(model)
         fbx.FBX.from_animation(placed, record.asset, space, record.fixed).write(tmp_path / f"{name}.fbx")
         read = fbx.FBX.read(tmp_path / f"{name}.fbx")
         assert read.names == asset.names, f"{name} fbx: node hierarchy differs from the asset"
         assert read.fps == pytest.approx(prepared.fps), f"{name} fbx: frame rate differs"
-        joints = [n for n in prepared.names if n in read.names]
+        joints = [n for n in expected.names if n in read.names]
         got = read.world()[:, [read.names.index(n) for n in joints]][..., :3, 3]
-        want = prepared.global_positions()[:, [prepared.names.index(n) for n in joints]]
+        want = expected.global_positions()[:, [expected.names.index(n) for n in joints]]
         err = np.linalg.norm(got - want, axis=-1).max() / np.ptp(want[0], axis=0).max()
         assert err <= FBX_TOL, f"{name} fbx: joints off by {err:.2e} of extent"

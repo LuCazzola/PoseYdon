@@ -72,10 +72,12 @@ and the orientation of every joint the round trip keeps, leaves included (an FBX
 node holds its own rotation, and the mesh shows it; this caught stage 1 losing
 every leaf's rotation on the FBX-read corpus), to
 1e-4 (FBX keys are float32, and their rounding adds up along a long chain); node
-scale within 1% (it is the asset's: Anaconda's files disagree on it by 0.4% from
-clip to clip). The prepared clip and the model view, written onto the same asset
-in canonical space (`RigRecord.placement`), read back with every joint where the
-prepared clip has it. Joints held by structure (`RigRecord.fixed`) are written
+scale is the asset's, not the clip's (Anaconda's files disagree on it by 0.4%
+from clip to clip, and Bear's `feast` and `groundpaw` animate `NPC_Neck1`'s by
+up to 3.5%, which an `Animation` cannot carry). The prepared clip and the model
+view, written onto the same asset in canonical space (`RigRecord.placement`),
+read back with every joint where the prepared clip, or the model view's
+expansion, has it. Joints held by structure (`RigRecord.fixed`) are written
 undriven. The mesh is not compared: the rest asset's is the vendor mesh re-bound
 to the rest pose ([export](../../api/export/index.md#limitations)).
 
@@ -86,7 +88,8 @@ joint into it. A leaf's rotation is unobservable, so it isn't compared either.
 
 On the 2026-10-21 corpus, read from FBX, all 1135 Truebones clips pass the BVH
 test, as do all 1135 of `truebones_bone` and all 1023 `data=unimate` training
-clips (`--dataset unimate`).
+clips (`--dataset unimate`). All 1135 Truebones clips pass the FBX test
+(5 h 39 min), and so does one clip per rig of `data=unimate` (74 of 74).
 
 ## Not covered
 
