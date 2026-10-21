@@ -29,13 +29,17 @@ clip, with id `<Rig>/<action>`.
 Each clip goes prepared `.npz` → reduced model view → features → `fk` → back,
 then [`RigRecord.restore`][poseydon.export.rig.RigRecord.restore] and [`BVH.from_animation`][poseydon.io.bvh.BVH.from_animation] → a file on disk → read back. The file
 is compared against the **raw source**, the one reference the pipeline did
-not produce. The test reads it through the dataset's own `source:` (a BVH file
-for `data=truebones`, UniMate's FBX cache for `data=unimate`) and cuts it to the
+not produce. The test reads it through the dataset's own `source:` (the FBX
+cache for `data=truebones` and `data=unimate`, or BVH files) and cuts it to the
 frames the clip kept (`clip_params[action]["frames"]["window"]`, absent meaning
 the whole clip). It asserts:
 
 - names, hierarchy, frame count and frame rate match the source, and for a BVH
   source the `CHANNELS` layout and the OFFSET block too;
+- for an FBX source, the reader itself: every joint whose FBX local translation
+  never leaves its rest offset sits where the SDK's cached world matrices put it
+  (this caught the Crow scale bug: with an armature scaled 5, the reader put its
+  joints 15 extents off);
 - the root's world trajectory matches (the promoted root, on promoted rigs);
 - every observable joint's world rotation matches, to 1e-3 degrees;
 - non-root joints don't translate;
@@ -54,29 +58,35 @@ the whole clip). It asserts:
   `drop_still` rule's `degrees` (as `skeleton.npz` records it), every other
   joint exactly.
 
-`test_up_axis` and `test_round_trip_fbx` skip a dataset whose source is not raw
-BVH files (they calibrate against the vendor FBX and BVH of one clip), with the
-reason in the skip message.
-
 `test_up_axis` turns one real rig to Z-up, declares `up_axis: +Z`, and checks
 that preparation gives the same clip as the Y-up original and that inverting
-returns the Z-up source.
+returns the Z-up source. It reads the rig through the dataset's own source and
+gives a stage that decides from the whole rig (`prune_unskinned`) the rig's
+clips and skin, as stage 1 does.
 
-The FBX test proves a chain of equalities. The rig's vendor FBX and raw BVH of
-one clip calibrate to within 1e-4 of the extent, checked on every frame. The
-restored clip written as FBX, read back, holds exactly the restored clip on the
-vendor's node hierarchy, to 1e-4 (FBX keys are float32, and their rounding adds up along a long chain: 1.35e-5 at the tip of Anaconda's 27-joint spine). The prepared clip and the model view, written
-onto the same asset in canonical space, read back with every joint where the
-prepared clip (for the model view, its expansion) has it. With the BVH test showing that the
-restored clip is the source, that puts the source back into the user's FBX.
+`test_round_trip_fbx` skips a dataset whose source is not FBX (there is no source
+FBX to write back onto). It writes the restored clip onto the rig's rest asset
+(`RigRecord.asset`) by node name, reads the file back and compares it with the
+source FBX itself (the cached world matrices of the clip): the root's position,
+and the orientation of every joint the round trip keeps, leaves included (an FBX
+node holds its own rotation, and the mesh shows it; this caught stage 1 losing
+every leaf's rotation on the FBX-read corpus), to
+1e-4 (FBX keys are float32, and their rounding adds up along a long chain); node
+scale within 1% (it is the asset's: Anaconda's files disagree on it by 0.4% from
+clip to clip). The prepared clip and the model view, written onto the same asset
+in canonical space (`RigRecord.placement`), read back with every joint where the
+prepared clip has it. Joints held by structure (`RigRecord.fixed`) are written
+undriven. The mesh is not compared: the rest asset's is the vendor mesh re-bound
+to the rest pose ([export](../../api/export/index.md#limitations)).
 
 Neither test asserts the losses the round trip makes by design: per-joint
-translation, the locator chain above a promoted root (and Tukan's dead
-subtree), and the root's own rotation where the reduction folded a joint into
-it. A leaf's rotation is unobservable, so it isn't compared either.
+translation, the locator chain above a promoted root (and its dead branches:
+Tukan's, Crow's), and the root's own rotation where the reduction folded a
+joint into it. A leaf's rotation is unobservable, so it isn't compared either.
 
-On the 2026-10-13 corpus all 1145 Truebones clips pass the BVH test; on
-2026-10-20 so do all 1023 `data=unimate` training clips (`--dataset unimate`).
+On the 2026-10-21 corpus, read from FBX, all 1135 Truebones clips pass the BVH
+test, as do all 1135 of `truebones_bone` and all 1023 `data=unimate` training
+clips (`--dataset unimate`).
 
 ## Not covered
 

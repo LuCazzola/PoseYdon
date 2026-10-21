@@ -6,7 +6,7 @@ user's rig. Preparation may clean up the rig (a stage may remove joints, and
 records them); reduction is the model's lens
 ([below](#rig-cleanup-versus-the-models-lens)). Rig-scoped stages fit once on the rest pose; clip-scoped ones
 (`FaceAxis`, and `CentreXZClip` and `GroundClip`, which UniMate's recipe uses) fit per clip. `report.json` records each transform and the
-manifest's declared source authority. A `bvh_files` source is read from the BVH only, and FBX enters at export; `fbx_cache` reads FBX at stage 1, through the cache.
+manifest's declared source authority. `fbx_cache` (Truebones, UniMate's recipe) reads FBX at stage 1, through the cache, and its rest pose is a bind pose (Truebones: of the rig's rest asset, `tools/build_rest_fbx.py`); a `bvh_files` source is read from the BVH only.
 
 The chain is the dataset config's `prepare:` list, built in order from the
 `PREPARE` registry by `type:` (`chain_from`). Every stage registers itself
@@ -126,8 +126,8 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   stage moved ahead of `EnforceRigid` that reads joint positions has the same
   problem.
 - **The `ground` stage's `mesh` mode reads a cache the build cannot make.** The FBX SDK is
-  x86-64 only, so `tools/build_rest_mesh.py` (the `fbxsdk` service) writes each
-  rig's rest-pose mesh to `cache/rigs/<Rig>/rest_mesh.npz` under the dataset (`rig_cache` in `poseydon.build.corpus`), and
+  x86-64 only, so `tools/build_rest_fbx.py` (the `fbxsdk` service) writes each
+  rig's rest-pose mesh (its rest asset's mesh at bind) to `cache/rigs/<Rig>/rest_mesh.npz` under the dataset (`rig_cache` in `poseydon.build.corpus`), and
   `PutOnGround` maps it onto the rest joints by a best-fit similarity. A rig
   whose cache is missing, or was made for another `rest_pose:`, is grounded on
   its lowest joint and the build prints a warning; it does not fail. A changed

@@ -394,10 +394,14 @@ class Skin:
     """The vendor FBX skin: per mesh part (bind-space vertices, link names, link bind matrices, weights)."""
     def __init__(self, rig, asset=None):
         import fbx
-        from poseydon.export.rig import RigRecord
+        import csv
+        from poseydon.core.skeleton import SkeletonManifest
         from poseydon.io.fbx import FBX, _matrix
-        rec = RigRecord.load("data/truebones", "data/_raw/truebones", rig)
-        self.cal = rec.calibration("source"); self.scene = FBX.read(asset or self.cal.asset)
+        # The vendor skin in its own bind: the FBX of the rest pose's clip, else the rig's first.
+        rows = [r for r in csv.DictReader(open("data/truebones/fbx_clips.csv")) if r["rig"] == rig]
+        rest = SkeletonManifest.load(f"data/truebones/rigs/{rig}/manifest.yaml").rest_pose
+        row = next((r for r in rows if r["bvh"] == rest), rows[0])
+        self.scene = FBX.read(asset or Path("data/_raw/truebones/source") / row["file"])
         sc = self.scene.scene; self.parts = []; self.meshes = []
         for i in range(sc.GetSrcObjectCount(fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId))):
             skin = sc.GetSrcObject(fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId), i)

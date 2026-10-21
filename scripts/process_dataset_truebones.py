@@ -23,7 +23,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from poseydon.build.clips import CLIP_OPS, MaxLength, apply_clip_ops
-from poseydon.build.corpus import BIND_POSE_ACTION, rest_action
+from poseydon.build.corpus import rest_action
 from poseydon.build.pipeline import compose_build
 from poseydon.build.prepare import (
     CLIP,
@@ -102,9 +102,12 @@ def process_species(
     dropped.update(source.dropped)   # empty for `bvh_files`: `data=truebones` writes what it always did
     report.dropped.update(source.dropped)
 
-    # A rig-level op judges the skeleton as the clips will have it; a rig with no
-    # rest pose of its own needs it prepared to write its bind pose.
-    if ops or manifest.rest_pose is None:
+    # A rig-level op judges the skeleton as the clips will have it; a rest pose
+    # that is none of the source's clips (a bind pose, an authored T-pose) is
+    # prepared to be written as one.
+    rest_name = rest_action(manifest)
+    own_rest = rest_name not in actions
+    if ops or own_rest:
         try:
             prepared_rest, rest_params = chain.apply(rest, resolve(manifest, rest.names), rig_params)
         except Exception as error:  # noqa: BLE001 - one rig must not abort the corpus
@@ -120,15 +123,16 @@ def process_species(
                 report.write(out_root / "rigs" / manifest.name / "report.json")
                 return 0, [f"{manifest.name}: skipped, {reason}"], 0
 
-    # A rig `prune_unskinned` cut leaves joints childless that had a rotation of
-    # their own; the files keep it (`BVH.from_animation`, `leaf_rotations`).
-    pruned = any(stage.name == "prune_unskinned" for stage in chain.stages)
+    # A leaf joint's rotation is lost in a plain BVH, so the files keep it
+    # (`BVH.from_animation`, `leaf_rotations`): an FBX has no End Sites, so its
+    # wing tips, toes and ear tips are leaves, as are the joints `prune_unskinned`
+    # leaves childless. A BVH source's leaves are End Sites, which come back as they were.
     clips_dir = out_root / "clips" / manifest.name
     clips_dir.mkdir(parents=True, exist_ok=True)
     clip_params: dict[str, dict] = {}
-    if manifest.rest_pose is None:   # the bind pose is this rig's rest (`rest_action`)
-        BVH.from_animation(prepared_rest, leaf_rotations=pruned).write(clips_dir / f"{BIND_POSE_ACTION}.bvh")
-        clip_params[BIND_POSE_ACTION] = {   # stage 2 reads its facing like any clip's
+    if own_rest:   # written as the one-frame clip `rest_action` names
+        BVH.from_animation(prepared_rest, leaf_rotations=True).write(clips_dir / f"{rest_name}.bvh")
+        clip_params[rest_name] = {   # stage 2 reads its facing like any clip's
             stage.name: rest_params[stage.name] for stage in chain.stages if stage.scope == CLIP
         } | {"frames": {"window": np.array((0, 1, 1))}}
 
@@ -167,7 +171,7 @@ def process_species(
             continue
         for i, (piece, window, params) in enumerate(kept):
             name = f"{action}_w{i:03d}" if windowed else action
-            BVH.from_animation(piece, leaf_rotations=pruned).write(clips_dir / f"{name}.bvh")
+            BVH.from_animation(piece, leaf_rotations=True).write(clips_dir / f"{name}.bvh")
             clip_params[name] = {
                 stage.name: params[stage.name] for stage in chain.stages
                 if stage.scope == CLIP
@@ -262,7 +266,7 @@ def _sanity_check(
 
     # UniMate grounds before trimming, so a cropped clip may sit above y = 0.
     for clip in written if "ground_clip" in stages else ():
-        if clip.stem in cropped or clip.stem == BIND_POSE_ACTION:
+        if clip.stem in cropped or clip.stem == rest_action(manifest):
             continue
         low = float(BVH.read(clip).to_animation().global_positions()[..., 1].min())
         if abs(low) > 1e-4:

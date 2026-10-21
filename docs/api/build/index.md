@@ -14,10 +14,14 @@ It reads files through [io](../io/index.md), reduces joints through
 [data](../data/index.md)'s `Normalizer`; [data](../data/index.md) reads what it
 writes, and [export](../export/index.md) inverts stage 1 to bring a generated
 clip back to the source rig. Where stage 1 reads its raw clips from is a
-registered `source:` (`src/poseydon/build/sources.py`): `bvh_files`, the raw
-Truebones BVHs, or `fbx_cache`, UniMate's Truebones FBX clips as
-`scripts/build_fbx_cache.py` cached them, with the skeleton rebuilt as Blender's
-FBX importer would have. Driven by `scripts/process_dataset_truebones.py`
+registered `source:` (`src/poseydon/build/sources.py`): `bvh_files`, BVH files
+under `paths.raw/source/<Rig>/`, or `fbx_cache`, FBX clips as
+`scripts/build_fbx_cache.py` cached them, listed by a clip index (`fbx_index`)
+and with the skeleton rebuilt as Blender's FBX importer would have. Truebones
+(`data=truebones`) reads its vendor FBX, one per BVH-era action
+(`data/truebones/fbx_clips.csv`), with each rig's rest pose the bind of its rest
+asset (`tools/build_rest_fbx.py`); UniMate's recipe (`data=unimate`) reads the
+clips UniMate's own index lists. Driven by `scripts/process_dataset_truebones.py`
 (stage 1) and `scripts/build_features.py` (stage 2). Between source and
 preparation it also trims and filters clips, as the dataset's ``clips:`` group
 asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
@@ -27,10 +31,22 @@ asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
 - **A stage-1 change invalidates everything after it.** Nothing detects a
   stale corpus: rebuild stage 1, then stage 2, and retrain checkpoints trained
   on the old corpus.
-- **A rig without `rest_pose:` has its bind pose as the rest.** Stage 1 writes
-  the prepared rest skeleton as the one-frame clip `clips/<Rig>/bind_pose.bvh`
-  (`rest_action` returns `bind_pose`); like any one-frame clip it is left out of
-  the index, and the `rest_frame` conditioner is its frame 0.
+- **A rest pose that is none of the source's clips is written as one.** Stage 1
+  writes the prepared rest skeleton as the one-frame clip `rest_action` names:
+  `clips/<Rig>/bind_pose.bvh` for a rig without `rest_pose:` (`data=unimate`), or
+  `tpose_authored.bvh` for an authored T-pose, which has no vendor FBX. Like any
+  one-frame clip it is left out of the index, and the `rest_frame` conditioner
+  is its frame 0.
+- **Truebones' clip index is the BVH-era clip set.** `data/truebones/fbx_clips.csv`
+  pairs each vendor BVH with the FBX of the same motion (name match, plus 13
+  odd names matched by frame count), each pair checked on every shared frame
+  (1121 of 1144 within 1e-4 of the extent; the rest within 2e-3 on positions,
+  or one frame shifted: SpiderG `attack7`). Left out because no FBX holds them
+  outside the all-takes bundles or the pair is a different take: Fox `idle_1`,
+  Lynx `idle4`, Elephant `take_001`, Monkey `b1die`, Centipede `take_001`. FBX-only
+  clips (KingCobra `run`, `walk`, `walk fast`) are not added. A clip's length is
+  the FBX's key range, which differs from its BVH on about 80 clips (Pteranodon's
+  BVHs padded to 91 frames with a held pose, Bear's and Dog-2's cut short).
 - **The index leaves out clips shorter than two frames.** Velocity features
   need two frames, so such a clip (each authored `__TPOSE_authored.bvh`) has
   no feature frame; it is still written to `clips/`, as the rig's rest pose,
@@ -39,7 +55,9 @@ asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
 - **`fbx_cache` approximates Blender's armature.** Bones are `eSkeleton` nodes
   or skin-cluster-linked nodes plus non-bone nodes between them; the largest
   tree is kept. Not modelled: Blender's bone re-orientation and FBX unit scale
-  (clips stay in the file's units and axes); the joint sets, once
+  (clips stay in the file's units and axes; a node's own world scale is taken
+  off before its local transform is read, so Crow's armature-wide 5 no longer
+  shrinks its bones against its root's travel, as it did until 2026-10-21); the joint sets, once
   pruned, equal UniMate's `joint_names.json` on all 74 rigs (`--check-against`).
   A node without a bind takes its frame-0 world as rest, so a bound child under
   an animated unbound node gets offsets that include that motion.
@@ -54,8 +72,6 @@ asks (`src/poseydon/build/clips.py`, a registry of `ClipOp`).
   `low_activity` and `jump` thresholds are UniMate's, measured on the prepared
   (centred, scaled, grounded) positions; nothing checks they still mean the
   same after a change to `prepare:`.
-- **Only a dropped clip's own BVH is deleted on a rerun.** The `_wNNN` files of
-  an earlier `windows` run stay on disk.
 
 ## Class diagram
 

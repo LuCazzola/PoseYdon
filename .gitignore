@@ -239,6 +239,9 @@ data/**/*.bvh
 data/**/*.fbx
 data/**/index.jsonl
 data/**/report.json
+# Derived from vendor files (FBX cache, rest assets, textures the FBX SDK extracts
+# into `.fbm` folders): rebuilt by scripts/build_fbx_cache.py and tools/build_rest_fbx.py.
+data/*/cache/
 
 # Legacy pre-migration output (Truebone_Z-OO/, translated/): predates the
 # rigs/<Rig>/, clips/<Rig>/ layout above and holds formats (.obj) the

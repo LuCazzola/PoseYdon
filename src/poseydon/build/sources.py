@@ -6,9 +6,11 @@ axes and units; the dataset's ``prepare:`` chain (``up_axis`` first) does the
 rest. Two are registered:
 
 - ``bvh_files``: every ``*.bvh`` under ``paths.raw/source/<Rig>/`` (Truebones).
-- ``fbx_cache``: UniMate's Truebones FBX clips as `scripts/build_fbx_cache.py`
-  cached them, with the skeleton rebuilt the way Blender's FBX importer would
-  have, since UniMate exported through Blender.
+- ``fbx_cache``: FBX clips as `scripts/build_fbx_cache.py` cached them, listed by
+  a clip index (`fbx_index`): Truebones' (`data=truebones`, the vendor FBX of
+  each BVH-era action) or UniMate's (`data=unimate`), with the skeleton rebuilt
+  the way Blender's FBX importer would have, since UniMate exported through
+  Blender.
 
 Imports `poseydon.build.corpus` and `poseydon.build.index` (rest-clip choice,
 action slugs), `poseydon.core` (`Animation`, `Registry`, rotations) and
@@ -26,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from poseydon.build.corpus import rest_source
+from poseydon.build.corpus import rest_source, rig_cache
 from poseydon.build.index import action_slug, strip_skeleton_prefix
 from poseydon.core.animation import Animation
 from poseydon.core.registry import Registry
@@ -137,6 +139,31 @@ class BvhFiles(Source):
         return SourceClip(action, anim, bvh.channels)
 
 
+def fbx_index(path: str | Path) -> list[tuple[str, str, str]]:
+    """``(rig, action, file)`` per clip of an FBX clip index, ``file`` relative to
+    ``paths.raw/source``.
+
+    Two layouts: PoseYdon's (``rig,action,file`` columns, e.g.
+    ``data/truebones/fbx_clips.csv``), or UniMate's ``clips.csv``, whose
+    ``linked`` rows are its clips (rig and action from ``normalized_name``
+    ``<Species>-<Action>.fbx``, the file under the row's ``group`` folder).
+    """
+    out = []
+    with open(path) as handle:
+        for row in csv.DictReader(handle):
+            if "rig" in row:
+                out.append((row["rig"], row["action"], row["file"]))
+            elif row["status"] == "linked":
+                species, action = row["normalized_name"].removesuffix(".fbx").split("-", 1)
+                out.append((species, action, f"{row['group']}/{Path(row['file']).name}"))
+    return out
+
+
+#: A rig's rest asset under `rig_cache`: its vendor FBX re-bound to the rest pose
+#: (`tools/build_rest_fbx.py`), the asset FBX export writes onto, and its cached read.
+REST_FBX, REST_CACHE = "rest.fbx", "rest.npz"
+
+
 @dataclass(frozen=True)
 class _Armature:
     """A cached clip's Blender-like armature: node indices (parents first), the
@@ -208,7 +235,13 @@ def armature_of(d) -> _Armature:
 
 
 def _local(world: np.ndarray, parents: np.ndarray) -> np.ndarray:
-    """``(..., J, 4, 4)`` world matrices to local ones (the root's stays world)."""
+    """``(..., J, 4, 4)`` world matrices to local ones (the root's stays world).
+
+    Node scale is taken off first: a scaled parent (Crow's armature is scaled 5
+    throughout) would otherwise shrink its children's offsets by its scale while
+    the root's translation stays in world units, so the body moved 5 times too far."""
+    world = world.copy()
+    world[..., :3, :3] = rotation_part(world[..., :3, :3])
     local = world.copy()
     has = parents >= 0
     local[..., has, :, :] = np.linalg.inv(world[..., parents[has], :, :]) @ world[..., has, :, :]
@@ -227,30 +260,32 @@ def _animation(local: np.ndarray, offsets: np.ndarray | None, parents, names, fp
 
 @SOURCES.register("fbx_cache")
 class FbxCache(Source):
-    """UniMate's Truebones clips from the FBX cache (`scripts/build_fbx_cache.py`).
+    """FBX clips from the FBX cache (`scripts/build_fbx_cache.py`).
 
-    ``index`` is UniMate's ``clips.csv`` (rows with ``status == linked``; a rig
-    is a ``group``, a clip's action the part of ``normalized_name`` after the
-    first ``-``), ``cache`` the directory holding ``<Species>/<Action>.npz``.
-    ``skip`` is a ``filtered_clips.txt``: ``Species-Action`` first on a line,
-    ``#`` starts a comment. A clip shorter than ``min_frames`` or at another
-    ``fps`` than the given one is refused.
+    ``index`` is a clip index (`fbx_index`), ``cache`` the directory holding
+    ``<Rig>/<Action>.npz``. ``skip`` is a ``filtered_clips.txt``: ``Rig-Action``
+    first on a line, ``#`` starts a comment. A clip shorter than ``min_frames``
+    or at another ``fps`` than the given one is refused.
 
     Rig variants: a species' clips are grouped by their armature's joint-name
     set (`armature_of`); the group with the most clips (the first alphabetically
     on a tie) defines the rig. A clip of another group is mapped by name when it
     holds every joint of the rig (its other joints are folded away, each joint's
     local transform taken against the rig's own parent), else it raises
-    `ValueError` naming the missing joints. The rest pose is the first clip of
-    the main group, local = parent bind-inverse times bind; a node without a bind
-    uses its frame-0 world. Clips: local = parent world-inverse times world per
-    frame, the root's the full world (armature object included).
+    `ValueError` naming the missing joints. The rest pose is the bind pose,
+    local = parent bind-inverse times bind (a node without a bind uses its
+    frame-0 world): of the rig's rest asset (`REST_CACHE` under `rig_cache`,
+    `tools/build_rest_fbx.py`) with ``rest_asset``, which must hold every joint
+    of the rig; else of the first clip of the main group. Clips: local = parent
+    world-inverse times world per frame, the root's the full world (armature
+    object included).
     """
 
     def __init__(self, index: str, cache: str, skip: str | None = None,
-                 min_frames: int = 5, fps: float | None = 30) -> None:
+                 min_frames: int = 5, fps: float | None = 30, rest_asset: bool = False) -> None:
         super().__init__()
         self.cache, self.min_frames, self.fps = Path(cache), min_frames, fps
+        self.rest_asset = rest_asset
         skipped = set()
         if skip is not None:
             for line in Path(skip).read_text().splitlines():
@@ -258,13 +293,9 @@ class FbxCache(Source):
                 if line:
                     skipped.add(line.split()[0])
         self._actions: dict[str, list[str]] = {}
-        with open(index) as handle:
-            for row in csv.DictReader(handle):
-                if row["status"] != "linked":
-                    continue
-                species, action = row["normalized_name"].removesuffix(".fbx").split("-", 1)
-                if f"{species}-{action}" not in skipped:
-                    self._actions.setdefault(species, []).append(action)
+        for species, action, _ in fbx_index(index):
+            if f"{species}-{action}" not in skipped:
+                self._actions.setdefault(species, []).append(action)
         self._actions = {s: sorted(a) for s, a in sorted(self._actions.items())}
         self._rigs: dict[str, tuple] = {}
         self._offsets: dict[str, np.ndarray] = {}
@@ -309,10 +340,22 @@ class FbxCache(Source):
 
     def rest(self, data, manifest) -> Animation:
         armature, first = self._rig(manifest.name)
-        d = self._load(manifest.name, first)
-        bind = d["bind"][list(armature.nodes)]
+        if self.rest_asset:
+            path = rig_cache(data.paths.root, manifest.name) / REST_CACHE
+            if not path.is_file():
+                raise ValueError(f"{path}: no rest asset (tools/build_rest_fbx.py)")
+            with np.load(path) as z:
+                d = {k: z[k] for k in z.files}
+            names = [str(x) for x in d["names"]]
+            missing = [n for n in armature.names if n not in names]
+            if missing:
+                raise ValueError(f"{path} lacks {len(missing)} of the rig's joints ({', '.join(missing[:4])}...)")
+            nodes = [names.index(n) for n in armature.names]
+        else:
+            d, nodes = self._load(manifest.name, first), list(armature.nodes)
+        bind = d["bind"][nodes]
         missing = np.isnan(bind).any(axis=(-2, -1))
-        bind[missing] = d["world"][0][list(armature.nodes)][missing]
+        bind[missing] = d["world"][0][nodes][missing]
         local = _local(bind, armature.parents)[None]
         return _animation(local, None, armature.parents, armature.names, self.fps or float(d["fps"]))
 

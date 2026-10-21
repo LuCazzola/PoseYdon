@@ -45,7 +45,7 @@ See [overview](overview.md) for how the pipeline fits together.
 | `scripts/fetch_fbx_sdk.sh` | downloads the Autodesk FBX Python SDK into the gitignored `third_party/fbxsdk/`, after `--accept-license` | [tooling](tooling.md#dependencies) |
 | `scripts/build_stage_samples.py` | one clip per rig at every round-trip stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/` | [tooling](tooling.md#scripts) |
 | `scripts/fetch_unimate_annotations.sh` | fetches UniMate's Truebones clip index and FBX repair scripts (pinned HF commit) into `data/_raw/UniML3D/truebones_annotations/`, and links `data/_raw/unimate` to `truebones` | [tooling](tooling.md#scripts) |
-| `scripts/build_fbx_cache.py` | UniMate's linked Truebones FBX clips read once with the FBX SDK into `data/unimate/cache/fbx/` (world matrices of every node, bind, skin summary); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
+| `scripts/build_fbx_cache.py` | a dataset's FBX clips (`--data truebones`: `data/truebones/fbx_clips.csv`; `--data unimate`: UniMate's linked clips) read once with the FBX SDK into `<root>/cache/fbx/` (world matrices of every node, bind, skin summary); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 
 ### Probes and one-off tools
 
@@ -54,7 +54,7 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
-| `tools/build_rest_mesh.py` | caches each rig's vendor mesh skinned on its rest pose (`cache/rigs/<Rig>/rest_mesh.npz`), which the `ground` stage's `mesh` mode grounds on; needs the `fbxsdk` service | [tooling](tooling.md#tools-and-probes) |
+| `tools/build_rest_fbx.py` | each rig's rest asset under `cache/rigs/<Rig>/`: its vendor FBX re-bound to the rest pose (`rest.fbx`, what FBX export writes onto), its read (`rest.npz`, the rest pose of `fbx_cache` with `rest_asset`) and the rest mesh (`rest_mesh.npz`, for `ground: mesh`); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 | `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus, through `poseydon.conditioners.text` | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_grid_search.py` | grid search over `GradientIK` terms, foot-contact term included | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_contact_compare.py` | default vs best-from-grid IK solve, with predicted contacts shown | [tooling](tooling.md#tools-and-probes) |
@@ -83,6 +83,7 @@ meant to be deleted once read.
 | `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/how-to/testing.md) |
 | `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/concepts/data/layout.md) |
 | `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/concepts/data/layout.md) |
+| `data/truebones/fbx_clips.csv` | the Truebones clip index: `rig,action,file` per clip (the vendor FBX of each BVH-era action, `bvh` naming the BVH it replaced), read by the `fbx_cache` source and `scripts/build_fbx_cache.py` | [build](../api/build/index.md) |
 | `data/unimate/` | the `data=unimate` corpus, gitignored as a whole (generated manifests included): `data/unimate/cache/`, the prepared layout, `dropped.json`, `replication.json` | [tooling](tooling.md#data) |
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
 | `docs/index/` | this index, the overview, tooling and the open-work list; each library package is documented on its API page | [overview](overview.md) |

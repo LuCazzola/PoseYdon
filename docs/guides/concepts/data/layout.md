@@ -13,20 +13,24 @@ data/
       skeleton.npz                 the skeleton the model sees
       stats.npz                    normalisation statistics
       report.json                  what preparation did, and why
+    fbx_clips.csv                  hand-written: the vendor FBX of every clip
     cache/                         derived from vendor files, rebuilt by tools
       joint_names_t5.npz           T5 embeddings of the joint names
-      rigs/<Rig>/rest_mesh.npz     the vendor mesh on the rest pose, for grounding
+      fbx/<Rig>/<action>.npz       each clip as read from its vendor FBX
+      rigs/<Rig>/rest.fbx          the vendor FBX re-bound to the rest pose: what export writes onto
+      rigs/<Rig>/rest.npz          its read: the rest pose stage 1 takes
+      rigs/<Rig>/rest_mesh.npz     the mesh at the rest pose, for grounding
     clips/<Rig>/<action>.npz       the prepared clip
     clips/<Rig>/<action>.bvh       the same, as BVH, to look at
     clips/<Rig>/<action>.yaml      which split the clip belongs to
     index.jsonl                    one line per clip
 ```
 
-Only the hand-written files are in git: the manifests and the clip `.yaml`
-files. What is done to every rig alike, from preparation to loading, is the
+Only the hand-written files are in git: the manifests, the clip index
+`fbx_clips.csv` and the clip `.yaml` files. What is done to every rig alike, from preparation to loading, is the
 dataset config, `configs/data/truebones.yaml`. Everything else is rebuilt by
 the two steps in [Building the dataset](../../how-to/tutorials/build-a-corpus.md);
-`cache/` comes from `tools/build_joint_name_cache.py` and `tools/build_rest_mesh.py`, the latter needing the FBX SDK.
+`cache/` comes from `tools/build_joint_name_cache.py`, `scripts/build_fbx_cache.py` (`cache/fbx/`, every clip read from its vendor FBX) and `tools/build_rest_fbx.py` (`cache/rigs/<Rig>/`: the rest asset `rest.fbx`, its read `rest.npz`, `rest_mesh.npz`), the last two needing the FBX SDK.
 
 ## The raw files
 
@@ -44,8 +48,8 @@ an error instead of silently using the wrong ones.
 
 ```yaml
 skeleton: Dog
-rest_pose: __Idle.bvh        # the clip whose first frame is the rest pose
-promote_root: Bip01_Pelvis   # only for a rig rooted at a ground locator: the body's root
+rest_pose: __Idle.bvh        # the BVH whose first frame is the rest pose (carried onto the FBX by tools/build_rest_fbx.py)
+promote_root: Bip01_Pelvis   # only for a rig rooted at a ground locator or static nodes: the body's root
 ground: joints               # only to override the dataset's ground mode for this rig
 up_axis: +Y                  # the source's up axis (default +Y; a BVH doesn't record it)
 facing:                      # left/right pairs used to find which way it faces

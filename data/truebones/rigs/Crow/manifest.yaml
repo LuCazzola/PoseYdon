@@ -8,8 +8,8 @@ foot_joints: [_20, _23]   # leg ends, at height 0 in the rest pose
 tags: [flying, bird]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

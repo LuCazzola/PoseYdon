@@ -45,7 +45,8 @@ rig with `--rigs <Rig>`.
 - `scripts/process_dataset_truebones.py` (stage 1, `test` container). Reads
   each rig's raw clips through the dataset's `source:` (`type: bvh_files`, the
   BVHs under `paths.raw/source/<Rig>/`; or `type: fbx_cache`, the cache of
-  `scripts/build_fbx_cache.py`; `src/poseydon/build/sources.py`), runs them through the
+  `scripts/build_fbx_cache.py`, which `truebones` and `unimate` both use;
+  `src/poseydon/build/sources.py`), runs them through the
   dataset's `prepare:` chain (a stage that decides from the whole rig, `prune_unskinned`,
   is given every clip of the rig and its skin weights first), and writes `clips/<Rig>/<action>.bvh` plus
   `rigs/<Rig>/preproc.npz`, which holds the fitted transform, its inverse and
@@ -60,8 +61,8 @@ rig with `--rigs <Rig>`.
   or rig writes nothing and is named with its reason in `rigs/<Rig>/report.json`
   and `<paths.root>/dropped.json`. A clip an earlier run wrote and this run does not
   (dropped, skipped, windows of another mode, an action no longer listed) loses its
-  `.bvh` and stage 2's `.npz`/`.yaml`. Without `clips:` (`truebones`) the clips are unchanged; `preproc.npz` still gains `clip/<name>/frames/window`, harmlessly. A chain with `prune_unskinned` writes its BVHs with `leaf_rotations` (a joint left childless keeps its rotation, as a JOINT above a zero-offset `End Site #synthetic` that `BVH.read` drops); `truebones` files are unchanged. A rig grounded on the mesh without a current
-  `rest_mesh.npz` (run `tools/build_rest_mesh.py` first) is grounded on its
+  `.bvh` and stage 2's `.npz`/`.yaml`. Without `clips:` (`truebones`) the clips are unchanged; `preproc.npz` still gains `clip/<name>/frames/window`, harmlessly. Every BVH is written with `leaf_rotations` (a leaf joint keeps its rotation, as a JOINT above a zero-offset `End Site #synthetic` that `BVH.read` drops): a rig read from FBX has no End Sites, so its wing tips, toes and ear tips are leaves, as are the joints `prune_unskinned` leaves childless. Until 2026-10-21 only a pruned chain did, which on the FBX-read truebones corpus lost every leaf's rotation. A rig grounded on the mesh without a current
+  `rest_mesh.npz` (run `tools/build_rest_fbx.py` first) is grounded on its
   lowest joint, with a warning. It then checks each rig's written rest
   clip and warns, without failing, if frame 0 or the rest skeleton does not
   face +Z (after the manifest's `extra_yaw_deg`), if a non-root joint is not
@@ -93,7 +94,7 @@ with `bone_relative` appended, built into its own root `data/truebones_bone/`
 corpus, the checks undoing `bone_relative` first):
 
 ```bash
-mkdir -p data/truebones_bone && (cd data/truebones && find rigs clips cache \( -name '*.yaml' -o -name rest_mesh.npz \) | cpio -pdmu ../truebones_bone)
+mkdir -p data/truebones_bone && (cd data/truebones && find rigs clips cache/rigs \( -name '*.yaml' -o -name 'rest*' \) | cpio -pdmu ../truebones_bone)
 ln -sfn truebones data/_raw/truebones_bone   # the test reads data/_raw/<dataset>
 docker compose run --rm -T test python scripts/process_dataset_truebones.py data=truebones_bone
 docker compose run --rm -T test python scripts/build_features.py data=truebones_bone
@@ -110,20 +111,34 @@ Train or sample on it with `data=truebones_bone`; check it with
   script, into `data/_raw/UniML3D/truebones_annotations/` (gitignored). It also
   links `data/_raw/unimate` to `truebones`. Idempotent: present files are kept.
 
-- `scripts/build_fbx_cache.py` (`fbxsdk` service, about 1 to 10 s a clip here):
-  reads the `linked` clips of `clips.csv` once with the FBX SDK and caches, per
-  clip, `data/unimate/cache/fbx/<Species>/<Action>.npz`: node names, parents,
+- `scripts/build_fbx_cache.py --data truebones|unimate` (`fbxsdk` service,
+  about 1 to 10 s a clip here): reads the clips of the dataset's clip index
+  (`source.index`: `data/truebones/fbx_clips.csv`, or UniMate's `clips.csv`,
+  its `linked` rows) once with the FBX SDK and caches, per clip,
+  `<source.cache>/<Rig>/<Action>.npz`: node names, parents,
   attribute types, the world matrix of every node at every integer frame of the
   key range, bind, fps, up axis and a per-node skin weight summary, so
   everything after runs in `test`. Options: `--species`, `--clips`
   (`Alligator-Big_Mouth`), `--print` (summary, writes nothing), `--force`;
   resumable by source size and mtime. KingCobra is read from repaired copies
-  under `data/unimate/cache/repaired/` (`A01` colourway kept; `walk.fbx` gets
+  under `<paths.root>/cache/repaired/` (`A01` colourway kept; `walk.fbx` gets
   `run.fbx`'s mesh, with the Geometry/Pose declarations the graft probe omits
   added, otherwise the SDK drops the mesh).
 
-There is no FBX preparation pass for `bvh_files`: preparation runs on the BVH, and FBX enters
-at export, through `poseydon export --format fbx`. `fbx_cache` reads FBX at stage 1, through the cache.
+- `tools/build_rest_fbx.py --data truebones|unimate [--check] [Rig ...]`
+  (`fbxsdk` service, about 30 s a rig): each rig's rest asset under
+  `<paths.root>/cache/rigs/<Rig>/`, before stage 1: `rest.fbx` (the asset FBX
+  export writes onto), `rest.npz` (its read, the rest pose `fbx_cache` takes with
+  `rest_asset: true`) and, for truebones, `rest_mesh.npz` (the `ground` stage's
+  `mesh` mode). Truebones: the vendor FBX re-bound (`FBX.rebind`) to the
+  manifest's `rest_pose:` BVH, carried onto the FBX nodes through a vendor
+  BVH/FBX pair of one clip, checked on every frame; rerun a rig whose
+  `rest_pose:` changes. Unimate: the source FBX of the rig's rest clip,
+  unchanged. `--check` prints how far re-binding moves the mesh on one frame.
+
+`fbx_cache` reads FBX at stage 1, through the cache, and export writes onto the
+rig's rest asset by node name. A `bvh_files` dataset has no FBX export: its
+motion and the vendor mesh are in two files, and nothing maps one onto the other.
 
 **Export and viewing**:
 
@@ -156,7 +171,6 @@ nothing. Files whose docstring says *throwaway* exist to be deleted.
 | rest pose and joint sets | `tools/probe_jointset_spread.py`, `tools/probe_tpose_gap.py`, `tools/probe_rest_override.py`, `tools/write_rest_pose.py`, `tools/probe_resolve_after_reduce.py`, `tools/tpose_author.py` (authored T-poses: `build` in the `fbxsdk` service, then `pose` / `ref` / `paw` / `flips` / `save` in `train`; workflow and lessons in its docstring) |
 | inverse kinematics | `tools/ik_grid_search.py`, `tools/ik_contact_compare.py` |
 | parity with the reference | `tools/probe_reference_retarget.py`, `tools/probe_wandb_parity.py`, `tools/render.py` |
-| rest-pose mesh | `tools/build_rest_mesh.py`: each rig's vendor mesh skinned on its rest pose, cached as `cache/rigs/<Rig>/rest_mesh.npz` for the `ground` stage's `mesh` mode (`fbxsdk` service, about 10 s a rig); rerun for a rig whose `rest_pose:` changes, before stage 1 |
 | joint-name embeddings | `tools/build_joint_name_cache.py`: the `joint_names` cache (`cache/joint_names_t5.npz`), from every rig's reduced joint names through `poseydon.conditioners.text` (`compat` image, for the `text` extra); rerun after a reduction change adds names |
 
 `tools/reference/` holds scripts that run the **reference implementation** (the

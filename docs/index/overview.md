@@ -83,8 +83,9 @@ goes out to `data/truebones/`. See [tooling](tooling.md) for that side.
 each raw clip, read and written through [`io`](../api/io/index.md) and aligned by
 [`ingest`](../api/ingest/index.md). It writes `preproc.npz` (the parameters and their
 inverse), the prepared clips and a `report.json` per rig. You drive it with
-`scripts/process_dataset_truebones.py`; a `bvh_files` source is read from the BVH only (FBX
-enters at export), `fbx_cache` reads FBX at stage 1 through the cache. `poseydon ingest` is a separate, legacy entry point whose
+`scripts/process_dataset_truebones.py`; Truebones and UniMate's recipe read FBX at stage 1
+through the cache (`fbx_cache`), so export writes back onto the same FBX by node name; a
+`bvh_files` source is read from the BVH only and has no FBX export. `poseydon ingest` is a separate, legacy entry point whose
 aligned output nothing reads; see [`ingest`](../api/ingest/index.md).
 
 ### Stage 2: build (prepared → model-ready corpus)

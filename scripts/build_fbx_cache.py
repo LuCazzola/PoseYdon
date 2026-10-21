@@ -1,11 +1,11 @@
-"""Read UniMate's Truebones clips once with the FBX SDK and cache what later stages need.
+"""Read a dataset's FBX clips once with the FBX SDK and cache what later stages need.
 
     docker compose run --rm -T --entrypoint python -e HOME=/tmp fbxsdk scripts/build_fbx_cache.py \
-        [--species Alligator Horse ...] [--clips Alligator-Big_Mouth ...] [--print] [--force]
+        [--data unimate|truebones] [--species Alligator Horse ...] [--clips Alligator-Big_Mouth ...] [--print] [--force]
 
-One ``.npz`` per ``status == linked`` row of UniMate's ``clips.csv``, at
-``data/unimate/cache/fbx/<Species>/<Action>.npz`` (``normalized_name`` is
-``<Species>-<Action>.fbx``): node names, parents, attribute types, the world
+One ``.npz`` per clip of the dataset's clip index (``source.index`` of
+``configs/data/<data>.yaml``, read by `poseydon.build.sources.fbx_index`), at
+``<source.cache>/<Rig>/<Action>.npz``: node names, parents, attribute types, the world
 matrix of EVERY node at every integer frame of the clip's key range (floor(start
 + 1e-3) .. ceil(stop - 1e-3), UniMate's ``action_frame_range``; which nodes are
 bones is decided later), the world bind, the key range, fps, up axis and a
@@ -13,7 +13,7 @@ per-node skin weight summary. Everything after this runs natively, with no SDK.
 
 Resumable: a clip whose cache holds the source's size and mtime is skipped.
 
-KingCobra is read from repaired copies under ``data/unimate/cache/repaired/``
+KingCobra is read from repaired copies under ``<paths.root>/cache/repaired/``
 (raw files are never touched; the probes write in place, so they get copies):
 all 12 clips keep only the ``A01`` colourway (``fbx_strip_variant.py``), and
 ``walk.fbx``, exported without geometry, gets the mesh and skin of ``run.fbx``
@@ -28,7 +28,6 @@ skeleton nor skin.
 from __future__ import annotations
 
 import argparse
-import csv
 import math
 import shutil
 import subprocess
@@ -37,24 +36,23 @@ import time
 from pathlib import Path
 
 import numpy as np
+from omegaconf import OmegaConf
 
 from poseydon.build.corpus import cache_dir
+from poseydon.build.sources import fbx_index
 from poseydon.io.fbx import FBX
 
 ROOT = Path(__file__).resolve().parents[1]
-RAW = ROOT / "data" / "_raw"
-PROBES = RAW / "UniML3D" / "truebones_annotations" / "scripts" / "probes"
-CLIPS = RAW / "UniML3D" / "truebones_annotations" / "clips.csv"
-CACHE = cache_dir(ROOT / "data" / "unimate")
+PROBES = ROOT / "data" / "_raw" / "UniML3D" / "truebones_annotations" / "scripts" / "probes"
 FRAME_RANGE_EPS = 1e-3  # UniMate's action_frame_range rounding
 DONOR = "run.fbx"  # for KingCobra's walk.fbx, see the module docstring
 
 
-def repaired(source: Path) -> Path:
-    """``source``, or a repaired copy of it when its species needs one."""
+def repaired(source: Path, cache: Path) -> Path:
+    """``source``, or a repaired copy of it under ``cache`` when its species needs one."""
     if source.parent.name != "KingCobra":
         return source
-    out = CACHE / "repaired" / "KingCobra" / source.name
+    out = cache / "repaired" / "KingCobra" / source.name
     if not out.exists() or out.stat().st_mtime < source.stat().st_mtime:
         # Repair a scratch copy and rename it on success, so a failure midway
         # is redone next run instead of read as a repaired file.
@@ -131,21 +129,22 @@ def summary(d) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--data", default="unimate", help="configs/data/<name>.yaml with an `fbx_cache` source")
     ap.add_argument("--species", nargs="*", default=[])
     ap.add_argument("--clips", nargs="*", default=[], help="normalized names, e.g. Alligator-Big_Mouth")
     ap.add_argument("--print", action="store_true", help="read and print each clip's summary; write nothing")
     ap.add_argument("--force", action="store_true", help="recache clips that are up to date")
     args = ap.parse_args()
 
-    rows = [r for r in csv.DictReader(open(CLIPS)) if r["status"] == "linked"]
-    rows = [r for r in rows
-            if (not args.species or r["group"] in args.species)
-            and (not args.clips or r["normalized_name"].removesuffix(".fbx") in args.clips)]
+    data = OmegaConf.load(ROOT / "configs" / "data" / f"{args.data}.yaml")
+    raw, cache = ROOT / data.paths.raw / "source", ROOT / data.source.cache
+    rows = [(species, action, file) for species, action, file in fbx_index(ROOT / data.source.index)
+            if (not args.species or species in args.species)
+            and (not args.clips or f"{species}-{action}" in args.clips)]
     done = failed = skipped = 0
-    for r in rows:
-        source = RAW / "truebones" / "source" / r["group"] / Path(r["file"]).name
-        species, action = r["normalized_name"].removesuffix(".fbx").split("-", 1)
-        out = CACHE / "fbx" / species / f"{action}.npz"
+    for species, action, file in rows:
+        source = raw / file
+        out = cache / species / f"{action}.npz"
         stat = source.stat()
         if not args.print and not args.force and out.exists():
             with np.load(out) as old:
@@ -154,7 +153,7 @@ def main() -> int:
                     continue
         t0 = time.time()
         try:
-            d = read(repaired(source))
+            d = read(repaired(source, cache_dir(ROOT / data.paths.root)))
         except Exception as error:  # one bad clip must not stop a long run
             failed += 1
             print(f"FAILED {species}-{action}: {error!r}", flush=True)

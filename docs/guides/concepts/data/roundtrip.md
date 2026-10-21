@@ -53,7 +53,7 @@ reads the saved parameters and never refits. The stages Truebones lists:
 |---|---|---|---|---|
 | 1 | [`UpAxis`][poseydon.build.UpAxis] | rig | turns the manifest's `up_axis:` (default +Y) to +Y | the declared axis |
 | 2 | [`RestRelative`][poseydon.build.RestRelative] | rig | removes the per-joint bind rotation Biped exporters bake into every clip, so identity means the rest pose | the rest pose's bind rotations |
-| 3 | [`PromoteRoot`][poseydon.build.prepare.PromoteRoot] | rig | moves the root off a ground locator onto the first body joint (14 of 73 Truebones rigs) | the removed chain above the new root |
+| 3 | [`PromoteRoot`][poseydon.build.prepare.PromoteRoot] | rig | moves the root off a ground locator, or off static FBX nodes above the body, onto the first body joint (18 of 73 Truebones rigs) | the removed chain above the new root, and any dead branch off it, back at their rest pose |
 | 4 | [`EnforceRigid`][poseydon.build.EnforceRigid] | rig | drops non-root translation so bone lengths are constant | the source's channel declaration, which the writer restores |
 | 5 | [`FaceRestAxis`][poseydon.build.FaceRestAxis] | rig | turns the whole rig so its rest skeleton faces +Z | the rest pose's yaw |
 | 6 | [`FaceAxis`][poseydon.build.FaceAxis] | **clip** | turns the clip's root so its frame-0 facing points along +Z; offsets and every other joint's rotation are left alone | that clip's yaw, which can't be recovered from the prepared file |
@@ -76,9 +76,12 @@ height difference between a crouch and a stand. `FaceAxis` is the only clip
 stage of the Truebones chain, so it is the only parameter recorded per clip
 (`data=unimate` adds `centre_xz_clip` and `ground_clip`).
 
-You run preparation with `scripts/process_dataset_truebones.py`. With a `bvh_files` source
-it runs on the BVH only and FBX enters at export; `fbx_cache` reads FBX at stage 1
-through the cache. Each rig also gets a
+You run preparation with `scripts/process_dataset_truebones.py`. Truebones and
+UniMate's recipe both read FBX at stage 1, through the cache (`fbx_cache`): motion and
+mesh come from one file, and each Truebones rig's rest pose is the bind of its rest
+asset, the vendor FBX re-bound to the manifest's `rest_pose:`
+(`tools/build_rest_fbx.py`). A `bvh_files` source runs on the BVH only and has no
+FBX export. Each rig also gets a
 `report.json` recording what was done and why. See [build: preparation](../../../api/build/preparation.md).
 
 ## The model's view: reduction
@@ -109,24 +112,26 @@ about one rig and moves a clip between spaces; the file format then writes
 whatever clip it is given:
 
 ```python
-record = RigRecord.load(corpus, raw, "Dog")
+record = RigRecord.load(corpus, "Dog")
 prepared = record.expand(model)                       # every joint (after rig cleanup), canonical
 source = record.restore(model, facing_from="attack")  # the user's rig
 
 BVH.from_animation(source, channels=record.source_channels).write("dog.bvh")
-FBX.from_animation(source, record.calibration("source")).write("dog.fbx")
-FBX.from_animation(prepared, record.calibration("prepared")).write("dog_prepared.fbx")
+FBX.from_animation(source, record.asset).write("dog.fbx")
+placed, space = record.placement(model, facing_from="attack")
+FBX.from_animation(placed, record.asset, space).write("dog_prepared.fbx")
 ```
 
 | space | joints | frame | BVH | FBX |
 |---|---|---|---|---|
 | **model view** | exactly the model's | canonical (+Z, scaled, centred, grounded) | the animation | expand first |
-| **prepared** | every joint (after rig cleanup) | canonical | the animation | the vendor's own asset in canonical space, mesh included |
-| **source** | the source's own | source units, frame, names, channels | with the source's `CHANNELS` block | the vendor's own asset: nodes, mesh, skin, materials |
+| **prepared** | every joint (after rig cleanup) | canonical | the animation | the rest asset in canonical space, mesh included |
+| **source** | the source's own | source units, frame, names, channels | with the source's `CHANNELS` block | the rest asset: the vendor's nodes, mesh, skin, materials, bound in the rest pose |
 
-Every FBX carries the vendor's mesh. A source BVH needs `source_channels` and
-an FBX needs the calibration for its clip's space, because neither is in an
-animation.
+Every FBX carries the vendor's mesh, re-bound to the rest pose. A source BVH needs
+`source_channels` and an FBX needs the rest asset (and, for canonical space, the
+placement), because neither is in an animation. The source clip is in the asset's
+own space, so its joints drive the asset's nodes by name: there is no calibration.
 
 **FBX goes through a calibration.** The vendor ships the same clip as
 BVH and as FBX, and the two are the same motion under one similarity (units,
