@@ -260,6 +260,15 @@ class MotionDataset:
         """
         manifest = self._manifest(skeleton)
         reduced = apply_reduction(self._rest_clip(skeleton), self._reduction(skeleton))
+        if reduced.n_frames < 2:
+            # A one-frame rest (an authored or FBX T-pose, a bind pose) has no
+            # velocity to measure; held for a second frame, it is still, which
+            # is what it is.
+            reduced = RigidBodyAnimation.from_root_motion(
+                rotations=np.repeat(reduced.rotations[:1], 2, axis=0),
+                root_pos=np.repeat(reduced.root_pos[:1], 2, axis=0), offsets=reduced.offsets,
+                parents=reduced.parents, names=reduced.names, fps=reduced.fps,
+            )
         raw, spec = extract_features(
             reduced, resolve(manifest, reduced.names), self.features
         )

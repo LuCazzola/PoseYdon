@@ -18,6 +18,15 @@ conditioner is ([conditioners](../conditioners/index.md)), or the DataLoader
 and worker setup (`src/poseydon/training/lightning.py`,
 [training](../training/index.md)).
 
+## Limitations
+
+- **A one-frame rest clip is held for a second frame.** The rest-frame
+  features (`MotionDataset._extract_rest`) need two frames for velocity, and 22
+  Truebones rigs (the 15 authored T-poses and 7 vendor T-poses read from FBX)
+  and every `data=unimate` rig (`bind_pose`) have a one-frame rest. Held still,
+  its velocity is zero. Until 2026-10-21 their features came back empty and
+  training stopped on the first item of such a rig.
+
 ## Class diagram
 
 ```mermaid

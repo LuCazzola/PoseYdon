@@ -103,11 +103,16 @@ def find_clip_of_rig(dataset: MotionDataset, rig: str) -> ClipRecord:
 
     Every prepared clip of a rig shares its offsets (`FaceAxis` turns only the
     root), so this is a fixed choice rather than a correctness one: the rig's
-    declared reference, the same clip `tpose` and `skeleton.npz` come from.
+    declared reference, the same clip `tpose` and `skeleton.npz` come from. A
+    one-frame rest clip (an authored or FBX T-pose) is not in the index, so the
+    rig's first indexed clip stands in; its rest frame is the rest clip's anyway
+    (`MotionDataset._rest_frame_of`).
     """
-    if not any(record.skeleton == rig for record in dataset.records):
+    records = [record for record in dataset.records if record.skeleton == rig]
+    if not records:
         raise LookupError(f"no clips for skeleton `{rig}` in this dataset")
-    return find_clip(dataset, rig, dataset.rest_action(rig))
+    rest = dataset.rest_action(rig)
+    return next((record for record in records if record.action == rest), records[0])
 
 
 def _resolve(dataset: MotionDataset, content: ClipRecord | str) -> ClipRecord:

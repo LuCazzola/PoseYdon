@@ -23,11 +23,13 @@ for metrics that decode more than once per pair. The whole flow is drawn on
 
 ## Limitations
 
-- **The target rig must keep its rest clip in the dataset.** `find_clip_of_rig`
+- **A rig's rest clip stands for it only when it is indexed.** `find_clip_of_rig`
   templates conditioning and geometry on the rest clip (`rest_action` in
-  `skeleton.npz`), the rig's declared reference. A blacklist or split that
-  leaves the rest clip out makes `sample` and `retarget` raise for that rig,
-  although any clip of it would carry the same geometry.
+  `skeleton.npz`); a one-frame rest (an authored or FBX T-pose) is never in the
+  index, nor is one a blacklist or split leaves out, and then the rig's first
+  indexed clip stands in (same offsets; the rest frame is still the rest
+  clip's). Until 2026-10-21 that raised, which skipped two of the three
+  retarget validation pairs (Coyote to Crab, Goat to Raptor).
 - **`Blend` on a model without a semantic latent does nothing.** `LatentMix`
   writes `z_sem` into the conditioning, and AnyTop never reads it, so the
   result is plain generation with no error. `Retarget` checks for `encode` and
