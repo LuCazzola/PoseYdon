@@ -15,7 +15,7 @@ get to what they do.
 | container | what it's for | when you need it |
 |---|---|---|
 | `test` | the tests, the `poseydon` command, the dataset scripts (CPU only) | always |
-| `train` | training on the GPU | [training](train-and-generate.md) |
+| `train` | training on the GPU | [training](03-train-and-generate.md) |
 | `fbxsdk` | reading and writing FBX files | exporting FBX |
 | `fbx` | Blender, used only to render an FBX to a video | looking at an FBX |
 | `compat` | the reference implementation, for comparing against | rarely |
@@ -27,9 +27,9 @@ docker compose build test
 docker compose run --rm -T test python -m pytest -q
 ```
 
-The suite checks the [data round trip](../../concepts/data/roundtrip.md) on every clip of
+The suite checks the [data round trip](../../user-guide/roundtrip.md) on every clip of
 the dataset, so it needs the dataset built first (see
-[the next tutorial](build-a-corpus.md)). On a machine without it, the
+[the next tutorial](02-build-a-corpus.md)). On a machine without it, the
 round-trip tests have nothing to run. The whole BVH half takes about two
 minutes.
 
@@ -63,4 +63,4 @@ docker run --privileged --rm tonistiigi/binfmt --install amd64,386
 
 BVH works everywhere without any of this.
 
-**Next:** [Building the dataset](build-a-corpus.md).
+**Next:** [Building the dataset](02-build-a-corpus.md).

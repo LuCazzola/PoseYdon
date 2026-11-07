@@ -11,7 +11,7 @@ canonical space (`RigRecord.placement`). The clip is the first of the rig's
 training clips that has a vendor FBX in the dataset's clip index, so 1_source.fbx
 is an independent reference: open it and 4_ side by side and they should agree
 up to the losses the round trip makes by design
-(docs/guides/concepts/data/roundtrip.md). Needs the Autodesk FBX SDK:
+(docs/user-guide/roundtrip.md). Needs the Autodesk FBX SDK:
 
     docker compose run --rm -T fbxsdk python scripts/build_stage_samples.py [--data truebones] [--rigs Camel Flamingo]
 """

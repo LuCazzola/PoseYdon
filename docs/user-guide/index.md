@@ -2,18 +2,16 @@
 
 A whole family of motion papers builds on
 [MDM](https://guytevet.github.io/mdm-page/), the Motion Diffusion Model, and
-on its code. That code did its job in 2022. Let's be honest about it by
-today's standards, though: there is no modularity to speak of, every new idea
-is another flag threaded through the same files, and extending or maintaining
-it is a chore. Ask anyone who has tried.
+on its code. That code did its job, and it fixed a lot in place: a new idea
+tends to mean another flag threaded through the same files.
 
-PoseYdon is the answer to that frustration. Its starting point is
+PoseYdon rebuilds that scaffolding so the parts can change on their own. Its
+starting point is
 [Neural Motion Blending](https://mmlab-cv.github.io/neural_motion_blending/),
 an earlier work by this repository's author.
 
-This page walks through the handful of rules that keep it modular. The per-package *Why it is shaped this way*
-sections in the [index](../../index/INDEX.md) go deeper and cite the code
-and commits behind each decision.
+This page walks through the handful of rules that keep it modular. The
+[API pages](../api/index.md) go deeper, package by package.
 
 ## The big picture
 
@@ -83,7 +81,7 @@ spec.take(batch.x, "rot6d_joint", axis=2)   # (B, J, 6, T): channels are not las
 ```
 
 The axis is passed explicitly because it really does differ between a clip and
-a batch (see [Notation](data/notation.md#array-shapes)); a helper that
+a batch (see [Glossary](../reference/glossary.md#array-shapes)); a helper that
 guessed would read frames as channels.
 
 ## Only declared conditioning is loaded
@@ -132,7 +130,7 @@ own joints, units and mesh. That works because every step that changes a
 character saves what undoing it needs: preparation in `preproc.npz`, joint removal in `skeleton.npz`, training
 settings in the recipe. Export replays them in reverse. Preparation (which
 moves things) and reduction (which removes joints) are kept apart so that each
-can be undone exactly on its own. [The round trip](data/roundtrip.md) is the
+can be undone exactly on its own. [The round trip](roundtrip.md) is the
 full story.
 
 ## Matching the reference is measured, not claimed

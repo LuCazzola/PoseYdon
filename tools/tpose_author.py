@@ -1,7 +1,7 @@
 """Authoring T-poses for Truebones rigs whose rest pose comes from a motion clip: the whole toolkit in one file.
 
 WHY
-    15 rigs (docs/index/todo.md, the "rest pose from a motion clip" row) have no usable vendor T-pose, so their
+    15 rigs (docs/reference/ideas.md) have no usable vendor T-pose, so their
     rest pose is a clip's first frame (seated, mid-trot, coiled ...). This tool authors a clean one-frame rest pose
     per rig, `data/_raw/truebones/source/<Rig>/__TPOSE_authored.bvh`, with the clips' joint set and channels.
     It changes nothing under src/ and never overwrites a vendor `__TPOSE.bvh`.

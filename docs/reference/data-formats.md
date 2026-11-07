@@ -1,7 +1,7 @@
-# Dataset layout
+# Data formats
 
 What is on disk, and what each file is for. The words used here are defined
-in [Notation](notation.md).
+in the [Glossary](glossary.md).
 
 ```
 data/
@@ -29,7 +29,7 @@ data/
 Only the hand-written files are in git: the manifests, the clip index
 `fbx_clips.csv` and the clip `.yaml` files. What is done to every rig alike, from preparation to loading, is the
 dataset config, `configs/data/truebones.yaml`. Everything else is rebuilt by
-the two steps in [Building the dataset](../../how-to/tutorials/build-a-corpus.md);
+the two steps in [Building the dataset](../how-to/tutorials/02-build-a-corpus.md);
 `cache/` comes from `tools/build_joint_name_cache.py`, `scripts/build_fbx_cache.py` (`cache/fbx/`, every clip read from its vendor FBX) and `tools/build_rest_fbx.py` (`cache/rigs/<Rig>/`: the rest asset `rest.fbx`, its read `rest.npz`, `rest_mesh.npz`), the last two needing the FBX SDK.
 
 ## The raw files
@@ -68,7 +68,7 @@ What every Truebones rig shares lives in the dataset config instead: 30 fps
 (`source.fps`), the preparation stages and their parameters (`prepare:`, the
 target bone length among them), which joints the model may drop (`reduce:`,
 with the still-joint cut-off, see
-[features: reduction](../../../api/features/reduction.md)) and the
+[features: reduction](../api/features/reduction.md)) and the
 foot-contact thresholds (`labels.contact`).
 
 ## The per-rig records

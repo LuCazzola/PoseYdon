@@ -5,8 +5,8 @@ it had grown too large to troubleshoot with.
 
 | file | covers |
 |---|---|
-| `tests/test_roundtrip.py` | the [data round trip](../concepts/data/roundtrip.md), on every prepared clip of one dataset, in BVH (`test_round_trip`) and FBX (`test_round_trip_fbx`), plus `test_up_axis`: one rig turned to Z-up and declared so |
-| `tests/test_docs_index.py` | `docs/index/` names every package, script and tool, and no path that has gone |
+| `tests/test_roundtrip.py` | the [data round trip](../user-guide/roundtrip.md), on every prepared clip of one dataset, in BVH (`test_round_trip`) and FBX (`test_round_trip_fbx`), plus `test_up_axis`: one rig turned to Z-up and declared so |
+| `tests/test_docs_index.py` | the Map names every package, script and tool, and no path that has gone; every package has an API page |
 
 ```bash
 docker compose run --rm -T test python -m pytest -q                      # BVH half, ~2 min
@@ -16,7 +16,7 @@ docker compose run --rm -T fbxsdk python -m pytest -q -k Camel           # BVH +
 ```
 
 The FBX half needs the Autodesk FBX SDK, which only the `fbxsdk` container has
-(see [tooling](../../index/tooling.md#dependencies)); elsewhere it skips, and says
+(see [tooling](../reference/tooling.md#dependencies)); elsewhere it skips, and says
 so. Under QEMU it costs about 11 s a clip, a few hours for the whole corpus.
 
 `--dataset <name>` reads `data/<name>/` (prepared), `data/_raw/<name>/source/`

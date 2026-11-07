@@ -35,7 +35,7 @@ motion = task.run(model, process, sampler, shape=shape, cond=cond)
   must have the same shape.
 - Pass `length=` as the number of frames: without it, the schedule is sized
   from the batch axis and fails unless the batch size equals the frame count
-  (listed in [Open work](../../../index/todo.md)).
+  (listed in [Issues & Ideas](../../reference/ideas.md)).
 - `model`, `process`, `sampler` and `cond` are built the same way
   `poseydon sample` builds them; `src/poseydon/cli.py` (`_sample`) is the
   working example.

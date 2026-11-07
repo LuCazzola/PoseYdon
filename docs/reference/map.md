@@ -1,6 +1,6 @@
-# Index
+# Map
 
-Where things live. Read this first, then the page in the third column.
+Where things live. Find the path, then read the page in the third column.
 
 The repo has two sides, and they change under different rules:
 
@@ -9,7 +9,7 @@ The repo has two sides, and they change under different rules:
 - **Tooling**: everything built around the library (scripts, probes, configs,
   tests, data, containers). It uses the library and owns no contract.
 
-See [overview](overview.md) for how the pipeline fits together.
+See the [overview](../user-guide/overview.md) for how the pipeline fits together.
 
 ## Library
 
@@ -80,23 +80,27 @@ meant to be deleted once read.
 | path | holds | read |
 |---|---|---|
 | `configs/` | Hydra configs: `configs/train.yaml`, `configs/sample.yaml`, `configs/build.yaml`, groups `configs/data/` (one file per dataset, raw file to training sample), `configs/features/`, `configs/model/`, `configs/process/`, `configs/trainer/` | [tooling](tooling.md#configs) |
-| `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this index honest | [testing guide](../guides/how-to/testing.md) |
-| `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [layout guide](../guides/concepts/data/layout.md) |
-| `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [layout guide](../guides/concepts/data/layout.md) |
+| `tests/` | `tests/test_roundtrip.py`, the data round trip on every clip of a dataset (`--dataset`); `tests/test_docs_index.py` keeps this map honest | [testing guide](../how-to/testing.md) |
+| `data/truebones/rigs/` | per-character prepared assets: manifest, preprocessing, skeleton, stats, report | [data formats](data-formats.md) |
+| `data/truebones/clips/<Rig>/` | prepared motion clips per character (derived; not tracked in git, rebuilt by stage 1) | [data formats](data-formats.md) |
 | `data/truebones/fbx_clips.csv` | the Truebones clip index: `rig,action,file` per clip (the vendor FBX of each BVH-era action, `bvh` naming the BVH it replaced), read by the `fbx_cache` source and `scripts/build_fbx_cache.py` | [build](../api/build/index.md) |
 | `data/unimate/` | the `data=unimate` corpus, gitignored as a whole (generated manifests included): `data/unimate/cache/`, the prepared layout, `dropped.json`, `replication.json` | [tooling](tooling.md#data) |
 | `data/_raw/` | raw licensed vendor files, kept out of the prepared layout | [tooling](tooling.md#data) |
-| `docs/index/` | this index, the overview, tooling and the open-work list; each library package is documented on its API page | [overview](overview.md) |
-| `docs/guides/` | the guides: `docs/guides/concepts/` (design rationale, data) to read, `docs/guides/how-to/` (tutorials, how-tos) to follow; the nav is in `mkdocs.yml` | [docs](../README.md) |
+| `docs/reference/` | this map, the glossary, data formats, tooling, the issues & ideas page and its ticket scripts (`docs/reference/open_ticket.py`, `docs/reference/edit_ticket.py`, `docs/reference/close_ticket.py`, run on the host) | [issues & ideas](ideas.md) |
+| `docs/user-guide/`, `docs/how-to/` | the guides: `docs/user-guide/` (design rationale, overview, round trip) to read, `docs/how-to/` (tutorials, tasks, adding, testing) to follow; the nav is in `mkdocs.yml` | [docs](../index.md) |
 | `docker-compose.yml` | services `test`, `train`, `compat`, `fbxsdk` (FBX I/O), `fbx` (Blender, rendering only), `docs` (the docs site, kept running) | [tooling](tooling.md#containers) |
 | `Dockerfile` | the multi-stage image behind those services: OS and system packages only | [tooling](tooling.md#containers) |
 | `uv.lock` | every Python dependency, pinned; installed with `uv sync --locked` | [tooling](tooling.md#dependencies) |
-| `CLAUDE.md` | instructions for agents: start here, and keep `docs/index/` current | [index](INDEX.md) |
+| `CLAUDE.md`, `AGENTS.md` (symlink) | rules for agents: start at the docs home, keep the docs true, how to test and behave | [docs](../index.md) |
+| `.github/workflows/docs.yml` | builds the site strictly on every PR, and deploys it to GitHub Pages from `main` | [tooling](tooling.md#docs-site) |
+| `.github/workflows/claude.yml` | runs Claude Code on `@claude` mentions in issues and PRs | [tooling](tooling.md#docs-site) |
+| `.github/ISSUE_TEMPLATE/` | the bug template; ideas are redirected to the ideas table | [issues & ideas](ideas.md) |
 | `docs/api/` | one page per library package and subpackage, following the package tree (`docs/api/models/modules/index.md`), plus a page per separate design inside a package (`docs/api/build/preparation.md`, `docs/api/features/reconstruction.md`, `docs/api/features/reduction.md`) in its dropdown: one class diagram, then the reference generated from the docstrings at build time, the package docstring and one `:::` line per module (each module on exactly one page); `docs/api/index.md` is the diagram legend, `docs/api/retargeting.md` the one cross-package overview | [API](../api/index.md) |
 | `docs/javascripts/diagrams.js` | draws every Mermaid fence in the page itself (not Material's integration, whose shadow DOM breaks class-diagram markers in dark mode), colours classes by role, and opens a clicked diagram full-screen with pan and zoom; styles in `docs/stylesheets/diagrams.css` | [API](../api/index.md) |
-| `mkdocs.yml` | the docs site and its explicit nav (a page left out fails the strict build): `uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve` | [docs](../README.md) |
+| `mkdocs.yml` | the docs site and its explicit nav (a page left out fails the strict build): `uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve` | [docs](../index.md) |
 
 ## Open work
 
-[todo](todo.md) lists what is known to be open: suspected bugs, leftovers and
-decisions still pending. Treat it as leads to check, not as settled fact.
+[Issues & Ideas](ideas.md) lists what is known to be open: bugs and loose ends
+as GitHub issues, proposed changes and pending decisions as ideas. Treat them as
+leads to check, not as settled fact.

@@ -14,7 +14,7 @@ registered by name in `src/poseydon/ops/`:
 None of them needs a model trained specially for it. A task is a small object
 that says how to steer the same sampling loop, which is why one checkpoint can
 do all four (see
-[Design rationale](../../concepts/rationale.md#sampler-control-and-operation-are-three-separate-things)).
+[Design rationale](../../user-guide/index.md#sampler-control-and-operation-are-three-separate-things)).
 
 ## What every task shares
 
@@ -64,4 +64,4 @@ length on average rather than reaching zero.
 Each result is written as a `.anim.npz` (the motion exactly as generated),
 a `.bvh`, and with `--render` an `.mp4` stick-figure video. To put it on the
 real character, export the `.anim.npz` as in
-[Train, generate, export](../tutorials/train-and-generate.md#export-onto-the-real-character).
+[Train, generate, export](../tutorials/03-train-and-generate.md#export-onto-the-real-character).

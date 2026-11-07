@@ -22,7 +22,7 @@ there alongside the BVH test. One test per clip, so `-k Camel` or
     docker compose run --rm -T test python -m pytest -q tests/test_roundtrip.py --dataset truebones
     docker compose run --rm -T fbxsdk python -m pytest -q tests/test_roundtrip.py --dataset truebones
 
-What is asserted is what the round trip promises (docs/guides/concepts/data/roundtrip.md):
+What is asserted is what the round trip promises (docs/user-guide/roundtrip.md):
 structure exact, root trajectory exact, every observable world rotation exact,
 bones rigid. What it loses by design is not asserted: per-joint translation
 (`EnforceRigid`, one rigid geometry per rig), the locator chain above a

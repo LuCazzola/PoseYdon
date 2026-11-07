@@ -23,13 +23,13 @@ docker compose run --rm test python -m poseydon.cli retarget \
 |---|---|
 | `--content <Rig>/<action>` | the clip to take the motion from |
 | `--target <Rig>` | the character to perform it on |
-| `--guidance-scale` | how strongly to follow the content clip; see [the guidance scale](overview.md#the-guidance-scale) |
+| `--guidance-scale` | how strongly to follow the content clip; see [the guidance scale](index.md#the-guidance-scale) |
 | `--out` | where to write the results (default `retargets/`) |
 
 The output is as long as the content clip, because the latent has one entry
 per frame. To put it on the target's real character, mesh and all, export the
 `.anim.npz` as in
-[Train, generate, export](../tutorials/train-and-generate.md#export-onto-the-real-character).
+[Train, generate, export](../tutorials/03-train-and-generate.md#export-onto-the-real-character).
 
 ## Watching it during training
 

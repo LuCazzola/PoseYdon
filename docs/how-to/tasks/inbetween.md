@@ -22,7 +22,7 @@ motion = task.run(model, process, sampler, shape=clip.shape, cond=cond)
 ```
 
 - `clip` is a batch of motion in the model's features, shaped `(B, J, D, T)`
-  (see [Notation](../../concepts/data/notation.md#array-shapes)). Only its
+  (see [Glossary](../../reference/glossary.md#array-shapes)). Only its
   first `head` and last `tail` frames are used.
 - `model`, `process`, `sampler` and `cond` are built the same way
   `poseydon sample` builds them; `src/poseydon/cli.py` (`_sample`) is the

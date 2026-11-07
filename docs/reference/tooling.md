@@ -210,8 +210,8 @@ Two files:
   narrowed with `-k <Rig>` or `-k <Rig>/<action>`. Its BVH half runs anywhere;
   its FBX half (`test_round_trip_fbx`) needs the `fbxsdk` container and skips
   elsewhere.
-- `tests/test_docs_index.py` keeps `docs/index/` structurally in step with
-  the tree.
+- `tests/test_docs_index.py` keeps the [Map](map.md) and the API pages
+  structurally in step with the tree.
 
 ```bash
 docker compose run --rm -T test python -m pytest -q                 # BVH, ~2 min
@@ -220,12 +220,12 @@ docker compose run --rm -T fbxsdk python -m pytest -q -k Camel      # BVH + FBX,
 
 Under QEMU the FBX half costs about 11 s a clip, a few hours for the whole
 corpus. What is covered and what is not:
-[testing guide](../guides/how-to/testing.md).
+[testing guide](../how-to/testing.md).
 
 ## Data
 
 The prepared layout (`data/truebones/rigs/<Rig>/`, `data/truebones/clips/<Rig>/`)
-is described file by file in the [layout guide](../guides/concepts/data/layout.md).
+is described file by file in the [data formats](data-formats.md) page.
 Raw licensed vendor files live under `data/_raw/` and never mix into the
 prepared layout. Everything derived (`*.npz`, `*.bvh`, `*.fbx`, `index.jsonl`)
 is gitignored by extension, because authored and derived files sit side by side
@@ -240,9 +240,9 @@ manifests included): `cache/` (FBX and repaired clips), the prepared layout,
 | `test` | the pure suite, the CLI, and the non-Blender scripts. CPU-only torch |
 | `train` | training on the GPU, with wandb settings forwarded from `.env` |
 | `compat` | running the reference implementation for parity, pinned CPU torch |
-| `fbxsdk` | FBX read/write through the Autodesk FBX SDK, and the FBX half of the tests. x86-64 under QEMU on the GB10 |
+| `fbxsdk` | FBX read/write through the Autodesk FBX SDK, and the FBX half of the tests. x86-64 only, so under QEMU on an ARM host |
 | `fbx` | headless Blender, for `scripts/render_fbx.py` only |
-| `docs` | the docs site at http://127.0.0.1:8019, live-reloading; `restart: unless-stopped`, so after one `docker compose up -d docs` it comes back with the Docker daemon. Python and uv only: mkdocs is fetched by `uvx` and cached in the `docs-cache` volume |
+| `docs` | the docs site on port 8019 of the host, live-reloading; `restart: unless-stopped`, so after one `docker compose up -d docs` it comes back with the Docker daemon. Python and uv only: mkdocs is fetched by `uvx` and cached in the `docs-cache` volume |
 
 All six bind-mount the repo and run as the host user, so source edits need no
 rebuild. Only a `pyproject.toml` or `uv.lock` change needs one.
@@ -273,7 +273,7 @@ SDK, because Blender's exporter writes wrong rotations near gimbal lock
 proprietary: free to use, but never committed or redistributed, so each user
 fetches it and accepts Autodesk's license
 (https://aps.autodesk.com/developer/overview/fbx-sdk) themselves. Its Python
-wheel is x86-64 and CPython 3.11 only, so on the GB10 the image runs under
+wheel is x86-64 and CPython 3.11 only, so on an ARM host the image runs under
 QEMU, registered once per boot:
 
 ```bash
@@ -298,5 +298,13 @@ docker compose build test train compat
 Commit `uv.lock` with the `pyproject.toml` change. `uv sync --locked` refuses
 to build an image from a lock that disagrees with `pyproject.toml`.
 
-The docs site runs as the `docs` service (`docker compose up -d docs`), or
+## Docs site
+
+The site is published at https://lucazzola.github.io/PoseYdon/.
+`.github/workflows/docs.yml` runs the strict build on every PR and deploys to
+GitHub Pages on a push to `main`. `.github/workflows/claude.yml` runs Claude
+Code on `@claude` mentions in issues and PRs, and needs the repository secret
+`CLAUDE_CODE_OAUTH_TOKEN`.
+
+Locally it runs as the `docs` service (`docker compose up -d docs`), or
 without a container: `uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve`.

@@ -25,7 +25,7 @@ Each character also needs a hand-written description of itself,
 shoulders (to work out which way it faces), which are feet, which clip holds
 its rest pose. The clip list, `data/truebones/fbx_clips.csv`, names the FBX each
 clip is read from. These are checked into git. See
-[Dataset layout](../../concepts/data/layout.md) for what each field means.
+[Data formats](../../reference/data-formats.md) for what each field means.
 
 ## Step 0: read the FBX files once
 
@@ -54,7 +54,7 @@ ground, centred, scaled to a common size, with bones that don't stretch. It
 writes the prepared clips to `data/truebones/clips/<Rig>/` and, for each
 character, a `preproc.npz` that records exactly how to undo it. That record is
 what later lets generated motion go back onto the original character; the
-[round trip](../../concepts/data/roundtrip.md) explains how.
+[round trip](../../user-guide/roundtrip.md) explains how.
 
 Add `--rigs Dog Flamingo` to prepare only some characters.
 
@@ -74,7 +74,7 @@ and the feature group the statistics are for (`configs/features/default.yaml`).
 If you change only the feature list, add `--stats-only`: the statistics are the
 only thing that depends on it. The exception is switching the rotation layout,
 which also changes the skeleton, so it needs the full run (see
-[Notation](../../concepts/data/notation.md#rotation-layouts)).
+[Glossary](../../reference/glossary.md#rotation-layouts)).
 
 ## Check it
 
@@ -90,4 +90,4 @@ To look at the result rather than test it,
 `scripts/build_stage_samples.py` (in the `fbxsdk` container) writes one clip
 per character at every stage, as BVH and FBX, under `tmp/truebones/<Rig>/`.
 
-**Next:** [Train, generate, export](train-and-generate.md).
+**Next:** [Train, generate, export](03-train-and-generate.md).

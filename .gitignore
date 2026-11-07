@@ -249,9 +249,9 @@ data/*/cache/
 # by directory rather than folded into the current data model.
 data/truebones/mesh/
 data/truebones/translated/
-# The bone-relative ablation corpus, rebuilt from data/truebones (docs/index/tooling.md).
+# The bone-relative ablation corpus, rebuilt from data/truebones (docs/reference/tooling.md).
 data/truebones_bone/
-# The UniMate recipe's derived corpus, built from data/unimate's raw inputs (docs/index/tooling.md).
+# The UniMate recipe's derived corpus, built from data/unimate's raw inputs (docs/reference/tooling.md).
 data/unimate/
 # Media the README renders must be TRACKED, or the image is broken on the
 # forge. Everything else dropped in here stays ignored.

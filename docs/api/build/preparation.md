@@ -103,7 +103,7 @@ why `prune_unskinned` is ordered after `up_axis` and before the geometry stages:
   treats it). It also raises if the rest pose's translations differ from its offsets,
   which `invert` relies on. On the
   full cache the kept joint sets equal UniMate's `joint_names.json` on all 74 rigs
-  (`--check-against`, `docs/index/tooling.md`).
+  (`--check-against`, `docs/reference/tooling.md`).
 
 - **Facing is two stages, and only one turns the joints.** `FaceRestAxis`
   (rig) turns the whole rig so the rest skeleton faces +Z; `FaceAxis` (clip)

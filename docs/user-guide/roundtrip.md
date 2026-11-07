@@ -26,7 +26,7 @@ flowchart LR
 
 | level | joints | geometry | lives in |
 |---|---|---|---|
-| **source** | as authored | as authored | `data/_raw/truebones/<Rig>/` |
+| **source** | as authored | as authored | `data/_raw/truebones/source/<Rig>/` |
 | **prepared** | source, less any rig cleanup (`prune_unskinned`) | bind removed, root promoted, faced +Z, rigid, centred, scaled, grounded | `data/truebones/clips/<Rig>/` |
 | **model** | zero-length bones removed | as prepared | features, `skeleton.npz` |
 
@@ -37,7 +37,7 @@ lists, `prepare:` and `reduce:`, because separate groups keep the operations
 logically distinct instead of one giant list. That also lets one prepared
 corpus serve several feature layouts, keeps the prepared level a full-character
 artifact with its own round-trip check, and means changing `reduce:` reruns
-stage 2 only ([build: preparation](../../../api/build/preparation.md#rig-cleanup-versus-the-models-lens)).
+stage 2 only ([build: preparation](../api/build/preparation.md#rig-cleanup-versus-the-models-lens)).
 
 ## Going in: preparation
 
@@ -82,7 +82,7 @@ mesh come from one file, and each Truebones rig's rest pose is the one its rest
 asset holds: the manifest's `rest_pose:`, on the vendor FBX and its bind
 (`tools/build_rest_fbx.py`). A `bvh_files` source runs on the BVH only and has no
 FBX export. Each rig also gets a
-`report.json` recording what was done and why. See [build: preparation](../../../api/build/preparation.md).
+`report.json` recording what was done and why. See [build: preparation](../api/build/preparation.md).
 
 ## The model's view: reduction
 
@@ -103,7 +103,7 @@ Reduction is applied **when features are read, never written into the
 corpus**. A generated clip has to land back on the rig, so the corpus keeps
 every joint that rig cleanup (`prune_unskinned`) did not remove. The
 recorded [`JointReduction`][poseydon.features.reduce.JointReduction] is replayed in reverse by [`invert_reduction`][poseydon.features.reduce.invert_reduction]. See
-[features: reduction](../../../api/features/reduction.md).
+[features: reduction](../api/features/reduction.md).
 
 ## Coming back: export
 
@@ -139,7 +139,7 @@ own space, so its joints drive the asset's nodes by name: there is no calibratio
 The writer drives nodes by name through the Autodesk FBX SDK, holding the
 joints `RigRecord.fixed` lists at the asset's rest transform. All 73 Truebones
 rigs export; the old Blender path refused 13. See
-[export](../../../api/export/index.md).
+[export](../api/export/index.md).
 
 `poseydon export` takes a generated clip as `.anim.npz` or `.bvh`. Prefer the
 `.anim.npz` that `sample` and `retarget` write beside each BVH: it is the
@@ -182,7 +182,7 @@ places by design. All numbers below come from the 2026-09-28 audit.
   unskinned controls, helpers, locators) come back at their bind pose with no
   motion. The children of a merged or folded joint land exactly where they were;
   the removed joint itself is not its source motion. `test_round_trip` checks it
-  to a stated bound (see the [testing guide](../../how-to/testing.md)).
+  to a stated bound (see the [testing guide](../how-to/testing.md)).
 - **Twist on a reduced joint is gone.** For example, Bear's zero-offset but
   skinned forearm-twist bones leave the forearm skin up to 5.5% of the mesh
   extent off.
@@ -214,7 +214,7 @@ By design: a model view written as BVH has no rotation for its leaves (a BVH
 leaf has no channels): Dog's ears, tail tip and toes, for instance. The model
 sees those rotations and `RigRecord.restore` brings them back, so only the
 model-view `.bvh`, a debug output, lacks them; export from the `.anim.npz`
-beside it. See [export](../../../api/export/index.md).
+beside it. See [export](../api/export/index.md).
 
 Fixed on 2026-10-13: facing is two stages. `FaceRestAxis` turns each rig
 once so its rest skeleton faces +Z, and `FaceAxis` turns each clip's root so
@@ -227,16 +227,16 @@ out up to ~90° off +Z.
 Also fixed on 2026-10-13: the model now sees every rotation it can be asked to
 generate. The default `rot6d_joint` layout stores each joint's own rotation,
 and under `rot6d_bone` the reduction keeps the End Site that carries a
-parent's rotation ([features: reduction](../../../api/features/reduction.md)).
+parent's rotation ([features: reduction](../api/features/reduction.md)).
 
 The `PromoteRoot` joint-index fix and the BVH writer's depth-first and
-channel-layout fixes landed on 2026-10-12; see [build: preparation](../../../api/build/preparation.md)
-and [io](../../../api/io/index.md).
+channel-layout fixes landed on 2026-10-12; see [build: preparation](../api/build/preparation.md)
+and [io](../api/io/index.md).
 
 ## Where to read further
 
-- [build: preparation](../../../api/build/preparation.md): the stages, [`RigTransform`][poseydon.build.prepare.RigTransform],
+- [build: preparation](../api/build/preparation.md): the stages, [`RigTransform`][poseydon.build.prepare.RigTransform],
   `preproc.npz`
-- [features: reduction](../../../api/features/reduction.md): reduction and expansion
-- [export](../../../api/export/index.md): [`RigRecord`][poseydon.export.rig.RigRecord]
-- [io](../../../api/io/index.md): what BVH and FBX can and can't carry
+- [features: reduction](../api/features/reduction.md): reduction and expansion
+- [export](../api/export/index.md): [`RigRecord`][poseydon.export.rig.RigRecord]
+- [io](../api/io/index.md): what BVH and FBX can and can't carry

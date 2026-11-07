@@ -13,7 +13,7 @@ Motion moves through three levels: **source** (as the vendor authored it),
 rigid, scaled, grounded, centred) and **reduced** (degenerate joints removed, as features). Preparation
 changes geometry and may clean up the rig (recorded); reduction is the model's
 lens: it changes structure and keeps geometry. Both are invertible, which is what lets a generated clip go back onto
-the character the user supplied. The [round-trip guide](../guides/concepts/data/roundtrip.md)
+the character the user supplied. The [round-trip guide](roundtrip.md)
 walks through it end to end.
 
 ```mermaid
@@ -75,7 +75,7 @@ flowchart LR
 
 Every library package imports [`core`](../api/core/index.md); that edge is left out
 of the diagram. Raw vendor data comes in under `data/_raw/` and prepared data
-goes out to `data/truebones/`. See [tooling](tooling.md) for that side.
+goes out to `data/truebones/`. See [tooling](../reference/tooling.md) for that side.
 
 ### Stage 1: prepare (source → prepared)
 
@@ -122,7 +122,7 @@ A dataset is a folder of motion files plus one YAML manifest per skeleton.
 Joints are referenced by name, never by index, so a re-exported rig fails loudly
 instead of silently mirroring the character. Adding a character means adding
 files. Worked example:
-[architecture guide](../guides/concepts/rationale.md#skeleton-knowledge-is-data-not-code).
+[design rationale](index.md#skeleton-knowledge-is-data-not-code).
 
 ### Features are composed at read time
 
@@ -130,7 +130,7 @@ Disk stores the canonical prepared animation, not features. A `FeatureSpec`
 owns the layout, so code asks for a block by name and fails loudly against a
 representation that lacks it. Changing the representation never re-runs
 preparation. Worked example:
-[architecture guide](../guides/concepts/rationale.md#features-are-computed-when-data-is-read).
+[design rationale](index.md#features-are-computed-when-data-is-read).
 
 ### Only declared conditioning is loaded
 
@@ -138,21 +138,21 @@ preparation. Worked example:
 Anything else is a declared conditioner. The conditioner list is recorded in
 the recipe and checked at sampling time, because sampling without a conditioner
 the model trained with produces plausible-looking garbage and no error. Worked
-example: [architecture guide](../guides/concepts/rationale.md#only-declared-conditioning-is-loaded).
+example: [design rationale](index.md#only-declared-conditioning-is-loaded).
 
 ### Latent models subclass; they do not get an injected autoencoder
 
 `LatentDenoiser` overrides `prepare`/`restore` with its own encoder and
 decoder. The task body is the same for every model, and nothing branches on
 model kind. Worked example:
-[architecture guide](../guides/concepts/rationale.md#latent-models-are-subclasses).
+[design rationale](index.md#latent-models-are-subclasses).
 
 ### Sampler, control and operation are separate
 
 A sampler solves the trajectory, a control edits each step, and an operation is
 the user-facing verb. In-betweening is imputation during sampling and needs no
 model change. Worked example:
-[architecture guide](../guides/concepts/rationale.md#sampler-control-and-operation-are-three-separate-things).
+[design rationale](index.md#sampler-control-and-operation-are-three-separate-things).
 
 ### Every transform is invertible and recorded
 
@@ -160,7 +160,7 @@ Preparation and reduction both record their inverse: `preproc.npz`, the
 reduction mapping in `skeleton.npz`, and the recipe beside each checkpoint.
 That record is what lets [`export`](../api/export/index.md) carry a generated clip
 back to the user's original rig (see the
-[round-trip guide](../guides/concepts/data/roundtrip.md)).
+[round-trip guide](roundtrip.md)).
 
 ### Parity is measured, not claimed
 

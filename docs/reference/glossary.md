@@ -1,4 +1,4 @@
-# Notation and conventions
+# Glossary and conventions
 
 The words, letters and axes the rest of the docs and the code use, in one
 place.
@@ -34,7 +34,7 @@ them up:
 | **model view** | the prepared joints minus those that carry nothing | canonical | features, `skeleton.npz` |
 
 Preparation changes where things are and keeps the joints, except what rig cleanup removes (recorded). Reduction removes
-joints and keeps where things are. [The round trip](roundtrip.md) shows how
+joints and keeps where things are. [The round trip](../user-guide/roundtrip.md) shows how
 each is undone.
 
 ## The canonical frame
@@ -133,7 +133,7 @@ Both recover every rotation that moves something. Switching between them
 changes which joints the model view keeps, so it means rebuilding the
 skeleton (`scripts/build_features.py` without `--stats-only`) and passing the
 same `--layout` to `poseydon export`. Details:
-[features](../../../api/features/index.md#two-rotation-layouts).
+[features](../api/features/index.md#two-rotation-layouts).
 
 ## File extensions
 
@@ -145,4 +145,4 @@ same `--layout` to `poseydon export`. Details:
 | `.anim.npz` | a generated motion exactly as the model produced it; export from this |
 
 The per-rig files (`preproc.npz`, `skeleton.npz`, `stats.npz`,
-`report.json`) are described in [Dataset layout](layout.md).
+`report.json`) are described in [Data formats](data-formats.md).
