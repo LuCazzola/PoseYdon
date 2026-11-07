@@ -91,6 +91,26 @@ class Skin:
     weight_sum: np.ndarray
 
 
+@dataclass(frozen=True)
+class SkinData:
+    """One skin deformer read whole: the mesh, and per cluster its link, bind
+    matrices and weights, enough to skin it without the SDK.
+
+    ``points`` keeps every control point (indices match the file's), ``faces``
+    are the polygons fanned into triangles, ``link_bind`` and ``mesh_bind`` are
+    ``(C, 4, 4)`` column-vector matrices, ``indices``/``weights`` one array per cluster.
+    """
+
+    mesh: str
+    points: np.ndarray
+    faces: np.ndarray
+    links: tuple[str, ...]
+    link_bind: np.ndarray
+    mesh_bind: np.ndarray
+    indices: tuple[np.ndarray, ...]
+    weights: tuple[np.ndarray, ...]
+
+
 @dataclass
 class FBX:
     """One loaded FBX scene, its node hierarchy and its single take."""
@@ -327,6 +347,33 @@ class FBX:
                     top[at], total[at] = max(top[at], weight.max()), total[at] + weight.sum()
             node = geometry.GetNode()
             out.append(Skin(node.GetName() if node else "", geometry.GetControlPointsCount(), top, total))
+        return out
+
+    def skin_data(self) -> list[SkinData]:
+        """Every skin deformer read whole (see `SkinData`)."""
+        out = []
+        for skin in self._skins():
+            geometry = skin.GetGeometry()
+            node = geometry.GetNode()
+            points = np.array([[p[0], p[1], p[2]] for p in geometry.GetControlPoints()])
+            faces = []
+            for p in range(geometry.GetPolygonCount()):
+                ring = [geometry.GetPolygonVertex(p, i) for i in range(geometry.GetPolygonSize(p))]
+                faces += [(ring[0], ring[i], ring[i + 1]) for i in range(1, len(ring) - 1)]
+            links, link_bind, mesh_bind, indices, weights = [], [], [], [], []
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                a, b = fbx.FbxAMatrix(), fbx.FbxAMatrix()
+                cluster.GetTransformLinkMatrix(a)
+                cluster.GetTransformMatrix(b)
+                links.append(cluster.GetLink().GetName())
+                link_bind.append(_matrix(a))
+                mesh_bind.append(_matrix(b))
+                indices.append(np.array(cluster.GetControlPointIndices(), dtype=int))
+                weights.append(np.array(cluster.GetControlPointWeights(), dtype=float))
+            out.append(SkinData(node.GetName() if node else "", points, np.array(faces, dtype=int).reshape(-1, 3),
+                                tuple(links), np.array(link_bind).reshape(-1, 4, 4),
+                                np.array(mesh_bind).reshape(-1, 4, 4), tuple(indices), tuple(weights)))
         return out
 
     def world(self, frames: np.ndarray | None = None) -> np.ndarray:

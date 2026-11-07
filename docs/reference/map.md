@@ -54,6 +54,7 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
+| `tools/verify/skin.py` | the reference skin: `deform` recomputes a vendor FBX's linear blend skinning from `FBX.skin_data`; needs the `fbxsdk` service for its test | [io](../api/io/index.md) |
 | `tools/build_rest_fbx.py` | each rig's rest asset under `cache/rigs/<Rig>/`: its vendor FBX held in the rest pose (`rest.fbx`, what FBX export writes onto), its read (`rest.npz`, with the rest pose `fbx_cache` takes with `rest_asset`) and the rest mesh (`rest_mesh.npz`, for `ground: mesh`); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 | `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus, through `poseydon.conditioners.text` | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_grid_search.py` | grid search over `GradientIK` terms, foot-contact term included | [tooling](tooling.md#tools-and-probes) |

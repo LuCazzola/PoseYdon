@@ -19,7 +19,10 @@ is written back onto it by node name (`FBX.from_animation`), and `FBX.pose`
 holds the file in any pose, on its own bind and mesh (the rest asset
 [export](../export/index.md) writes onto). `framing.camera` is
 shared with `scripts/render_fbx.py`, so the stick figure and the skinned render
-frame the same shot.
+frame the same shot. `FBX.skin_data` reads each skin deformer whole (`SkinData`:
+every control point, triangulated faces, per-cluster link, bind matrices and
+weights), so a skin can be recomputed without the SDK
+(`tools/verify/skin.py`).
 
 ## Limitations
 
@@ -40,7 +43,10 @@ frame the same shot.
   only.** Weights are normalised per vertex, unweighted vertices and meshes with
   no skin deformer are left out, and dual-quaternion or blend-shape deformers
   are ignored; none was checked on a Truebones file, which uses neither. Its
-  user is `tools/build_rest_fbx.py` (the rest mesh).
+  user is `tools/build_rest_fbx.py` (the rest mesh). `FBX.skin_data` keeps every
+  control point and fans polygons into triangles; `deform` in `tools/verify/skin.py`
+  applies the same maths, with the same normalisation, and leaves an unweighted
+  vertex at its rest position.
 - **The read-only methods accept any transform model.** `world`, `bind_matrices`,
   `key_range`, `up_axis`, `node_types` and `skins` go through the SDK's
   evaluator or read the file directly and never call the write path's transform
@@ -53,7 +59,7 @@ frame the same shot.
 - **The SDK's criteria-filtered `GetSrcObject(criteria, n)` is not a strict
   filter.** On 349 Truebones clips it returned objects of other types (an
   `FbxNode` where an `FbxAnimCurveNode` was asked for); cause not established.
-  The readers (`key_range`, `skins`, `bind_matrices`, `skinned_vertices`)
+  The readers (`key_range`, `skins`, `bind_matrices`, `skinned_vertices`, `skin_data`)
   filter by type, so a new reader of this kind must too.
 
 ## Reference

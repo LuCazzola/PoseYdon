@@ -9,7 +9,8 @@ Writes, under `rig_cache` (`<paths.root>/cache/rigs/<Rig>/`):
   (`RigRecord.asset`), textures embedded. Mesh, skin and bind pose are the
   vendor's, so a posed mesh is exactly the vendor's; its one frame holds the rest
   pose (`FBX.pose`).
-- `rest.npz`: its read (`scripts/build_fbx_cache.py`'s fields) plus `rest`, every
+- `rest.npz`: its read (`scripts/build_fbx_cache.py`'s fields), `source_fbx` (the vendor
+  file the asset came from) plus `rest`, every
   node's world matrix in the rest pose, in float64, from which
   `FbxCache(rest_asset=True)` takes the rest pose without the SDK.
 - `rest_mesh.npz` (truebones): the mesh at that pose for `ground: mesh`
@@ -141,7 +142,7 @@ def main() -> int:
                 scene.close()
                 note, rest = f"bind of {asset.name}", {}
             d = read(out / REST_FBX)
-            np.savez_compressed(out / REST_CACHE, **d, **rest)
+            np.savez_compressed(out / REST_CACHE, **d, **rest, source_fbx=np.array(str(asset)))
             if args.data == "truebones":
                 index = {n: j for j, n in enumerate(str(x) for x in d["names"])}
                 extent = np.ptp([m[:3, 3] for m in world.values()], axis=0).max()
