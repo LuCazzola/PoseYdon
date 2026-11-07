@@ -54,8 +54,7 @@ points, materials, textures, units, up axis, fps, frame range, and what
   dual-quaternion or blended skinning, a cluster link mode other than
   normalize, blend shapes and non-zero geometric transforms; none was found on
   a Truebones file. A deformer cut off its geometry is not a skin (`_skins`
-  skips it), and a truncated file can still open as an empty scene, so a reader
-  of `inventory` sees "no nodes" rather than an error.
+  skips it). `FBX.read` raises when the SDK's import fails, so a truncated file is an error.
 - **The read-only methods accept any transform model.** `world`, `bind_matrices`,
   `key_range`, `up_axis`, `node_types` and `skins` go through the SDK's
   evaluator or read the file directly and never call the write path's transform

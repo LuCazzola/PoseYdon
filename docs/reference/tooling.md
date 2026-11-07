@@ -168,7 +168,7 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   `report.txt` beside the stage files (default `--out` is `tmp/verify/`). `judge`
   refuses a file whose hash changed since `build`. Exit status is non-zero unless every check
   is `PASS` or `ALLOWED`. So far one check, C1 (inventory: nodes, hierarchy, meshes,
-  clusters, binds, materials, textures, units, up axis, fps, frame range). Settings and the
+  clusters, binds, materials, textures, units, up axis, fps, frame range). Settings (`inventory_tol` among them) and the
   smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
 
 ## Tools and probes

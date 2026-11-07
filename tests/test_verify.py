@@ -74,6 +74,11 @@ def truncate_file(path: Path) -> None:
     path.write_bytes(path.read_bytes()[: path.stat().st_size // 2])
 
 
+def truncate_two(path: Path) -> None:
+    truncate_file(path)
+    truncate_file(path.with_name("3_model.fbx"))
+
+
 @dataclass
 class Mutation:
     id: str
@@ -82,6 +87,7 @@ class Mutation:
     mutate: Callable[[Path], None]
     expected: dict[str, str]
     rise: float = 0.0
+    base_red: bool = False  # the clip fails on the unmutated run already
 
 
 MUTATIONS = [
@@ -89,6 +95,7 @@ MUTATIONS = [
     Mutation("drop_cluster", "Camel", None, delete_one_cluster, {"C1": "FAIL"}),
     Mutation("no_skin", "Camel", None, delete_skin_deformers, {"C1": "FAIL"}),
     Mutation("truncated", "Camel", None, truncate_file, {"C1": "FAIL"}),
+    Mutation("truncated_two", "Camel", None, truncate_two, {"C1": "FAIL"}),
 ]
 
 
@@ -99,7 +106,7 @@ def _status(report, check):
 def assert_red(base, after, check, want, rise):
     was, now = _status(base, check), _status(after, check)
     if was.status.value == want:  # already red on the unmutated run: the evidence must grow
-        assert now.value >= was.value + rise, f"{check}: {was.value} -> {now.value}"
+        assert rise > 0 and now.value >= was.value + rise, f"{check}: {was.value} -> {now.value}"
     else:
         assert now.status.value == want, f"{check}: {now.status.value} {now.note}"
 
@@ -108,7 +115,8 @@ def assert_red(base, after, check, want, rise):
 def test_verifier_goes_red(m, tmp_path):
     run = build("truebones", m.rig, m.clip, tmp_path)
     base = judge(run)
-    assert base.verdict is Status.PASS, [c for c in base.checks if c.status is not Status.PASS]
+    if not m.base_red:
+        assert base.verdict is Status.PASS, [c for c in base.checks if c.status is not Status.PASS]
     m.mutate(run / "4_roundtrip.fbx")
     with pytest.raises(ValueError, match="changed"):
         judge(run)
@@ -116,3 +124,19 @@ def test_verifier_goes_red(m, tmp_path):
     for check, want in m.expected.items():
         assert_red(base, after, check, want, m.rise)
     assert after.verdict is not Status.PASS
+
+
+def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
+    from scripts import verify_motion
+
+    for argv in (["judge", str(tmp_path)], ["judge", str(tmp_path / "missing")]):
+        monkeypatch.setattr("sys.argv", ["verify_motion", *argv])
+        with pytest.raises(SystemExit) as stop:
+            verify_motion.main()
+        assert stop.value.code not in (0, None)
+    # a truncated file against a truncated reference is two unreadable files, not two equal empty ones
+    rest = Path("data/truebones/cache/rigs/Camel/rest.fbx")
+    for name in ("a.fbx", "b.fbx"):
+        (tmp_path / name).write_bytes(rest.read_bytes()[: rest.stat().st_size // 2])
+    run = verify_motion.file_case(tmp_path / "a.fbx", tmp_path / "b.fbx", tmp_path)
+    assert judge(run).verdict is Status.FAIL

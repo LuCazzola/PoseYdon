@@ -14,6 +14,7 @@ Runs in the `fbxsdk` container; the run directory is `<out>/<Rig>__<clip>/`, `--
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -54,7 +55,8 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
         if "source_fbx" not in z.files:
             raise LookupError(f"{rest} records no source_fbx: rebuild it with tools/build_rest_fbx.py")
         skin = Path(str(z["source_fbx"]))
-    stage = out / ".stage"
+    stage = out / f".stage_{rig}"
+    shutil.rmtree(stage, ignore_errors=True)  # a failed earlier build leaves one
     action = build_stages(data, rig, stage, clip)
     run = out / f"{rig}__{action}"
     shutil.rmtree(run, ignore_errors=True)
@@ -88,19 +90,19 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     now = {k: sha256(v) for k, v in named.items()}
     changed = sorted(k for k in now if now[k] != recorded.get(k))
     if changed and not accept_changed:
-        raise ValueError(f"{run}: {', '.join(changed)} changed since build (pass accept_changed to judge anyway)")
+        raise ValueError(f"{run}: {', '.join(changed)} changed since build (rebuild, or judge with accept_changed=True from Python)")
     meta = json.loads((run / "case.json").read_text())
     report = Report({"data": case.data_name, "rig": case.rig, "action": case.action, "sha256": now,
                      "changed_since_build": changed, "built_by": meta["commit"], "verifier": commit(),
                      "container": os.environ.get("HOSTNAME", "unknown")})
-    report.checks += c1_inventory(case)
+    report.checks += c1_inventory(case, load_config()["inventory_tol"])
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report
 
 
 def file_case(file: Path, reference: Path, out: Path) -> Path:
-    run = out / file.stem
+    run = out / f"{file.stem}_{hashlib.sha256(str(file.resolve()).encode()).hexdigest()[:8]}"
     run.mkdir(parents=True, exist_ok=True)
     _write_case(run, Case("", "", file.stem, {"file": file}, reference, reference,
                           np.zeros(0, dtype=int), np.zeros(0, dtype=int)), {})
@@ -139,9 +141,20 @@ def main() -> None:
         raise SystemExit(f"failed: {', '.join(failed)}" if failed else 0)
     run = file_case(args.file, args.reference, args.out) if args.command == "file" else args.dir
     runs = [run] if (run / "case.json").is_file() else sorted(p.parent for p in run.glob("*/case.json"))
+    if not runs:
+        raise SystemExit(f"{run}: no case.json here or in a subdirectory")
     code = 0
+    for p in sorted(run.iterdir()) if run.is_dir() and run not in runs else []:
+        if p.is_dir() and not p.name.startswith(".") and not (p / "case.json").is_file():
+            print(f"{p}: ERROR no case.json", flush=True)
+            code = 1
     for r in runs:
-        report = judge(r)
+        try:
+            report = judge(r)
+        except Exception as error:  # noqa: BLE001 - one run must not cost the others
+            print(f"{r}: ERROR {type(error).__name__}: {error}", flush=True)
+            code = 1
+            continue
         print(f"{r}: {report.verdict.value}\n{report.text()}")
         code = code or report.exit_code
     raise SystemExit(code)

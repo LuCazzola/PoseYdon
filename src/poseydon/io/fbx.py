@@ -154,7 +154,8 @@ class FBX:
         importer = fbx.FbxImporter.Create(manager, "")
         if not importer.Initialize(str(path), -1, manager.GetIOSettings()):
             raise ValueError(f"{path}: {importer.GetStatus().GetErrorString()}")
-        importer.Import(scene)
+        if not importer.Import(scene):
+            raise ValueError(f"{path}: {importer.GetStatus().GetErrorString()}")
         importer.Destroy()
         return cls._wrap(manager, scene)
 

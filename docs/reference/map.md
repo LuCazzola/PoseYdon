@@ -46,6 +46,7 @@ See the [overview](../user-guide/overview.md) for how the pipeline fits together
 | `scripts/build_stage_samples.py` | one clip per rig at every round-trip stage (source, prepared, model, roundtrip), as BVH and FBX, under `tmp/truebones/` | [tooling](tooling.md#scripts) |
 | `scripts/fetch_unimate_annotations.sh` | fetches UniMate's Truebones clip index and FBX repair scripts (pinned HF commit) into `data/_raw/UniML3D/truebones_annotations/`, and links `data/_raw/unimate` to `truebones` | [tooling](tooling.md#scripts) |
 | `scripts/build_fbx_cache.py` | a dataset's FBX clips (`--data truebones`: `data/truebones/fbx_clips.csv`; `--data unimate`: UniMate's linked clips) read once with the FBX SDK into `<root>/cache/fbx/` (world matrices of every node, bind, skin summary); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
+| `scripts/verify_motion.py` | the motion verifier's entry point: `build` writes a run directory (`tmp/verify/<Rig>__<clip>/`: stage files and `case.json` with SHA-256s), `file` judges one FBX against a vendor reference, `judge` runs the checks and writes `report.json` and `report.txt`; needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 
 ### Probes and one-off tools
 
@@ -54,7 +55,6 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
-| `scripts/verify_motion.py` | the motion verifier's entry point: `build` writes a run directory (`tmp/verify/<Rig>__<clip>/`: stage files and `case.json` with SHA-256s), `file` judges one FBX against a vendor reference, `judge` runs the checks and writes `report.json` and `report.txt`; needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 | `tools/verify/report.py` | the verifier's `Check` and `Report` (statuses `PASS`/`FAIL`/`ALLOWED`/`NOT RUN`, evidence classes), `apply_allowances` | [tooling](tooling.md#scripts) |
 | `tools/verify/case.py` | a verifier `Case` (files under test, the clip's vendor file, the rig's reference skin, sampled frames), `load_case`, `sample_frames`, `sha256`, `commit` | [tooling](tooling.md#scripts) |
 | `tools/verify/checks.py` | the verifier's checks; `c1_inventory` compares each file's `FBX.inventory` with the reference | [io](../api/io/index.md) |

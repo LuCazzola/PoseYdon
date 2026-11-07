@@ -16,11 +16,12 @@ class Status(Enum):
 
 
 class Evidence(Enum):
-    """What a line rests on; `pipeline` is never proof alone."""
+    """What a line rests on; `pipeline` is never proof alone; `driven` is a probe the verifier made."""
 
     INDEPENDENT = "independent"
     DERIVED = "derived"
     PIPELINE = "pipeline"
+    DRIVEN = "driven"
 
 
 @dataclass
@@ -73,7 +74,11 @@ def apply_allowances(report: Report, table: dict) -> Report:
     """Turn a FAIL inside the owner's budget into ALLOWED. ``table`` is `allowances.yaml`:
     ``{rig: {clip: [{check, joint, budget, reason}]}}``, empty today, so nothing changes."""
     entries = table.get(report.run.get("rig"), {}).get(report.run.get("action"), []) or []
+    if any(e["check"] == "C2a" for e in entries):
+        raise ValueError("C2a takes no allowances")
     for c in report.checks:
-        if c.status is Status.FAIL and any(e["check"] == c.id and (c.value or 0) <= e["budget"] for e in entries):
+        if c.status is Status.FAIL and c.value is not None and any(
+            e["check"] == c.id and c.value <= e["budget"] for e in entries
+        ):
             c.status = Status.ALLOWED
     return report

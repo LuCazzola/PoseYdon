@@ -1,5 +1,6 @@
 # The motion verifier's knobs and smoke set (scripts/verify_motion.py).
 n_frames: 8
+inventory_tol: 1.0e-6    # C1, bind matrices
 skin_tol: 1.0e-3        # C2a, fraction of rig extent
 untraced_tol: 1.0e-3    # C2b
 stretch_margin: 1.1
