@@ -44,7 +44,7 @@ def _write_case(run: Path, case: Case, extra: dict) -> None:
         "files": {k: str(v) for k, v in case.files.items()},
         "clip_fbx": str(case.clip_fbx), "skin_fbx": str(case.skin_fbx),
         "frames": case.frames.tolist(), "source_frames": case.source_frames.tolist(),
-        "window": None if case.window is None else [int(x) for x in case.window],
+        "window": None if case.window is None else [int(x) for x in case.window], "floor": case.floor,
         "sha256": {k: sha256(v) for k, v in named.items()},
         "commit": commit(), "container": os.environ.get("HOSTNAME", "unknown"), **extra,
     }, indent=2))
@@ -91,7 +91,7 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
     if len(numbers) != len(world):
         raise ValueError(f"{rig} {action}: the clip's window holds {len(numbers)} frames, the file {len(world)}")
     case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in stages}, run / "1_source.fbx", skin,
-                frames, numbers[frames], window)
+                frames, numbers[frames], window, floor)
     _write_case(run, case, {})
     return run
 

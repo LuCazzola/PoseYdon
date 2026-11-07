@@ -173,8 +173,12 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   skin against the reference skin, both driven by that file's joints; `skin_tol`, floor measured beside
   it; takes no allowances) and C2b (the returned `4_roundtrip` file's joints and skin against the source
   clip with each lossy stage's loss law applied, `tools/verify/laws.py`: `C2b-untraced`, file against that
-  expected pose, is the verdict within `untraced_tol` of rig extent; `C2b-traced`, source against it, is
-  reported and never judged; a stage with neither a law nor a lossless declaration makes it `NOT RUN`).
+  expected pose, is the verdict, with vertices, joint positions and joint rotations reported apart (vertices and
+  positions within `untraced_tol` of rig extent, rotations within `untraced_rot_tol`); `C2b-traced`, source against it,
+  is reported and never judged; `C2b-rest` holds the rest inputs the laws read from the rest asset, bone lengths
+  and node scales, to the vendor file's bind; a stage with neither a law nor a lossless declaration makes C2b `NOT RUN`).
+  A `--floor` run is judged against the source itself, but for the writer's node scale and held joints.
+  `file` on a bare FBX has no stages or records, so its C2b is always `NOT RUN`.
   C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the
   smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
 

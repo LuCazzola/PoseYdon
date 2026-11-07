@@ -147,7 +147,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
         scene = FBX.read(path)
         try:
             skinned, inventory, frames = {s.mesh: s for s in scene.skin_data()}, scene.inventory(), scene.frames()
-            if len(case.frames) and case.frames.max() >= len(frames):
+            if case.frames.max() >= len(frames):
                 return [Check("C2a", Status.FAIL, evidence, where=where,
                               note=f"{name} has {len(frames)} frames, the case samples frame {case.frames.max()}")]
             world, names = scene.world(frames[case.frames]), scene.names
@@ -224,14 +224,12 @@ class _Joints:
     world: np.ndarray
 
 
-def _joints(path: Path, frames: np.ndarray | None, positions: np.ndarray | None = None) -> _Joints:
-    """World matrices of every node of ``path`` at the ``positions`` of its frames, or at the frame
-    numbers ``frames``."""
+def _joints(path: Path, pick) -> _Joints:
+    """World matrices of every node of ``path`` at the frame numbers ``pick(all frame numbers)``."""
     scene = FBX.read(path)
     try:
-        wanted = frames if positions is None else scene.frames()[positions]
         return _Joints(scene.names, scene.parents, [scene.is_skeleton(i) for i in range(len(scene.nodes))],
-                       scene.world(wanted))
+                       scene.world(pick(scene.frames())))
     finally:
         scene.close()
 
@@ -245,47 +243,90 @@ def _bind(path: Path) -> _Joints:
         scene.close()
 
 
+def _rotation(m: np.ndarray) -> np.ndarray:
+    return m[..., :3, :3] / np.linalg.norm(m[..., :3, :3], axis=-2)[..., None, :]
+
+
 def _gap(a: np.ndarray, b: np.ndarray, names: tuple[str, ...], compare: list[int], skins, size: float,
-         frames: np.ndarray) -> tuple[float, str, dict]:
-    """Largest distance between two ``(F, J, 4, 4)`` joint sets, as a fraction of rig extent ``size``,
-    over the skin vertices (``skins``: reference skin, deformed by each) and the joint positions."""
+         frames: np.ndarray) -> dict:
+    """Largest difference between two ``(F, J, 4, 4)`` joint sets, each with its frame and where: skin
+    vertices (``skins``: the reference skin deformed by each set) and joint positions as a fraction of rig
+    extent ``size``, joint world rotations as the largest rotation-matrix element difference."""
     rows = {n: (a[:, j], b[:, j]) for j, n in enumerate(names)}
-    worst, where, parts = -1.0, {}, []
+    vertex = None
     for skin in skins:
-        error, frame, vertex = _worst(deform(skin, {n: r[0] for n, r in rows.items()}),
-                                      deform(skin, {n: r[1] for n, r in rows.items()}))
-        parts.append(f"mesh {skin.mesh} vertex {vertex} at {_dominant(skin, vertex)}, frame {frames[frame]}: {error / size:.3g}")
-        if error / size > worst:
-            worst, where = error / size, {"mesh": skin.mesh, "vertex": vertex, "joint": _dominant(skin, vertex),
-                                          "frame": int(frames[frame])}
-    error, frame, joint = _worst(a[:, compare][..., :3, 3], b[:, compare][..., :3, 3])
-    parts.append(f"joint {names[compare[joint]]}, frame {frames[frame]}: {error / size:.3g}")
-    if error / size > worst:
-        worst, where = error / size, {"joint": names[compare[joint]], "frame": int(frames[frame])}
-    return worst, "; ".join(parts), where
+        error, frame, v = _worst(deform(skin, {n: r[0] for n, r in rows.items()}),
+                                 deform(skin, {n: r[1] for n, r in rows.items()}))
+        if vertex is None or error / size > vertex["value"]:
+            vertex = {"value": error / size, "mesh": skin.mesh, "vertex": v, "joint": _dominant(skin, v),
+                      "frame": int(frames[frame])}
+    error, frame, j = _worst(a[:, compare][..., :3, 3], b[:, compare][..., :3, 3])
+    joint = {"value": error / size, "joint": names[compare[j]], "frame": int(frames[frame])}
+    turn = np.nan_to_num(np.abs(_rotation(a[:, compare]) - _rotation(b[:, compare])).max(axis=(-2, -1)),
+                         nan=np.inf, posinf=np.inf)
+    frame, j = np.unravel_index(turn.argmax(), turn.shape)
+    return {"vertex": vertex, "joint": joint,
+            "rotation": {"value": float(turn[frame, j]), "joint": names[compare[j]], "frame": int(frames[frame])}}
+
+
+def _summary(gap: dict) -> str:
+    v, j, r = gap["vertex"], gap["joint"], gap["rotation"]
+    return "; ".join(
+        ([f"vertices {v['value']:.3g} (mesh {v['mesh']} vertex {v['vertex']} at {v['joint']}, frame {v['frame']})"] if v else [])
+        + [f"joints {j['value']:.3g} ({j['joint']}, frame {j['frame']})",
+           f"rotations {r['value']:.3g} ({r['joint']}, frame {r['frame']})"])
+
+
+def _rest(case: Case, pose: laws.SourcePose, parents: np.ndarray, size: float, tol: float, evidence) -> Check:
+    """C2b-rest: the rest inputs the laws read (bone lengths of the dataset's rest pose, node scales of the
+    asset the file is written onto) against the vendor file's own bind. They come from the asset, which the
+    pipeline wrote, so this is what keeps a wrong asset from moving file and expected together."""
+    bind = _bind(case.skin_fbx)
+    names, rest, asset = pose.names, pose.rest, pose.placed
+    known = [j for j, n in enumerate(names) if n in bind.names]
+    worst, at = -1.0, ""
+    for j in known:
+        p = int(parents[j])
+        scale = np.abs(np.linalg.norm(asset[j, :3, :3], axis=-2)
+                       - np.linalg.norm(bind.world[0, bind.names.index(names[j]), :3, :3], axis=-2)).max()
+        if scale > worst:
+            worst, at = float(scale), f"{names[j]} node scale"
+        if p >= 0 and names[p] in bind.names:
+            ours = np.linalg.norm(rest[j, :3, 3] - rest[p, :3, 3])
+            theirs = np.linalg.norm(bind.world[0, bind.names.index(names[j]), :3, 3]
+                                    - bind.world[0, bind.names.index(names[p]), :3, 3])
+            if abs(ours - theirs) / size > worst:
+                worst, at = float(abs(ours - theirs) / size), f"{names[j]} bone length {ours:.4g} against bind {theirs:.4g}"
+    return Check("C2b-rest", Status.FAIL if not worst <= tol else Status.PASS, evidence, worst, tol,
+                 {"rig": case.rig, "clip": case.action}, f"worst {at}")
 
 
 def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     """The returned file's joints against what the pipeline is defined to produce from the user's
     clip: the source, with each lossy stage's law applied (`tools/verify/laws.py`). Untraced error
-    (file vs expected) is the verdict, within ``untraced_tol`` of rig extent; traced loss (source vs
-    expected) is reported, never judged. Vertices are the reference skin driven by each joint set;
-    joint positions are compared too. A stage with no law makes it NOT RUN, naming the stage."""
+    (file vs expected) is the verdict: skin vertices and joint positions within ``untraced_tol`` of rig
+    extent, joint world rotations within ``untraced_rot_tol``. Traced loss (source vs expected) is
+    reported, never judged. Vertices, joints and rotations are reported apart. A stage with no law makes
+    it NOT RUN, naming it. The laws read bone lengths and node scales from the rig's rest asset, which the
+    pipeline wrote: ``C2b-rest`` holds those to the vendor file's bind. A floor run (the source clip
+    written with no preparation) is expected to equal the source but for the writer's own node scale and
+    held joints."""
     evidence, where = _evidence(case), {"rig": case.rig, "clip": case.action}
 
     def stop(status: Status, note: str) -> list[Check]:
         return [Check("C2b-untraced", status, evidence, where=where, note=note)]
 
-    path = case.files.get("4_roundtrip")
+    path = case.files.get("floor" if case.floor else "4_roundtrip")
     if path is None or not case.data_name:
         return stop(Status.NOT_RUN, "needs a built round trip (its 4_roundtrip file and the rig's records)")
     if not len(case.frames):
         return stop(Status.NOT_RUN, "no frames to compare")
     try:
         record = loss_record(case)
-        file, asset = _joints(path, None, case.frames), _joints(record.asset, None, np.zeros(1, dtype=int))
+        file = _joints(path, lambda f: f[case.frames])
+        asset = _joints(record.asset, lambda f: f[:1])
         rest = asset if record.bind_of is None else _bind(record.bind_of)
-        source = _joints(case.clip_fbx, case.source_frames)
+        source = _joints(case.clip_fbx, lambda f: case.source_frames)
         skins, inventory = reference_skin(case), _read(case.skin_fbx).inventory
     except Exception as error:  # noqa: BLE001 - an unreadable file or record is NOT RUN, not a crash
         return stop(Status.NOT_RUN, f"unreadable: {error}")
@@ -293,13 +334,23 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     missing = sorted({n for other in (asset, rest, source) for n in names if n not in other.names})
     if missing:
         return stop(Status.NOT_RUN, f"the rest asset or the source clip has no node named {missing[:3]}")
-    by = lambda other, w: w[:, [other.names.index(n) for n in names]]  # noqa: E731 - file order
-    pose = laws.SourcePose(names, file.parents, by(source, source.world), by(rest, rest.world)[0],
-                          asset=by(asset, asset.world)[0])
-    expected = laws.expected_pose(pose, record.stages, record.params)
+
+    def order(other: _Joints) -> np.ndarray:
+        return other.world[:, [other.names.index(n) for n in names]]
+
+    pose = laws.SourcePose(names, file.parents, order(source), order(rest)[0], asset=order(asset)[0])
+    stages, params = record.stages, record.params
+    if case.floor:
+        stages = [s for s in stages if s in ("promote_root", "prune_unskinned")]
+        prune = params.get("prune_unskinned")
+        if prune:
+            roots = [(n, k) for n, k in zip(prune["removed"], prune["kind"]) if k == "root"]
+            params = params | {"prune_unskinned": {"removed": [n for n, _ in roots], "kind": [k for _, k in roots]}}
+    expected = laws.expected_pose(pose, stages, params)
     if isinstance(expected, laws.MissingLaw):
         return stop(Status.NOT_RUN, f"no loss law for stage `{expected.stage}`: declare it in tools/verify/laws.py")
     usable = [s for s in skins if not _skipped(inventory, s.mesh)]
+    skipped = [f"mesh {m} {_skipped(inventory, m)}" for m in {s.mesh for s in skins} if _skipped(inventory, m)]
     links = {n for s in usable for n in s.links}
     compare = [j for j, n in enumerate(names) if file.skeleton[j] or n in links]
     if not compare or links - set(names):
@@ -313,14 +364,20 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     size = max(extent(p) for p in points)
     if not size > 0:
         return stop(Status.FAIL, "the expected pose has zero extent")
+    inputs = "bone lengths from the " + ("rest asset" if record.bind_of is None else "vendor bind") \
+        + " and node scales from the rest asset"
     out = []
     for check, other in (("C2b-untraced", file.world), ("C2b-traced", pose.world)):
-        value, note, at = _gap(other, expected.world, names, compare, usable, size, case.frames)
+        gap = _gap(other, expected.world, names, compare, usable, size, case.frames)
+        value = (gap["vertex"] or gap["joint"])["value"]
+        note = "; ".join([_summary(gap), inputs, *skipped])
         if check == "C2b-traced":
-            out.append(Check(check, Status.PASS, evidence, value, where=where | at,
-                             note=f"by laws of {', '.join(s for s in record.stages if s in laws.LAWS)}; {note}"))
+            out.append(Check(check, Status.PASS, evidence, value, where=where | gap,
+                             note=f"by laws of {', '.join(s for s in stages if s in laws.LAWS)}; {note}"))
         else:
-            failed = not np.isfinite(value) or value > cfg["untraced_tol"]
+            failed = (not value <= cfg["untraced_tol"] or not gap["joint"]["value"] <= cfg["untraced_tol"]
+                      or not gap["rotation"]["value"] <= cfg["untraced_rot_tol"])
             out.append(Check(check, Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"],
-                             where | at, note))
+                             where | gap, note))
+    out.append(_rest(case, pose, file.parents, size, cfg["untraced_tol"], evidence))
     return out

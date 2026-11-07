@@ -63,30 +63,32 @@ def _rest_bind(pose: SourcePose, j: int, p: int) -> np.ndarray:
     return _rot(pose.rest[p]).T @ _rot(pose.rest[j]) if p >= 0 else _rot(pose.rest[j])
 
 
+def _hold(pose: SourcePose, names: Sequence[str]) -> SourcePose:
+    """``pose`` with ``names`` held: each is its parent's world times its transform in the asset."""
+    world, at = pose.world.copy(), pose.placed
+    for j, name in enumerate(pose.names):
+        if name in names:
+            p = int(pose.parents[j])
+            world[:, j] = at[j] if p < 0 else world[:, p] @ (np.linalg.inv(at[p]) @ at[j])
+    return replace(pose, world=world, held=(*pose.held, *names))
+
+
 def promote_root(pose: SourcePose, params: dict) -> SourcePose:
     """The locator chain above the promoted root and its dead branches are not in the model: the file
     holds them at the asset's own transform. ``params``: ``chain``, ``dead`` (joint names)."""
-    return replace(pose, held=(*pose.held, *params["chain"], *params["dead"]))
+    return _hold(pose, [*params["chain"], *params["dead"]])
 
 
 def enforce_rigid(pose: SourcePose, params: dict) -> SourcePose:
-    """Constant bone lengths, only the root moves: a driven joint keeps its rotation, takes the
-    asset's world scale, and sits at ``p_parent + R_parent o`` with ``o`` the rest offset in the
-    parent's rest frame; a joint with no driven parent keeps its position. A held joint is its
-    parent's world times its rest local transform. Runs last, on the rotations the other laws left."""
-    world, scale = pose.world.copy(), _scale(pose.placed)
+    """Constant bone lengths, only the root moves: a joint keeps its rotation and sits at
+    ``p_parent + R_parent o`` with ``o`` the rest offset in the parent's rest frame; a joint with no driven
+    parent keeps its position. Runs after the laws that turn joints, on the rotations they left."""
+    world = pose.world.copy()
     for j, name in enumerate(pose.names):
         p = int(pose.parents[j])
-        if name in pose.held:
-            at = pose.placed
-            local = at[j] if p < 0 else np.linalg.inv(at[p]) @ at[j]
-            world[:, j] = local if p < 0 else world[:, p] @ local
-            continue
-        rotation = _rot(world[:, j])
-        if p >= 0 and pose.names[p] not in pose.held:
+        if name not in pose.held and p >= 0 and pose.names[p] not in pose.held:
             offset = _rot(pose.rest[p]).T @ (pose.rest[j, :3, 3] - pose.rest[p, :3, 3])
             world[:, j, :3, 3] = world[:, p, :3, 3] + _rot(world[:, p]) @ offset
-        world[:, j, :3, :3] = rotation * scale[j]
     return replace(pose, world=world)
 
 
@@ -95,7 +97,7 @@ def prune_unskinned(pose: SourcePose, params: dict) -> SourcePose:
     its parent. A removed root (``kind`` ``root``) is held at the asset's transform instead.
     ``params``: ``removed``, ``kind``."""
     kind = dict(zip(params["removed"], params["kind"]))
-    out = replace(pose, world=pose.world.copy(), held=(*pose.held, *(n for n, k in kind.items() if k == "root")))
+    out = _hold(pose, [n for n, k in kind.items() if k == "root"])
     for j, name in enumerate(pose.names):
         if kind.get(name, "root") != "root":
             p = int(pose.parents[j])
@@ -104,10 +106,12 @@ def prune_unskinned(pose: SourcePose, params: dict) -> SourcePose:
 
 
 def drop_still(pose: SourcePose, params: dict) -> SourcePose:
-    """A joint that never turned is held at its recorded constant rotation ``q`` (relative to rest:
-    identity is the rest pose): world ``G_j = G_p B_p^T q B_j``, ``B`` the rest world rotations.
-    ``params``: ``names``, ``rotations`` (xyzw)."""
-    q = dict(zip(params["names"], Rotation.from_quat(np.asarray(params["rotations"]).reshape(-1, 4)).as_matrix()))
+    """A joint that never turned is held at its recorded constant rotation ``q`` (xyzw, relative to rest:
+    identity is the rest pose): world ``G_j = G_p B_p^T q B_j``, ``B`` the rest world rotations. ``q`` was
+    recorded after the rig turn ``T`` (up_axis, then face_rest_axis) conjugated every local rotation, so in
+    the source frame it is ``T^T q T``. ``params``: ``names``, ``rotations``, ``turn`` (3x3, ``T``)."""
+    turn = np.asarray(params.get("turn", np.eye(3)))
+    q = dict(zip(params["names"], turn.T @ Rotation.from_quat(np.asarray(params["rotations"]).reshape(-1, 4)).as_matrix() @ turn))
     out = replace(pose, world=pose.world.copy())
     for j, name in enumerate(pose.names):
         if name in q:
@@ -123,11 +127,15 @@ def drop_end_sites(pose: SourcePose, params: dict) -> SourcePose:
 
 
 def fold_into_root(pose: SourcePose, params: dict) -> SourcePose:
-    """A zero-offset sole child of the root folds into it: the root takes the child's world rotation,
-    the child's children are unchanged. ``params``: ``names`` (the folded joints), ``parents``."""
+    """A zero-offset sole child ``c`` of the root ``r`` folds into it. In the rest-relative frame the
+    root takes the child's delta from rest (``D_r' = D_c``, ``D = G B^T``), so ``G_r' = G_c B_c^T B_r``; without
+    `rest_relative` the root takes ``G_c``. The child's children are unchanged. ``params``: ``names`` (the
+    folded joints), ``parents``, ``relative`` (rest_relative is in the chain)."""
     out = replace(pose, world=pose.world.copy())
     for name, parent in zip(params["names"], params["parents"]):
-        _turn(out, pose.names.index(parent), _rot(pose.world[:, pose.names.index(name)]))
+        c, r = pose.names.index(name), pose.names.index(parent)
+        turned = _rot(pose.world[:, c])
+        _turn(out, r, turned @ _rot(pose.rest[c]).T @ _rot(pose.rest[r]) if params.get("relative") else turned)
     return out
 
 
@@ -140,12 +148,18 @@ LAWS: dict[str, Callable[[SourcePose, dict], SourcePose]] = {
 
 def expected_pose(pose: SourcePose, stages: Sequence[str], params: dict) -> SourcePose | MissingLaw:
     """``pose`` with the law of each of ``stages`` applied, or the first stage with neither a law nor a
-    lossless declaration. ``enforce_rigid`` goes last: it rebuilds positions from the final rotations."""
+    lossless declaration. ``enforce_rigid`` goes last of the laws (it rebuilds positions from the final
+    rotations); then every joint not held takes the asset's node scale, as the writer gives it."""
     for stage in stages:
         if stage not in LAWS and stage not in LOSSLESS:
             return MissingLaw(stage)
-    ordered = [s for s in stages if s != "enforce_rigid"] + [s for s in stages if s == "enforce_rigid"]
-    for stage in ordered:
+    if "bone_relative" in stages and {"drop_still", "fold_into_root"} & set(stages):
+        return MissingLaw("bone_relative with drop_still or fold_into_root (their constants are bone-relative)")
+    for stage in [s for s in stages if s != "enforce_rigid"] + [s for s in stages if s == "enforce_rigid"]:
         if stage in LAWS:
             pose = LAWS[stage](pose, params.get(stage, {}))
-    return pose
+    world, scale = pose.world.copy(), _scale(pose.placed)
+    for j, name in enumerate(pose.names):
+        if name not in pose.held:
+            world[:, j, :3, :3] = _rot(world[:, j]) * scale[j]
+    return replace(pose, world=world)

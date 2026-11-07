@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 
 @dataclass
@@ -25,6 +26,7 @@ class Case:
     frames: np.ndarray
     source_frames: np.ndarray
     window: tuple[int, int, int] | None = None  # the clip's recorded (start, stop, step) over the vendor keys
+    floor: bool = False  # the file is the source clip written with no preparation (`build --floor`)
 
 
 @dataclass
@@ -60,14 +62,24 @@ def loss_record(case: Case) -> LossRecord:
                                      "kind": [str(k) for k in prune["kind"]]}
     with np.load(root / "rigs" / case.rig / "skeleton.npz", allow_pickle=True) as z:
         still = load_still(z)
+    # The rules the rig recorded are its stages: one with no law reaches MissingLaw even if it removed nothing.
+    for rule in record.reduction_rules:
+        stages.append(rule.name)
+        params[rule.name] = {"names": [], "parents": [], "rotations": []}
     for op in record.reduction.ops:
         rule = "fold_into_root" if op.kind == "collapse" else "drop_still" if op.name in still else "drop_end_sites"
-        if rule not in params:
-            stages.append(rule)
-            params[rule] = {"names": [], "parents": [], "rotations": []}
-        params[rule]["names"].append(op.name)
-        params[rule]["parents"].append(op.parent)
-        params[rule]["rotations"].append(list(op.rotation))
+        if rule in params:
+            params[rule]["names"].append(op.name)
+            params[rule]["parents"].append(op.parent)
+            params[rule]["rotations"].append(list(op.rotation))
+    if "fold_into_root" in params:
+        params["fold_into_root"]["relative"] = "rest_relative" in stages
+    if "drop_still" in params:  # up_axis, then face_rest_axis, conjugated every recorded local rotation
+        turn = Rotation.identity()
+        for stage in ("up_axis", "face_rest_axis"):
+            if stage in record.params:
+                turn = Rotation.from_quat(np.asarray(record.params[stage]["rotation"])) * turn
+        params["drop_still"]["turn"] = turn.as_matrix().tolist()
     return LossRecord(stages, params, record.asset, None if data.source.get("rest_asset", False) else case.skin_fbx)
 
 
@@ -107,4 +119,4 @@ def load_case(run_dir: str | Path) -> Case:
     return Case(meta["data"], meta["rig"], meta["action"],
                 {k: Path(v) for k, v in meta["files"].items()}, Path(meta["clip_fbx"]), Path(meta["skin_fbx"]),
                 np.array(meta["frames"], dtype=int), np.array(meta["source_frames"], dtype=int),
-                tuple(meta["window"]) if meta.get("window") else None)
+                tuple(meta["window"]) if meta.get("window") else None, bool(meta.get("floor", False)))

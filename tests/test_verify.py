@@ -192,8 +192,9 @@ def offset_one_joint_rotation(path: Path) -> None:
     _mutate(path, edit)
 
 
-def write_with_wrong_offset(path: Path) -> None:
-    """Stand-in for a bug in `EnforceRigid`: write the restored clip again with the longest bone 10% longer."""
+def write_with_wrong_offset(path: Path, factor: float = 1.1) -> None:
+    """Stand-in for a bug in `EnforceRigid`: write the restored clip again with the longest bone 10% longer
+    (``factor`` 1.0 is the same rewrite with nothing wrong, the control)."""
     from poseydon.build.pipeline import compose_build
     from poseydon.core.animation import RigidBodyAnimation
     from poseydon.features.reduce import apply_reduction
@@ -205,7 +206,7 @@ def write_with_wrong_offset(path: Path) -> None:
     restored = record.restore(apply_reduction(prepared, record.reduction), facing_from=meta["action"])
     j = int(np.linalg.norm(restored.offsets, axis=-1).argmax())
     offsets, translations = restored.offsets.copy(), restored.translations.copy()
-    offsets[j] *= 1.1
+    offsets[j] *= factor
     translations[:, j] = offsets[j] if j else translations[:, j]
     wrong = type(restored)(restored.rotations, translations, offsets, restored.parents, restored.names, restored.fps)
     fbx.FBX.from_animation(wrong, record.asset, fixed=record.fixed).write(path, embed_textures=True)
@@ -217,9 +218,29 @@ def drop_enforce_rigid_law(path: Path) -> None:
     _mutate(path, lambda scene: None)
 
 
+def scale_one_rest_bone(path: Path) -> None:
+    """The rest input the laws read (`RigRecord.asset`) with its longest bone 50% longer, the file under test
+    untouched but for a rewrite."""
+    rig = path.parent.name.split("__")[0]
+    scene = fbx.FBX.read(RigRecord.load(Path("data/truebones"), rig).asset)
+    world = scene.world(scene.frames()[:1])
+    reach = np.linalg.norm(world[0, 1:, :3, 3] - world[0, scene.parents[1:], :3, 3], axis=-1)
+    j = 1 + int(reach.argmax())
+    world[0, j, :3, 3] = world[0, scene.parents[j], :3, 3] + 1.5 * (world[0, j, :3, 3] - world[0, scene.parents[j], :3, 3])
+    scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+    scene.write(path.parent / "rest_scaled.fbx")
+    scene.close()
+    _MP.setattr(RigRecord, "asset", property(lambda self: path.parent / "rest_scaled.fbx"))
+    _mutate(path, lambda scene: None)
+
+
+_MP = None
+
+
 @pytest.fixture(autouse=True)
-def keep_laws():
-    saved = dict(laws.LAWS)
+def keep_laws(monkeypatch):
+    global _MP
+    _MP, saved = monkeypatch, dict(laws.LAWS)
     yield
     laws.LAWS.clear()
     laws.LAWS.update(saved)
@@ -237,22 +258,25 @@ class Mutation:
     names: str = ""  # a word the C2a line must carry (the stage or joint it names)
     keeps_joints: bool = False  # the edit leaves every node's world as it was
     bounds: tuple[float, float] | None = None  # the C2a value the edit must land in
+    control: Callable[[Path], None] | None = None  # the same edit with nothing wrong: must stay green
 
 
 MUTATIONS = [
-    Mutation("strip_mesh", "Camel", None, strip_mesh, {"C1": "FAIL"}),
-    Mutation("drop_cluster", "Camel", None, delete_one_cluster, {"C1": "FAIL"}),
-    Mutation("no_skin", "Camel", None, delete_skin_deformers, {"C1": "FAIL", "C2a": "NOT RUN"}),
-    Mutation("truncated", "Camel", None, truncate_file, {"C1": "FAIL", "C2a": "NOT RUN"}, names="4_roundtrip"),
-    Mutation("nan_point", "Camel", None, nan_control_point, {"C2a": "FAIL"}),
-    Mutation("topology", "Camel", None, add_a_control_point, {"C2a": "FAIL"}),
-    Mutation("missing_link", "Camel", None, rename_a_cluster_link, {"C2a": "FAIL"}, names="Bip01_Pelvis"),
-    Mutation("swap_cluster_link", "Camel", None, swap_two_cluster_links, {"C2a": "FAIL"}, keeps_joints=True),
-    Mutation("perturb_bind", "Camel", None, perturb_one_link_bind, {"C2a": "FAIL"}, keeps_joints=True),
+    Mutation("strip_mesh", "Goat", None, strip_mesh, {"C1": "FAIL"}),
+    Mutation("drop_cluster", "Goat", None, delete_one_cluster, {"C1": "FAIL"}),
+    Mutation("no_skin", "Goat", None, delete_skin_deformers, {"C1": "FAIL", "C2a": "NOT RUN"}),
+    Mutation("truncated", "Goat", None, truncate_file, {"C1": "FAIL", "C2a": "NOT RUN"}, names="4_roundtrip"),
+    Mutation("nan_point", "Goat", None, nan_control_point, {"C2a": "FAIL"}),
+    Mutation("topology", "Goat", None, add_a_control_point, {"C2a": "FAIL"}),
+    Mutation("missing_link", "Goat", None, rename_a_cluster_link, {"C2a": "FAIL"}, names="Bip01_Pelvis"),
+    Mutation("swap_cluster_link", "Goat", None, swap_two_cluster_links, {"C2a": "FAIL"}, keeps_joints=True),
+    Mutation("perturb_bind", "Goat", None, perturb_one_link_bind, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("rebind", "Goat", None, rebind_89bff67, {"C2a": "FAIL"}, bounds=(2e-2, 1e-1)),
-    Mutation("rotate_joint", "Camel", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS"}),
-    Mutation("rigid_wrong_offset", "Camel", None, write_with_wrong_offset, {"C2b-untraced": "FAIL"}),
-    Mutation("missing_law", "Camel", None, drop_enforce_rigid_law, {"C2b-untraced": "NOT RUN"}),
+    Mutation("rotate_joint", "Goat", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS"}),
+    Mutation("rigid_wrong_offset", "Goat", None, write_with_wrong_offset, {"C2b-untraced": "FAIL"},
+             control=lambda path: write_with_wrong_offset(path, 1.0)),
+    Mutation("rest_bone_scaled", "Goat", None, scale_one_rest_bone, {"C2b-rest": "FAIL"}),
+    Mutation("missing_law", "Goat", None, drop_enforce_rigid_law, {"C2b-untraced": "NOT RUN"}),
 ]
 
 
@@ -285,6 +309,9 @@ def test_verifier_goes_red(m, tmp_path):
     if not m.base_red:
         assert base.verdict is Status.PASS, [c for c in base.checks if c.status is not Status.PASS]
     before = _world(run / "4_roundtrip.fbx") if m.keeps_joints else None
+    if m.control:
+        m.control(run / "4_roundtrip.fbx")
+        assert _status(judge(run, accept_changed=True), "C2b-untraced").status is Status.PASS
     m.mutate(run / "4_roundtrip.fbx")
     if before is not None:
         assert np.abs(before - _world(run / "4_roundtrip.fbx")).max() < 1e-4
@@ -330,9 +357,10 @@ def test_source_frames_follow_the_recorded_window(tmp_path):
     assert list(case.source_frames) == [int(f) + 1 for f in case.frames]
     assert _status(judge(run), "C2a").status is Status.PASS
     assert _status(judge(run), "C1").status is Status.PASS  # the head trim is the window, not a frame-range change
+    assert _status(judge(run), "C2b-untraced").status is Status.PASS  # prune_unskinned and the bind rest pose
     bear = build("truebones", "Bear", None, tmp_path)
     assert list(load_case(bear).source_frames) == list(load_case(bear).frames)
-    assert _status(judge(bear), "C1").status is Status.PASS  # its C2b is red: findings.md, Bear ForearmTwist2
+    assert _status(judge(bear), "C1").status is Status.PASS
     assert list(sample_frames(np.tile(np.eye(4), (1, 3, 1, 1)), 8)) == [0]
 
 
@@ -341,3 +369,28 @@ def test_laws_import_nothing_from_the_pipeline():
     imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     imported |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     assert not {m for m in imported if m.startswith(("poseydon.build", "poseydon.export", "poseydon.features"))}
+
+
+@pytest.mark.parametrize("data, rig", [("truebones", "Goat"), ("truebones", "Dog")])
+def test_laws_hold_on_a_folded_and_a_still_rig(data, rig, tmp_path):
+    """Goat folds `Bip01_Pelvis` into its root (the fold is seen only through joint rotations), Dog drops still
+    joints; C2b reports vertices and joints apart, and a floor run is judged against the source itself."""
+    run = build(data, rig, None, tmp_path)
+    params = laws_params(load_case(run))
+    assert params["fold_into_root"]["names"] if rig == "Goat" else params["drop_still"]["names"]
+    report = judge(run)
+    assert report.verdict is Status.PASS, [c for c in report.checks if c.status is not Status.PASS]
+    where = _status(report, "C2b-untraced").where
+    assert {"vertex", "joint", "rotation"} <= where.keys()
+
+
+def laws_params(case):
+    from tools.verify.case import loss_record
+
+    return loss_record(case).params
+
+
+def test_a_floor_run_is_judged_against_the_source_itself(tmp_path):
+    run = build("truebones", "Camel", None, tmp_path, floor=True)
+    line = _status(judge(run), "C2b-untraced")
+    assert line.status is Status.PASS and 0 < line.value < 1e-4, line
