@@ -22,7 +22,10 @@ shared with `scripts/render_fbx.py`, so the stick figure and the skinned render
 frame the same shot. `FBX.skin_data` reads each skin deformer whole (`SkinData`:
 every control point, triangulated faces, per-cluster link, bind matrices and
 weights), so a skin can be recomputed without the SDK
-(`tools/verify/skin.py`).
+(`tools/verify/skin.py`), and `FBX.inventory` lists what a file holds (`Inventory`:
+nodes, meshes with their skinned flag and counts, clusters, unweighted control
+points, materials, textures, units, up axis, fps, frame range, and what
+`skinned_vertices` does not model) for `tools/verify/checks.py`.
 
 ## Limitations
 
@@ -47,6 +50,12 @@ weights), so a skin can be recomputed without the SDK
   control point and fans polygons into triangles; `deform` in `tools/verify/skin.py`
   applies the same maths, with the same normalisation, and leaves an unweighted
   vertex at its rest position.
+- **`FBX.inventory` reports, it does not refuse.** `unsupported` names
+  dual-quaternion or blended skinning, a cluster link mode other than
+  normalize, blend shapes and non-zero geometric transforms; none was found on
+  a Truebones file. A deformer cut off its geometry is not a skin (`_skins`
+  skips it), and a truncated file can still open as an empty scene, so a reader
+  of `inventory` sees "no nodes" rather than an error.
 - **The read-only methods accept any transform model.** `world`, `bind_matrices`,
   `key_range`, `up_axis`, `node_types` and `skins` go through the SDK's
   evaluator or read the file directly and never call the write path's transform

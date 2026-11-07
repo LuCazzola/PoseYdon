@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from poseydon.io.fbx import SkinData
+if TYPE_CHECKING:
+    from poseydon.io.fbx import SkinData
 
 
 def extent(points: np.ndarray) -> float:

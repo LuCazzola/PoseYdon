@@ -129,7 +129,7 @@ Train or sample on it with `data=truebones_bone`; check it with
   (`fbxsdk` service, about 30 s a rig): each rig's rest asset under
   `<paths.root>/cache/rigs/<Rig>/`, before stage 1: `rest.fbx` (the asset FBX
   export writes onto), `rest.npz` (its read, the rest pose `fbx_cache` takes with
-  `rest_asset: true`) and, for truebones, `rest_mesh.npz` (the `ground` stage's
+  `rest_asset: true`, and `source_fbx`, the vendor file the asset was built from or its repaired copy) and, for truebones, `rest_mesh.npz` (the `ground` stage's
   `mesh` mode). Truebones: the vendor FBX, its mesh, skin and bind unchanged,
   held on one frame (`FBX.pose`) in the manifest's `rest_pose:` BVH, carried onto the FBX nodes through a vendor
   BVH/FBX pair of one clip, checked on every frame; rerun a rig whose
@@ -157,6 +157,19 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   `4_roundtrip`, each as `.bvh` and `.fbx`, for side-by-side inspection. Every
   FBX is the vendor's skinned asset; the prepared and model ones sit in
   canonical space.
+
+- `scripts/verify_motion.py` (`fbxsdk` container): judges the FBX files the
+  pipeline returns against the rig's vendor file (the `source_fbx` of its
+  `rest.npz`; a rig without it must be rebuilt with `tools/build_rest_fbx.py`).
+  `build --data D --rig R [--clip C] [--smoke] [--all-frames] [--out DIR]` writes
+  `<out>/<Rig>__<clip>/` (the `build_stage_samples.py` files plus `case.json`: paths,
+  sampled frames, SHA-256 of each file, git commit, container); `file FILE --reference REF`
+  judges one FBX; `judge DIR` runs the checks and writes `report.json` and
+  `report.txt` beside the stage files (default `--out` is `tmp/verify/`). `judge`
+  refuses a file whose hash changed since `build`. Exit status is non-zero unless every check
+  is `PASS` or `ALLOWED`. So far one check, C1 (inventory: nodes, hierarchy, meshes,
+  clusters, binds, materials, textures, units, up axis, fps, frame range). Settings and the
+  smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
 
 ## Tools and probes
 
@@ -190,6 +203,7 @@ and is named after its module is listed in `custom_imports:`.
 | config | holds |
 |---|---|
 | `configs/data/<dataset>.yaml` | one dataset, in the order a clip lives it: `paths`, `source`, `prepare:` (stage-1 stages), `reduce:` (stage-2 joint rules), `labels:` (split, joint names, foot-contact thresholds), `corpus`, `filter` (blacklist) and `loader` (batch, balancing, window). `truebones_bone` is `truebones` with its own paths and `bone_relative` appended; `unimate` (UniMate's recipe, `fbx_cache` source, manifests from `tools/write_unimate_manifests.py`) has UniMate's `clips:` and `prepare:` (`up_axis`, `prune_unskinned`, `bfs_order`, `enforce_rigid`, `face_axis` with `on_degenerate: nearest`, `centre_xz_clip`, `scale` by diameter 2.0, `ground_clip`) and `reduce: []` |
+| `configs/verify/` | the motion verifier: `verify.yaml` (frames sampled, tolerances, smoke set), `allowances.yaml` and `limits.yaml` (shipped empty; only the owner edits them) |
 | `configs/features/` | the model's feature blocks and their normalization (model-side) |
 | `configs/build.yaml` | corpus construction: a dataset plus a feature group, for both build scripts |
 | `configs/train.yaml`, `configs/sample.yaml` | a run: dataset, features, `configs/model/` (`anytop`, `modiffae`), `configs/process/` (`gaussian`, `flow`), `configs/trainer/` (`default`, `debug`), conditioners, augmentations, losses |

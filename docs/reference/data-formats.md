@@ -18,7 +18,7 @@ data/
       joint_names_t5.npz           T5 embeddings of the joint names
       fbx/<Rig>/<action>.npz       each clip as read from its vendor FBX
       rigs/<Rig>/rest.fbx          the vendor FBX, one frame, in the rest pose: what export writes onto
-      rigs/<Rig>/rest.npz          its read, with the rest pose stage 1 takes and `source_fbx` (the vendor file it came from)
+      rigs/<Rig>/rest.npz          its read, with the rest pose stage 1 takes and `source_fbx` (the vendor file it came from, or its repaired copy)
       rigs/<Rig>/rest_mesh.npz     the mesh at the rest pose, for grounding
     clips/<Rig>/<action>.npz       the prepared clip
     clips/<Rig>/<action>.bvh       the same, as BVH, to look at

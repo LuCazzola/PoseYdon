@@ -54,6 +54,10 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
+| `scripts/verify_motion.py` | the motion verifier's entry point: `build` writes a run directory (`tmp/verify/<Rig>__<clip>/`: stage files and `case.json` with SHA-256s), `file` judges one FBX against a vendor reference, `judge` runs the checks and writes `report.json` and `report.txt`; needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
+| `tools/verify/report.py` | the verifier's `Check` and `Report` (statuses `PASS`/`FAIL`/`ALLOWED`/`NOT RUN`, evidence classes), `apply_allowances` | [tooling](tooling.md#scripts) |
+| `tools/verify/case.py` | a verifier `Case` (files under test, the clip's vendor file, the rig's reference skin, sampled frames), `load_case`, `sample_frames`, `sha256`, `commit` | [tooling](tooling.md#scripts) |
+| `tools/verify/checks.py` | the verifier's checks; `c1_inventory` compares each file's `FBX.inventory` with the reference | [io](../api/io/index.md) |
 | `tools/verify/skin.py` | the reference skin: `deform` recomputes a vendor FBX's linear blend skinning from `FBX.skin_data`; needs the `fbxsdk` service for its test | [io](../api/io/index.md) |
 | `tools/build_rest_fbx.py` | each rig's rest asset under `cache/rigs/<Rig>/`: its vendor FBX held in the rest pose (`rest.fbx`, what FBX export writes onto), its read (`rest.npz`, with the rest pose `fbx_cache` takes with `rest_asset`) and the rest mesh (`rest_mesh.npz`, for `ground: mesh`); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 | `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus, through `poseydon.conditioners.text` | [tooling](tooling.md#tools-and-probes) |
