@@ -36,10 +36,10 @@ for metrics that decode more than once per pair. The whole flow is drawn on
   raises instead.
 - **`Blend` sizes its schedule from `reference.shape[0]`**, the batch axis of a
   `(B, T, C)` latent, while `LatentMix` counts frames on axis -2. Pass
-  `length=` until it is fixed ([issues](../../reference/ideas.md)).
+  `length=` until it is fixed ([#4](https://github.com/LuCazzola/PoseYdon/issues/4)).
 - **`inbetween` and `blend` have no CLI path.** `poseydon sample` instantiates
   `operation:` from the config, and both take tensors, so they run only from
-  Python ([issues](../../reference/ideas.md)).
+  Python ([#5](https://github.com/LuCazzola/PoseYdon/issues/5)).
 
 ## Class diagram
 
