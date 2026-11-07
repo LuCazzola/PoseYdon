@@ -97,6 +97,7 @@ meant to be deleted once read.
 | `.github/ISSUE_TEMPLATE/` | the bug template; ideas are redirected to the ideas table | [issues & ideas](ideas.md) |
 | `docs/api/` | one page per library package and subpackage, following the package tree (`docs/api/models/modules/index.md`), plus a page per separate design inside a package (`docs/api/build/preparation.md`, `docs/api/features/reconstruction.md`, `docs/api/features/reduction.md`) in its dropdown: one class diagram, then the reference generated from the docstrings at build time, the package docstring and one `:::` line per module (each module on exactly one page); `docs/api/index.md` is the diagram legend, `docs/api/retargeting.md` the one cross-package overview | [API](../api/index.md) |
 | `docs/javascripts/diagrams.js` | draws every Mermaid fence in the page itself (not Material's integration, whose shadow DOM breaks class-diagram markers in dark mode), colours classes by role, and opens a clicked diagram full-screen with pan and zoom; styles in `docs/stylesheets/diagrams.css` | [API](../api/index.md) |
+| `docs/stylesheets/extra.css` | site styling: centred tables and images, sidebar group titles, the current page in ochre, underline on hover | [API](../api/index.md) |
 | `mkdocs.yml` | the docs site and its explicit nav (a page left out fails the strict build): `uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve` | [docs](../index.md) |
 
 ## Open work

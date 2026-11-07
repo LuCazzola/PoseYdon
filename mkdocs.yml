@@ -70,6 +70,7 @@ extra_javascript:
   - javascripts/diagrams.js
 extra_css:
   - stylesheets/diagrams.css
+  - stylesheets/extra.css
 # Broken #anchors are only INFO by default, so --strict would not catch them.
 validation:
   nav:
