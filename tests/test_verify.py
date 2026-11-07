@@ -6,6 +6,8 @@ the verifier red on the check that owns it. Needs the FBX SDK, so it runs in the
 `fbxsdk` container only.
 """
 
+import ast
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -19,6 +21,7 @@ import fbx as sdk  # noqa: E402 - the Autodesk module, present whenever poseydon
 from scripts.verify_motion import build, judge  # noqa: E402 - needs the SDK too
 from tools.verify.case import load_case, sample_frames  # noqa: E402
 from poseydon.export import RigRecord  # noqa: E402
+from tools.verify import laws  # noqa: E402
 from tools.verify.report import Status  # noqa: E402
 from tools.verify.skin import deform, extent  # noqa: E402
 
@@ -171,6 +174,57 @@ def rebind_89bff67(path: Path) -> None:
     _mutate(path, edit)
 
 
+def _largest_cluster_joint(scene) -> int:
+    skin = scene._skins()[0]
+    big = max(range(skin.GetClusterCount()), key=lambda c: skin.GetCluster(c).GetControlPointIndicesCount())
+    return scene.names.index(skin.GetCluster(big).GetLink().GetName())
+
+
+def offset_one_joint_rotation(path: Path) -> None:
+    """Turn the joint weighing most vertices by 25 degrees about Z, every joint's position kept."""
+    def edit(scene):
+        world, j = scene.world(), _largest_cluster_joint(scene)
+        turn = np.eye(4)
+        turn[:3, :3] = Rotation.from_euler("z", 25, degrees=True).as_matrix()
+        world[:, j, :3, :3] = world[:, j, :3, :3] @ turn[:3, :3]
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
+
+
+def write_with_wrong_offset(path: Path) -> None:
+    """Stand-in for a bug in `EnforceRigid`: write the restored clip again with the longest bone 10% longer."""
+    from poseydon.build.pipeline import compose_build
+    from poseydon.core.animation import RigidBodyAnimation
+    from poseydon.features.reduce import apply_reduction
+
+    meta = json.loads((path.parent / "case.json").read_text())
+    root = Path(compose_build([f"data={meta['data']}"]).data.paths.root)
+    record = RigRecord.load(root, meta["rig"])
+    prepared = RigidBodyAnimation.load(root / "clips" / meta["rig"] / f"{meta['action']}.npz").as_rigid_body(joint_translation="drop")
+    restored = record.restore(apply_reduction(prepared, record.reduction), facing_from=meta["action"])
+    j = int(np.linalg.norm(restored.offsets, axis=-1).argmax())
+    offsets, translations = restored.offsets.copy(), restored.translations.copy()
+    offsets[j] *= 1.1
+    translations[:, j] = offsets[j] if j else translations[:, j]
+    wrong = type(restored)(restored.rotations, translations, offsets, restored.parents, restored.names, restored.fps)
+    fbx.FBX.from_animation(wrong, record.asset, fixed=record.fixed).write(path, embed_textures=True)
+
+
+def drop_enforce_rigid_law(path: Path) -> None:
+    """The stage stays in the file's record, its law leaves the verifier (restored by the `laws` fixture)."""
+    laws.LAWS.pop("enforce_rigid")
+    _mutate(path, lambda scene: None)
+
+
+@pytest.fixture(autouse=True)
+def keep_laws():
+    saved = dict(laws.LAWS)
+    yield
+    laws.LAWS.clear()
+    laws.LAWS.update(saved)
+
+
 @dataclass
 class Mutation:
     id: str
@@ -196,6 +250,9 @@ MUTATIONS = [
     Mutation("swap_cluster_link", "Camel", None, swap_two_cluster_links, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("perturb_bind", "Camel", None, perturb_one_link_bind, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("rebind", "Goat", None, rebind_89bff67, {"C2a": "FAIL"}, bounds=(2e-2, 1e-1)),
+    Mutation("rotate_joint", "Camel", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS"}),
+    Mutation("rigid_wrong_offset", "Camel", None, write_with_wrong_offset, {"C2b-untraced": "FAIL"}),
+    Mutation("missing_law", "Camel", None, drop_enforce_rigid_law, {"C2b-untraced": "NOT RUN"}),
 ]
 
 
@@ -207,7 +264,7 @@ def _status(report, check):
 
 def assert_red(base, after, check, want, rise):
     was, now = _status(base, check), _status(after, check)
-    if was.status.value == want:  # already red on the unmutated run: the evidence must grow
+    if was.status.value == want and want != "PASS":  # already red on the unmutated run: the evidence must grow
         assert rise > 0 and now.value >= was.value + rise, f"{check}: {was.value} -> {now.value}"
     else:
         assert now.status.value == want, f"{check}: {now.status.value} {now.note}"
@@ -264,15 +321,23 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
 def test_source_frames_follow_the_recorded_window(tmp_path):
     """Scorpion2's clip is trimmed by a head frame (window (1, 91, 1) over keys 0-90), so source
     frame i+1 is round-trip frame i; Bear keeps all 24 keys though the vendor's time span ends
-    one early, so its C1 frame range is green (C1 compares key ranges). A one-frame clip cannot be built
+    one early, so its C1 frame range is green (C1 compares frame counts against the window). A one-frame clip cannot be built
     (`--clip tpose` writes a 1-key take under the asset's 31-frame span), so `sample_frames`
     is driven on a one-frame array directly."""
     run = build("unimate", "Scorpion2", None, tmp_path)
     case = load_case(run)
     assert RigRecord.load(Path("data/unimate"), "Scorpion2").clip_params[case.action]["frames"]["window"].tolist() == [1, 91, 1]
     assert list(case.source_frames) == [int(f) + 1 for f in case.frames]
-    assert _status(judge(run), "C2a").status is Status.PASS  # C1 still reads the head trim as a frame-range change
+    assert _status(judge(run), "C2a").status is Status.PASS
+    assert _status(judge(run), "C1").status is Status.PASS  # the head trim is the window, not a frame-range change
     bear = build("truebones", "Bear", None, tmp_path)
     assert list(load_case(bear).source_frames) == list(load_case(bear).frames)
-    assert judge(bear).verdict is Status.PASS
+    assert _status(judge(bear), "C1").status is Status.PASS  # its C2b is red: findings.md, Bear ForearmTwist2
     assert list(sample_frames(np.tile(np.eye(4), (1, 3, 1, 1)), 8)) == [0]
+
+
+def test_laws_import_nothing_from_the_pipeline():
+    tree = ast.parse(Path("tools/verify/laws.py").read_text())
+    imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert not {m for m in imported if m.startswith(("poseydon.build", "poseydon.export", "poseydon.features"))}

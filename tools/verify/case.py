@@ -24,6 +24,51 @@ class Case:
     skin_fbx: Path
     frames: np.ndarray
     source_frames: np.ndarray
+    window: tuple[int, int, int] | None = None  # the clip's recorded (start, stop, step) over the vendor keys
+
+
+@dataclass
+class LossRecord:
+    """What the pipeline recorded about a rig: the lossy stages a clip went through, in order, with
+    the parameters their laws need, the asset the returned file is written onto and where the dataset's
+    rest pose comes from (`rest_asset: true` in its source config: the asset; else the vendor file's bind)."""
+
+    stages: list[str]
+    params: dict[str, dict]
+    asset: Path  # the FBX the returned file is written onto
+    bind_of: Path | None  # the file whose bind is the dataset's rest pose; None where the asset's pose is it
+
+
+def loss_record(case: Case) -> LossRecord:
+    """Read the rig's preparation and reduction records (the only place the verifier reads them)."""
+    from poseydon.build.pipeline import compose_build  # noqa: PLC0415 - the SDK-free tools stay importable without it
+    from poseydon.export import RigRecord  # noqa: PLC0415
+    from poseydon.features.reduce import load_still  # noqa: PLC0415
+
+    data = compose_build([f"data={case.data_name}"]).data
+    root = Path(data.paths.root)
+    record = RigRecord.load(root, case.rig)
+    stages = [s.name for s in record.chain.stages]
+    params: dict[str, dict] = {s: {} for s in stages}
+    promote = record.params.get("promote_root", {})
+    if "promote_root" in params:
+        params["promote_root"] = {"chain": [str(n) for n in promote["names"][:-1]],
+                                  "dead": [str(n) for n in promote["dead_names"]]}
+    prune = record.params.get("prune_unskinned")
+    if prune is not None:
+        params["prune_unskinned"] = {"removed": [str(n) for n in prune["removed"]],
+                                     "kind": [str(k) for k in prune["kind"]]}
+    with np.load(root / "rigs" / case.rig / "skeleton.npz", allow_pickle=True) as z:
+        still = load_still(z)
+    for op in record.reduction.ops:
+        rule = "fold_into_root" if op.kind == "collapse" else "drop_still" if op.name in still else "drop_end_sites"
+        if rule not in params:
+            stages.append(rule)
+            params[rule] = {"names": [], "parents": [], "rotations": []}
+        params[rule]["names"].append(op.name)
+        params[rule]["parents"].append(op.parent)
+        params[rule]["rotations"].append(list(op.rotation))
+    return LossRecord(stages, params, record.asset, None if data.source.get("rest_asset", False) else case.skin_fbx)
 
 
 def sha256(path: str | Path) -> str:
@@ -61,4 +106,5 @@ def load_case(run_dir: str | Path) -> Case:
     meta = json.loads((Path(run_dir) / "case.json").read_text())
     return Case(meta["data"], meta["rig"], meta["action"],
                 {k: Path(v) for k, v in meta["files"].items()}, Path(meta["clip_fbx"]), Path(meta["skin_fbx"]),
-                np.array(meta["frames"], dtype=int), np.array(meta["source_frames"], dtype=int))
+                np.array(meta["frames"], dtype=int), np.array(meta["source_frames"], dtype=int),
+                tuple(meta["window"]) if meta.get("window") else None)

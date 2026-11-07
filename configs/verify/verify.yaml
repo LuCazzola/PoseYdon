@@ -2,7 +2,7 @@
 n_frames: 8
 inventory_tol: 1.0e-6    # C1, bind matrices
 skin_tol: 1.0e-3        # C2a, fraction of rig extent; floor 7.4e-16 on the smoke set (build --floor, 2026-11-07)
-untraced_tol: 1.0e-3    # C2b
+untraced_tol: 1.0e-3    # C2b, fraction of rig extent; float32 key floor 6.9e-6 at most (Camel; 8.8e-8 to 3.4e-6 on the others) on the smoke set (build --floor, 2026-11-07)
 stretch_margin: 1.1
 # Rigs that each broke something (Tukan and Crow are the promoted-root rigs), each at
 # the rig's default clip, plus the extra clips listed under `extra`.

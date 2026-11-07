@@ -30,7 +30,7 @@ from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, commit, load_case, sample_frames, sha256
-from tools.verify.checks import c1_inventory, c2a_skin
+from tools.verify.checks import c1_inventory, c2a_skin, c2b_fidelity
 from tools.verify.report import Report, apply_allowances
 
 CONFIG = Path("configs/verify")
@@ -44,6 +44,7 @@ def _write_case(run: Path, case: Case, extra: dict) -> None:
         "files": {k: str(v) for k, v in case.files.items()},
         "clip_fbx": str(case.clip_fbx), "skin_fbx": str(case.skin_fbx),
         "frames": case.frames.tolist(), "source_frames": case.source_frames.tolist(),
+        "window": None if case.window is None else [int(x) for x in case.window],
         "sha256": {k: sha256(v) for k, v in named.items()},
         "commit": commit(), "container": os.environ.get("HOSTNAME", "unknown"), **extra,
     }, indent=2))
@@ -85,11 +86,12 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
     source.close()
     # The clip's recorded window, in the vendor file's frames; the floor file keeps every frame.
     window = None if floor else record.clip_params.get(action, {}).get("frames", {}).get("window")
-    numbers = numbers[slice(*(int(x) for x in window))] if window is not None else numbers
+    window = None if window is None else tuple(int(x) for x in window)
+    numbers = numbers[slice(*window)] if window is not None else numbers
     if len(numbers) != len(world):
         raise ValueError(f"{rig} {action}: the clip's window holds {len(numbers)} frames, the file {len(world)}")
     case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in stages}, run / "1_source.fbx", skin,
-                frames, numbers[frames])
+                frames, numbers[frames], window)
     _write_case(run, case, {})
     return run
 
@@ -115,6 +117,7 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     cfg = load_config()
     report.checks += c1_inventory(case, cfg["inventory_tol"])
     report.checks += c2a_skin(case, cfg)
+    report.checks += c2b_fidelity(case, cfg)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report

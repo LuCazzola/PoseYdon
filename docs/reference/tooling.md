@@ -171,7 +171,11 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   (no preparation), to measure the float floor. Checks so far: C1 (inventory: nodes, hierarchy, meshes,
   clusters, binds, materials, textures, units, up axis, fps, frame range) and C2a (each stage file's own
   skin against the reference skin, both driven by that file's joints; `skin_tol`, floor measured beside
-  it; takes no allowances). Settings (`inventory_tol` among them) and the
+  it; takes no allowances) and C2b (the returned `4_roundtrip` file's joints and skin against the source
+  clip with each lossy stage's loss law applied, `tools/verify/laws.py`: `C2b-untraced`, file against that
+  expected pose, is the verdict within `untraced_tol` of rig extent; `C2b-traced`, source against it, is
+  reported and never judged; a stage with neither a law nor a lossless declaration makes it `NOT RUN`).
+  C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the
   smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
 
 ## Tools and probes
