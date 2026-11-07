@@ -159,7 +159,7 @@ def fbx_index(path: str | Path) -> list[tuple[str, str, str]]:
     return out
 
 
-#: A rig's rest asset under `rig_cache`: its vendor FBX re-bound to the rest pose
+#: A rig's rest asset under `rig_cache`: its vendor FBX held in the rest pose
 #: (`tools/build_rest_fbx.py`), the asset FBX export writes onto, and its cached read.
 REST_FBX, REST_CACHE = "rest.fbx", "rest.npz"
 

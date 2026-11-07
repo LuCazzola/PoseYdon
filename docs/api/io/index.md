@@ -40,7 +40,7 @@ frame the same shot.
   only.** Weights are normalised per vertex, unweighted vertices and meshes with
   no skin deformer are left out, and dual-quaternion or blend-shape deformers
   are ignored; none was checked on a Truebones file, which uses neither. Its
-  users are `tools/build_rest_fbx.py` (the rest mesh, and `--check`).
+  user is `tools/build_rest_fbx.py` (the rest mesh).
 - **The read-only methods accept any transform model.** `world`, `bind_matrices`,
   `key_range`, `up_axis`, `node_types` and `skins` go through the SDK's
   evaluator or read the file directly and never call the write path's transform

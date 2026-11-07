@@ -39,6 +39,7 @@ from pathlib import Path
 
 import numpy as np
 from omegaconf import OmegaConf
+from scripts.build_fbx_cache import read, repaired
 
 from poseydon.build.corpus import cache_dir, rig_cache
 from poseydon.build.prepare import REST_MESH, similarity
@@ -47,7 +48,6 @@ from poseydon.core.rotations import quat_to_matrix
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX
-from scripts.build_fbx_cache import read, repaired
 
 ROOT = Path(__file__).resolve().parents[1]
 #: Largest disagreement, as a fraction of the extent, between a BVH and an FBX
@@ -83,9 +83,9 @@ def truebones_rest(data, rig: str) -> tuple[Path, dict[str, np.ndarray], str]:
     manifest = SkeletonManifest.load(ROOT / data.paths.rigs / rig / "manifest.yaml")
     rest = BVH.read(raw / rig / manifest.rest_pose).to_animation().slice(0, 1)
     best = None
-    for row in csv.DictReader(open(ROOT / data.source.index)):
-        if row["rig"] != rig:
-            continue
+    with open(ROOT / data.source.index) as index:
+        rows = [row for row in csv.DictReader(index) if row["rig"] == rig]
+    for row in rows:
         with np.load(ROOT / data.source.cache / rig / f"{row['action']}.npz") as z:
             if not len(z["skin_mesh"]):
                 continue

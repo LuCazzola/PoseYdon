@@ -78,8 +78,8 @@ stage of the Truebones chain, so it is the only parameter recorded per clip
 
 You run preparation with `scripts/process_dataset_truebones.py`. Truebones and
 UniMate's recipe both read FBX at stage 1, through the cache (`fbx_cache`): motion and
-mesh come from one file, and each Truebones rig's rest pose is the bind of its rest
-asset, the vendor FBX re-bound to the manifest's `rest_pose:`
+mesh come from one file, and each Truebones rig's rest pose is the one its rest
+asset holds: the manifest's `rest_pose:`, on the vendor FBX and its bind
 (`tools/build_rest_fbx.py`). A `bvh_files` source runs on the BVH only and has no
 FBX export. Each rig also gets a
 `report.json` recording what was done and why. See [build: preparation](../../../api/build/preparation.md).
