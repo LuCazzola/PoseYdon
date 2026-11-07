@@ -6,7 +6,7 @@
     <out>/<Rig>/4_roundtrip.{bvh,fbx}   back on the user's rig
 
 Every FBX but 1_ is written onto the rig's rest asset (`RigRecord.asset`), the
-same character and mesh re-bound to the rest pose; 2_ and 3_ show it in
+same character and mesh, held in the rest pose; 2_ and 3_ show it in
 canonical space (`RigRecord.placement`). The clip is the first of the rig's
 training clips that has a vendor FBX in the dataset's clip index, so 1_source.fbx
 is an independent reference: open it and 4_ side by side and they should agree

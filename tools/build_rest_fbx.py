@@ -1,15 +1,16 @@
-"""Build each rig's rest asset: its vendor FBX re-bound to the rig's rest pose.
+"""Build each rig's rest asset: its vendor FBX held in the rig's rest pose.
 
     docker compose run --rm -T --entrypoint python -e HOME=/tmp fbxsdk tools/build_rest_fbx.py \
-        [--data truebones|unimate] [--check] [Rig ...]
+        [--data truebones|unimate] [Rig ...]
 
 Writes, under `rig_cache` (`<paths.root>/cache/rigs/<Rig>/`):
 
 - `rest.fbx`: the asset `poseydon export --format fbx` writes onto, by node name
-  (`RigRecord.asset`), textures embedded. Its bind pose IS the rest pose, so the
-  mesh is stored in that pose and a clip's rotations relative to the rest are
-  relative to the mesh's own bind.
-- `rest.npz`: its read (`scripts/build_fbx_cache.py`'s fields), from which
+  (`RigRecord.asset`), textures embedded. Mesh, skin and bind pose are the
+  vendor's, so a posed mesh is exactly the vendor's; its one frame holds the rest
+  pose (`FBX.pose`).
+- `rest.npz`: its read (`scripts/build_fbx_cache.py`'s fields) plus `rest`, every
+  node's world matrix in the rest pose, in float64, from which
   `FbxCache(rest_asset=True)` takes the rest pose without the SDK.
 - `rest_mesh.npz` (truebones): the mesh at that pose for `ground: mesh`
   (`poseydon.build.prepare.PutOnGround`): `rest_pose` (the manifest value it was
@@ -23,16 +24,10 @@ the FBX nodes through the vendor's BVH/FBX pair of one clip from
 that pair, which is checked on every frame (`CALIBRATION_TOL`). The pair with the
 smallest residual among those whose FBX has a skin and at least
 `MIN_PAIR_FRAMES` frames is used (a shorter one only if none has), and its FBX is the
-asset re-bound (`FBX.rebind`). This is the one place the BVH-era files are still
-read; rerun a rig when its `rest_pose:` changes (the build refuses a rest mesh
-made for another one).
+asset. This is the one place the BVH-era files are still read; rerun a rig when
+its `rest_pose:` changes (the build refuses a rest mesh made for another one).
 
-unimate: the source FBX of the rig's rest clip (`FbxCache`), its bind unchanged.
-
-`--check` poses the old asset and the new one on the middle frame of the rig's
-longest clip and prints how far the mesh moved, as a fraction of the extent: re-binding is not
-exact where a vertex blends two bones that turn relative to each other between
-the old bind and the new one (`FBX.rebind`).
+unimate: the source FBX of the rig's rest clip (`FbxCache`), unchanged.
 """
 
 from __future__ import annotations
@@ -83,7 +78,7 @@ def calibrate(bvh: np.ndarray, fbx: np.ndarray):
 
 
 def truebones_rest(data, rig: str) -> tuple[Path, dict[str, np.ndarray], str]:
-    """The asset to re-bind, the rest pose's world matrix per FBX node, and a note."""
+    """The asset, the rest pose's world matrix per FBX node, and a note."""
     raw = ROOT / data.paths.raw / "source"
     manifest = SkeletonManifest.load(ROOT / data.paths.rigs / rig / "manifest.yaml")
     rest = BVH.read(raw / rig / manifest.rest_pose).to_animation().slice(0, 1)
@@ -118,28 +113,9 @@ def truebones_rest(data, rig: str) -> tuple[Path, dict[str, np.ndarray], str]:
     return asset, dict(zip(joints, out)), f"{manifest.rest_pose} via {row['bvh']} / {row['file']} ({residual:.1e})"
 
 
-def check(asset: Path, rest: Path, clip: Path) -> str:
-    """How far the mesh moves between the old asset and the re-bound one, both
-    posed on the middle frame of ``clip`` (a cached `.npz` of one of the rig's files)."""
-    with np.load(clip) as z:
-        names, world = [str(n) for n in z["names"]], z["world"]
-    frame = len(world) // 2
-    posed = []
-    for path in (asset, rest):
-        scene = FBX.read(path)
-        scene.animate({n: world[frame:frame + 1, names.index(n)] for n in scene.names if n in names}, 30.0)
-        posed.append(scene.skinned_vertices(0))
-        scene.close()
-    moved = np.linalg.norm(posed[0] - posed[1], axis=-1) / np.ptp(posed[0], axis=0).max()
-    return (f"re-bind moves the mesh on frame {frame}: median {np.median(moved):.1e}, "
-            f"99th percentile {np.percentile(moved, 99):.1e}, max {moved.max():.1e} of extent, "
-            f"{(moved > 1e-3).mean():.1%} of vertices over 1e-3")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--data", default="truebones")
-    parser.add_argument("--check", action="store_true", help="measure the re-bind on one frame (truebones)")
     parser.add_argument("rigs", nargs="*")
     args = parser.parse_args()
     data = OmegaConf.load(ROOT / "configs" / "data" / f"{args.data}.yaml")
@@ -153,7 +129,7 @@ def main() -> int:
             if args.data == "truebones":
                 asset, world, note = truebones_rest(data, rig)
                 scene = FBX.read(asset)
-                scene.rebind(world, 30.0)
+                rest = {"rest": scene.pose(world, 30.0)}
                 scene.write(out / REST_FBX, embed_textures=True)
                 scene.close()
             else:
@@ -163,26 +139,20 @@ def main() -> int:
                 scene = FBX.read(asset)
                 scene.write(out / REST_FBX, embed_textures=True)
                 scene.close()
-                note = f"bind of {asset.name}"
+                note, rest = f"bind of {asset.name}", {}
             d = read(out / REST_FBX)
-            np.savez_compressed(out / REST_CACHE, **d)
+            np.savez_compressed(out / REST_CACHE, **d, **rest)
             if args.data == "truebones":
                 index = {n: j for j, n in enumerate(str(x) for x in d["names"])}
                 extent = np.ptp([m[:3, 3] for m in world.values()], axis=0).max()
-                bind_err = max(np.abs(d["bind"][index[n]] - m).max() / extent for n, m in world.items()
-                               if not np.isnan(d["bind"][index[n]]).any())
+                held = max(np.abs(d["world"][0, index[n]] - m).max() / extent for n, m in world.items())
                 scene = FBX.read(out / REST_FBX)
                 vertices = scene.skinned_vertices(0)
                 scene.close()
                 manifest = SkeletonManifest.load(ROOT / data.paths.rigs / rig / "manifest.yaml")
                 np.savez_compressed(out / REST_MESH, rest_pose=np.array(manifest.rest_pose), names=d["names"],
                                     joints=d["world"][0, :, :3, 3], vertices=vertices)
-                note += f"; bind holds the pose to {bind_err:.1e}; {len(vertices)} vertices"
-                if args.check:
-                    clips = [ROOT / data.source.cache / rig / f"{r['action']}.npz"
-                             for r in csv.DictReader(open(ROOT / data.source.index)) if r["rig"] == rig]
-                    longest = max(clips, key=lambda c: len(np.load(c)["frames"]))
-                    note += f"; {longest.stem}: " + check(asset, out / REST_FBX, longest)
+                note += f"; the file holds the pose to {held:.1e}; {len(vertices)} vertices"
         except Exception as error:  # noqa: BLE001 - one rig must not stop the rest
             failed.append(rig)
             print(f"{rig}: FAILED {type(error).__name__}: {error}", flush=True)

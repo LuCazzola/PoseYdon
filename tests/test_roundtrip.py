@@ -407,7 +407,7 @@ def test_round_trip_fbx(clip: Path, tmp_path, request):
     """The FBX ends of the loop, against the source FBX itself.
 
     1. `FBX.from_animation` writes the restored clip onto the rig's rest asset
-       (`RigRecord.asset`, its vendor FBX re-bound to the rest pose) by node
+       (`RigRecord.asset`, its vendor FBX held in the rest pose) by node
        name, and the file read back holds the source FBX's own world transform
        wherever the round trip promises one (`test_round_trip`'s export leg):
        the root's position, and the orientation of every joint the round trip

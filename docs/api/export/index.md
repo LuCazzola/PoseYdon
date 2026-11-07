@@ -3,7 +3,7 @@
 The last arrow of the pipeline: reduced canonical motion back onto a
 character. `RigRecord` loads what the corpus recorded about one rig (its
 reduction, its preparation parameters from `preproc.npz`, and its rest asset,
-`<corpus>/cache/rigs/<Rig>/rest.fbx`: the vendor FBX re-bound to the rest pose by
+`<corpus>/cache/rigs/<Rig>/rest.fbx`: the vendor FBX held in the rest pose by
 `tools/build_rest_fbx.py`) and moves a clip between the model view, prepared
 space and source space. A source FBX dataset (`fbx_cache`: truebones, unimate)
 reads its clips in the FBX's own space, so a restored clip drives the asset's
@@ -70,15 +70,6 @@ dropped are driven by `invert_reduction`'s reconstruction.
 - **A dataset whose motion is not read from FBX has no FBX export.**
   `RigRecord.asset` needs `rest.fbx`, which `tools/build_rest_fbx.py` builds only
   for `fbx_cache` datasets; a BVH-only rig has no mesh to drive.
-- **The rest asset's mesh is the vendor mesh re-skinned into the rest pose.**
-  Linear blend skinning does not compose, so a vertex weighted to two bones
-  that turn relative to each other between the vendor bind and the rest pose
-  deforms differently from the vendor asset (`FBX.rebind`); measured per rig
-  by `tools/build_rest_fbx.py --check`: single-bone vertices are exact, blended
-  ones move up to 5.4e-2 of the extent on rigs whose rest pose is far from the
-  vendor bind (most authored T-poses), and below 1e-6 where the rest pose is
-  the vendor's bind (Horse). Mesh fidelity to the vendor asset is not asserted
-  by any test.
 - **`restore()` without `facing_from` restores the rest pose's facing.** A
   generated clip has no recorded heading, so it comes back on the source rig
   heading the way the rest pose did; pass `facing_from=<action>` to borrow a

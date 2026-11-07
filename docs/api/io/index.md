@@ -15,8 +15,8 @@ is choosing what to export ([export](../export/index.md)).
 `FBX` goes through the Autodesk FBX SDK, so `poseydon.io.fbx` imports only
 inside the `fbxsdk` container: import it lazily from anything the `test` image
 runs. It works in each file's native units and axes: a clip read from an FBX
-is written back onto it by node name (`FBX.from_animation`), and `FBX.rebind`
-makes any pose the file's bind pose, mesh included (the rest asset
+is written back onto it by node name (`FBX.from_animation`), and `FBX.pose`
+holds the file in any pose, on its own bind and mesh (the rest asset
 [export](../export/index.md) writes onto). `framing.camera` is
 shared with `scripts/render_fbx.py`, so the stick figure and the skinned render
 frame the same shot.
@@ -32,17 +32,10 @@ frame the same shot.
   rotation in its own frame, so a vendor BVH and FBX of one clip differ by a
   constant per-joint offset. Compare in world space; `tools/build_rest_fbx.py`
   measures the offset where it carries a BVH rest pose onto an FBX.
-- **`FBX.rebind` is linear blend skinning re-applied.** The mesh is deformed into
-  the new bind by its own skin, so the re-bound asset posed anywhere deforms
-  like the old one only where a vertex follows one bone, or bones that keep their
-  relative turn between the two binds; blended vertices across a joint that
-  turned move. Normals, tangents and binormals are turned with the vertices (by
-  control point or polygon vertex; other mappings are refused). Blend shapes are
-  not touched.
 - **`FBX.from_animation` drives nodes by name only.** A joint with no node of its
   name is ignored, and a node with no joint keeps its local transform from the
   asset's first frame; each driven node takes its world scale from the asset's
-  bind, constant per node (the scale an `Animation` cannot carry).
+  first frame, constant per node (the scale an `Animation` cannot carry).
 - **`FBX.skinned_vertices` is plain linear blend skinning of skinned meshes
   only.** Weights are normalised per vertex, unweighted vertices and meshes with
   no skin deformer are left out, and dual-quaternion or blend-shape deformers

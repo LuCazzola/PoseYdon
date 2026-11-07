@@ -54,7 +54,7 @@ meant to be deleted once read.
 
 | path | does | read |
 |---|---|---|
-| `tools/build_rest_fbx.py` | each rig's rest asset under `cache/rigs/<Rig>/`: its vendor FBX re-bound to the rest pose (`rest.fbx`, what FBX export writes onto), its read (`rest.npz`, the rest pose of `fbx_cache` with `rest_asset`) and the rest mesh (`rest_mesh.npz`, for `ground: mesh`); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
+| `tools/build_rest_fbx.py` | each rig's rest asset under `cache/rigs/<Rig>/`: its vendor FBX held in the rest pose (`rest.fbx`, what FBX export writes onto), its read (`rest.npz`, with the rest pose `fbx_cache` takes with `rest_asset`) and the rest mesh (`rest_mesh.npz`, for `ground: mesh`); needs the `fbxsdk` service | [tooling](tooling.md#scripts) |
 | `tools/build_joint_name_cache.py` | caches T5 embeddings of every joint name in the corpus, through `poseydon.conditioners.text` | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_grid_search.py` | grid search over `GradientIK` terms, foot-contact term included | [tooling](tooling.md#tools-and-probes) |
 | `tools/ik_contact_compare.py` | default vs best-from-grid IK solve, with predicted contacts shown | [tooling](tooling.md#tools-and-probes) |

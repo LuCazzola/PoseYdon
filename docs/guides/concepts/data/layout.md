@@ -17,8 +17,8 @@ data/
     cache/                         derived from vendor files, rebuilt by tools
       joint_names_t5.npz           T5 embeddings of the joint names
       fbx/<Rig>/<action>.npz       each clip as read from its vendor FBX
-      rigs/<Rig>/rest.fbx          the vendor FBX re-bound to the rest pose: what export writes onto
-      rigs/<Rig>/rest.npz          its read: the rest pose stage 1 takes
+      rigs/<Rig>/rest.fbx          the vendor FBX, one frame, in the rest pose: what export writes onto
+      rigs/<Rig>/rest.npz          its read, with the rest pose stage 1 takes
       rigs/<Rig>/rest_mesh.npz     the mesh at the rest pose, for grounding
     clips/<Rig>/<action>.npz       the prepared clip
     clips/<Rig>/<action>.bvh       the same, as BVH, to look at

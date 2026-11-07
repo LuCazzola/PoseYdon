@@ -9,8 +9,8 @@ float64, and leaves the file format to Autodesk's own SDK.
 
 Everything here stays in the FILE's native space (its units and axes). A clip
 read from an FBX (`poseydon.build.sources.FbxCache`) is in that space already,
-so writing it back is by node name (`FBX.from_animation`); `FBX.rebind` makes
-any pose the file's bind pose, mesh included.
+so writing it back is by node name (`FBX.from_animation`); `FBX.pose` holds the
+file in any pose, on its own bind and mesh.
 
 The SDK is proprietary and x86-64 only: it is imported here and nowhere else,
 and only the `fbxsdk` container has it (see the Dockerfile).
@@ -48,16 +48,6 @@ except ImportError as error:  # pragma: no cover - depends on the image
 def _matrix(m) -> np.ndarray:
     """An FbxAMatrix (row-vector convention) as a column-vector 4x4."""
     return np.array([[m.Get(r, c) for c in range(4)] for r in range(4)]).T
-
-
-def _amatrix(m: np.ndarray):
-    """A column-vector 4x4 ``T @ R @ S`` (per-axis scale) as an FbxAMatrix (`_matrix` inverted)."""
-    scale = np.linalg.norm(m[:3, :3], axis=0)
-    x, y, z, w = Rotation.from_matrix(m[:3, :3] / scale).as_quat()
-    out = fbx.FbxAMatrix()
-    out.SetTQS(fbx.FbxVector4(*map(float, m[:3, 3])), fbx.FbxQuaternion(x, y, z, w),
-               fbx.FbxVector4(*map(float, scale)))
-    return out
 
 
 def _frame(frame: int, mode):
@@ -146,8 +136,8 @@ class FBX:
 
         ``anim`` must be in the asset's own space, as a clip read from it is
         (`RigRecord.restore` gives a corpus clip back in it). Each node keeps its
-        own world scale from the asset's bind (Crow's armature is scaled 5), which
-        an `Animation` does not carry. ``space`` moves the whole scene, mesh
+        own world scale on the asset's first frame (Crow's armature is scaled 5),
+        which an `Animation` does not carry. ``space`` moves the whole scene, mesh
         included (`FBX.animate`): `RigRecord.placement` puts it in canonical space.
         """
         scene = cls.read(asset)
@@ -155,7 +145,7 @@ class FBX:
         if not names:
             raise ValueError(f"{asset}: no node shares a name with the clip's joints")
         positions, rotations = anim.global_transforms()
-        scale = np.linalg.norm(scene.bind_or_first()[:, :3, :3], axis=-2)
+        scale = np.linalg.norm(scene.world(scene.frames()[:1])[0, :, :3, :3], axis=-2)
         world = {}
         for name in names:
             j, node = anim.names.index(name), scene.names.index(name)
@@ -257,107 +247,28 @@ class FBX:
             bind[missing] = self.world(self.frames()[:1])[0][missing]
         return bind
 
-    def rebind(self, world: dict[str, np.ndarray], fps: float) -> None:
-        """Make the pose ``world`` (node name -> 4x4 world matrix) this scene's bind pose.
+    def pose(self, world: dict[str, np.ndarray], fps: float) -> np.ndarray:
+        """Hold this scene in the pose ``world`` (node name -> 4x4 world matrix).
 
-        A node not named keeps its local bind transform under its parent. Each
-        skinned mesh is deformed into the new pose by its own skin (linear blend,
-        as `skinned_vertices`; normals, tangents and binormals turned by the same
-        blended transform), and each cluster's link bind becomes its link's new
-        world, so the mesh at the new bind is the old mesh posed. The scene's
-        bind poses are replaced by one holding every node, and its animation by a
-        one-frame take at the new pose.
-
-        Not exact for every later pose: a vertex weighted to two bones that turn
-        relative to each other between the old bind and the new one deforms
-        differently from the old asset (linear blend skinning does not compose),
-        as in any "apply pose as rest pose".
+        A node not named keeps its local bind transform under its parent. The
+        scene's animation becomes a one-frame take at the pose; mesh, skin and
+        bind pose stay the file's, so the mesh there is the vendor's, skinned
+        into the pose. Returns every node's world matrix in that pose, in float64
+        (the take's keys are float32).
         """
-        old = self.bind_or_first()
+        bind = self.bind_or_first()
         index = {name: j for j, name in enumerate(self.names)}
         unknown = sorted(set(world) - set(index))
         if unknown:
             raise ValueError(f"no node named {unknown[:3]} in this file")
-        new = np.empty_like(old)
+        posed = np.empty_like(bind)
         for j, parent in enumerate(self.parents):
             if self.names[j] in world:
-                new[j] = world[self.names[j]]
+                posed[j] = world[self.names[j]]
             else:
-                new[j] = old[j] if parent < 0 else new[parent] @ np.linalg.inv(old[parent]) @ old[j]
-        by_uid = {node.GetUniqueID(): j for j, node in enumerate(self.nodes)}
-        for skin in self._skins():
-            geometry = skin.GetGeometry()
-            points = np.array([[p[0], p[1], p[2], 1.0] for p in geometry.GetControlPoints()])
-            blend = np.zeros((len(points), 4, 4))
-            total = np.zeros(len(points))
-            for c in range(skin.GetClusterCount()):
-                cluster = skin.GetCluster(c)
-                link_bind, mesh_bind = fbx.FbxAMatrix(), fbx.FbxAMatrix()
-                cluster.GetTransformLinkMatrix(link_bind)
-                cluster.GetTransformMatrix(mesh_bind)
-                link = by_uid[cluster.GetLink().GetUniqueID()]
-                mesh = _matrix(mesh_bind)
-                # mesh-local -> mesh-local: into the world at bind, along the link, back.
-                deform = np.linalg.inv(mesh) @ new[link] @ np.linalg.inv(_matrix(link_bind)) @ mesh
-                where = np.array(cluster.GetControlPointIndices(), dtype=int)
-                weight = np.array(cluster.GetControlPointWeights(), dtype=float)
-                if where.size:
-                    np.add.at(blend, where, weight[:, None, None] * deform)
-                    np.add.at(total, where, weight)
-                cluster.SetTransformLinkMatrix(_amatrix(new[link]))
-            weighted = total > 0
-            blend[weighted] /= total[weighted, None, None]
-            blend[~weighted] = np.eye(4)
-            moved = np.einsum("vij,vj->vi", blend, points)
-            for i, point in enumerate(moved):
-                geometry.SetControlPointAt(fbx.FbxVector4(*point[:3], 1.0), i)
-            self._turn_vectors(geometry, blend[:, :3, :3])
-        for i in reversed(range(self.scene.GetPoseCount())):
-            if self.scene.GetPose(i).IsBindPose():
-                self.scene.GetPose(i).Destroy()
-        pose = fbx.FbxPose.Create(self.scene, "BindPose")
-        pose.SetIsBindPose(True)
-        for j, node in enumerate(self.nodes):
-            pose.Add(node, fbx.FbxMatrix(_amatrix(new[j])))
-        self.scene.AddPose(pose)
-        self.animate({name: new[j][None] for name, j in index.items()}, fps)
-
-    @staticmethod
-    def _turn_vectors(geometry, linear: np.ndarray) -> None:
-        """Turn a mesh's normals, tangents and binormals by each control point's
-        ``linear`` part (inverse transpose, renormalised). An entry shared by
-        several control points takes the first one's."""
-        polygon_points = [geometry.GetPolygonVertex(p, k) for p in range(geometry.GetPolygonCount())
-                          for k in range(geometry.GetPolygonSize(p))]
-        normal = np.linalg.inv(linear).transpose(0, 2, 1)
-        for layer in range(geometry.GetLayerCount()):
-            for element in (geometry.GetLayer(layer).GetNormals(), geometry.GetLayer(layer).GetTangents(),
-                            geometry.GetLayer(layer).GetBinormals()):
-                if element is None:
-                    continue
-                mapping, reference = element.GetMappingMode(), element.GetReferenceMode()
-                Mode = fbx.FbxLayerElement.EMappingMode
-                if mapping == Mode.eByControlPoint:
-                    owners = list(range(len(linear)))
-                elif mapping == Mode.eByPolygonVertex:
-                    owners = polygon_points
-                else:
-                    raise ValueError(f"{geometry.GetName()}: vector mapping {mapping.name} is not supported")
-                direct = element.GetDirectArray()
-                if reference == fbx.FbxLayerElement.EReferenceMode.eDirect:
-                    entries = range(len(owners))
-                else:
-                    indices = element.GetIndexArray()
-                    entries = [indices.GetAt(k) for k in range(len(owners))]
-                done = set()
-                for k, entry in zip(range(len(owners)), entries):
-                    if entry in done:
-                        continue
-                    done.add(entry)
-                    v = direct.GetAt(entry)
-                    turned = normal[owners[k]] @ np.array([v[0], v[1], v[2]])
-                    turned /= max(np.linalg.norm(turned), 1e-12)
-                    direct.SetAt(entry, fbx.FbxVector4(*turned, v[3]))
+                posed[j] = bind[j] if parent < 0 else posed[parent] @ np.linalg.inv(bind[parent]) @ bind[j]
+        self.animate({name: posed[j][None] for name, j in index.items()}, fps)
+        return posed
 
     def key_range(self) -> tuple[float, float]:
         """First and last key time, in frames, over every curve of the first take.

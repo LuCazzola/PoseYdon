@@ -125,16 +125,16 @@ Train or sample on it with `data=truebones_bone`; check it with
   `run.fbx`'s mesh, with the Geometry/Pose declarations the graft probe omits
   added, otherwise the SDK drops the mesh).
 
-- `tools/build_rest_fbx.py --data truebones|unimate [--check] [Rig ...]`
+- `tools/build_rest_fbx.py --data truebones|unimate [Rig ...]`
   (`fbxsdk` service, about 30 s a rig): each rig's rest asset under
   `<paths.root>/cache/rigs/<Rig>/`, before stage 1: `rest.fbx` (the asset FBX
   export writes onto), `rest.npz` (its read, the rest pose `fbx_cache` takes with
   `rest_asset: true`) and, for truebones, `rest_mesh.npz` (the `ground` stage's
-  `mesh` mode). Truebones: the vendor FBX re-bound (`FBX.rebind`) to the
-  manifest's `rest_pose:` BVH, carried onto the FBX nodes through a vendor
+  `mesh` mode). Truebones: the vendor FBX, its mesh, skin and bind unchanged,
+  held on one frame (`FBX.pose`) in the manifest's `rest_pose:` BVH, carried onto the FBX nodes through a vendor
   BVH/FBX pair of one clip, checked on every frame; rerun a rig whose
   `rest_pose:` changes. Unimate: the source FBX of the rig's rest clip,
-  unchanged. `--check` prints how far re-binding moves the mesh on one frame.
+  unchanged.
 
 `fbx_cache` reads FBX at stage 1, through the cache, and export writes onto the
 rig's rest asset by node name. A `bvh_files` dataset has no FBX export: its

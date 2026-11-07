@@ -165,7 +165,7 @@ class RigRecord:
     @property
     def asset(self) -> Path:
         """The FBX a clip is written onto: the rig's rest asset, its vendor FBX
-        re-bound to the rest pose (`tools/build_rest_fbx.py`), mesh and skin
+        held in the rest pose (`tools/build_rest_fbx.py`), mesh and skin
         included."""
         path = rig_cache(self.corpus, self.rig) / REST_FBX
         if not path.is_file():

@@ -27,8 +27,8 @@ source:
   # export writes onto it by node name.
   index: data/truebones/fbx_clips.csv
   cache: data/truebones/cache/fbx      # scripts/build_fbx_cache.py --data truebones
-  # The rest pose is the bind pose of each rig's rest asset: its vendor FBX
-  # re-bound to the manifest's `rest_pose:` (tools/build_rest_fbx.py).
+  # The rest pose is the one each rig's rest asset holds: the manifest's
+  # `rest_pose:`, on its vendor FBX and bind (tools/build_rest_fbx.py).
   rest_asset: true
   min_frames: 1                        # a one-frame T-pose is written (left out of the index)
   # Every Truebones clip is 30 fps, so this is a real check rather than a

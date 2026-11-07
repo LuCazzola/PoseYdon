@@ -78,8 +78,8 @@ up to 3.5%, which an `Animation` cannot carry). The prepared clip and the model
 view, written onto the same asset in canonical space (`RigRecord.placement`),
 read back with every joint where the prepared clip, or the model view's
 expansion, has it. Joints held by structure (`RigRecord.fixed`) are written
-undriven. The mesh is not compared: the rest asset's is the vendor mesh re-bound
-to the rest pose ([export](../../api/export/index.md#limitations)).
+undriven. The mesh is not compared: the rest asset's is the vendor's own, on
+its own bind.
 
 Neither test asserts the losses the round trip makes by design: per-joint
 translation, the locator chain above a promoted root (and its dead branches:
@@ -93,6 +93,10 @@ its last full run passed 1132 of 1135, the other 3 failing on the test's own
 checks, since corrected, which were then run on 41 clips (those 3, Anaconda, Crow,
 Goat), not on all 1135. On `data=unimate` it passed one clip per rig (74 of 74)
 before that correction and every clip of Bear, Crow and FireAnt (92) after it.
+
+Those runs predate the 2026-11-07 rest assets (vendor bind kept), on which a sample
+of 16 Truebones checks and one `data=unimate` clip passed. The rest pose moved by
+6e-6 at most and the corpus was not rebuilt.
 
 ## Not covered
 

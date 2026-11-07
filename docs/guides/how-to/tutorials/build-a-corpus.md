@@ -38,8 +38,8 @@ docker compose run --rm -T --entrypoint python -e HOME=/tmp fbxsdk tools/build_r
 ```
 
 The first caches every clip's motion (`data/truebones/cache/fbx/`). The second
-builds each character's **rest asset**: its FBX with the mesh re-bound to the
-rest pose its manifest names, which is what the corpus measures rotations from
+builds each character's **rest asset**: its FBX, mesh and bind unchanged, held in
+the rest pose its manifest names, which is what the corpus measures rotations from
 and what exports are written onto (`data/truebones/cache/rigs/<Rig>/`). Rerun
 the second for a character whose `rest_pose:` changes.
 

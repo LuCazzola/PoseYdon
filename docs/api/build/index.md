@@ -19,8 +19,8 @@ under `paths.raw/source/<Rig>/`, or `fbx_cache`, FBX clips as
 `scripts/build_fbx_cache.py` cached them, listed by a clip index (`fbx_index`)
 and with the skeleton rebuilt as Blender's FBX importer would have. Truebones
 (`data=truebones`) reads its vendor FBX, one per BVH-era action
-(`data/truebones/fbx_clips.csv`), with each rig's rest pose the bind of its rest
-asset (`tools/build_rest_fbx.py`); UniMate's recipe (`data=unimate`) reads the
+(`data/truebones/fbx_clips.csv`), with each rig's rest pose the one its rest
+asset holds (`tools/build_rest_fbx.py`); UniMate's recipe (`data=unimate`) reads the
 clips UniMate's own index lists. Driven by `scripts/process_dataset_truebones.py`
 (stage 1) and `scripts/build_features.py` (stage 2). Between source and
 preparation it also trims and filters clips, as the dataset's ``clips:`` group

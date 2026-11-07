@@ -272,11 +272,12 @@ class FbxCache(Source):
     on a tie) defines the rig. A clip of another group is mapped by name when it
     holds every joint of the rig (its other joints are folded away, each joint's
     local transform taken against the rig's own parent), else it raises
-    `ValueError` naming the missing joints. The rest pose is the bind pose,
-    local = parent bind-inverse times bind (a node without a bind uses its
-    frame-0 world): of the rig's rest asset (`REST_CACHE` under `rig_cache`,
-    `tools/build_rest_fbx.py`) with ``rest_asset``, which must hold every joint
-    of the rig; else of the first clip of the main group. Clips: local = parent
+    `ValueError` naming the missing joints. With ``rest_asset`` the rest pose is
+    the one the rig's rest asset holds (`REST_CACHE` under `rig_cache`,
+    `tools/build_rest_fbx.py`), which must name every joint of the rig. Else it
+    is the bind pose of the first clip of the main group (a node without a bind
+    uses its frame-0 world). Either way local = parent inverse times the pose's
+    world. Clips: local = parent
     world-inverse times world per frame, the root's the full world (armature
     object included).
     """
@@ -350,13 +351,13 @@ class FbxCache(Source):
             missing = [n for n in armature.names if n not in names]
             if missing:
                 raise ValueError(f"{path} lacks {len(missing)} of the rig's joints ({', '.join(missing[:4])}...)")
-            nodes = [names.index(n) for n in armature.names]
+            pose = d["rest"][[names.index(n) for n in armature.names]]
         else:
             d, nodes = self._load(manifest.name, first), list(armature.nodes)
-        bind = d["bind"][nodes]
-        missing = np.isnan(bind).any(axis=(-2, -1))
-        bind[missing] = d["world"][0][nodes][missing]
-        local = _local(bind, armature.parents)[None]
+            pose = d["bind"][nodes]
+            missing = np.isnan(pose).any(axis=(-2, -1))
+            pose[missing] = d["world"][0][nodes][missing]
+        local = _local(pose, armature.parents)[None]
         return _animation(local, None, armature.parents, armature.names, self.fps or float(d["fps"]))
 
     def clip(self, data, manifest, action) -> SourceClip:

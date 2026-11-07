@@ -126,15 +126,15 @@ FBX.from_animation(placed, record.asset, space).write("dog_prepared.fbx")
 |---|---|---|---|---|
 | **model view** | exactly the model's | canonical (+Z, scaled, centred, grounded) | the animation | expand first |
 | **prepared** | every joint (after rig cleanup) | canonical | the animation | the rest asset in canonical space, mesh included |
-| **source** | the source's own | source units, frame, names, channels | with the source's `CHANNELS` block | the rest asset: the vendor's nodes, mesh, skin, materials, bound in the rest pose |
+| **source** | the source's own | source units, frame, names, channels | with the source's `CHANNELS` block | the rest asset: the vendor's nodes, mesh, skin, materials and bind |
 
-Every FBX carries the vendor's mesh, re-bound to the rest pose. A source BVH needs
+Every FBX carries the vendor's mesh on its own bind. A source BVH needs
 `source_channels` and an FBX needs the rest asset (and, for canonical space, the
 placement), because neither is in an animation. The source clip is in the asset's
 own space, so its joints drive the asset's nodes by name: there is no calibration.
 
 **FBX export needs no calibration.** Motion is read from the vendor FBX
-(`fbx_cache`), and the rest asset is that FBX re-bound to the rest pose
+(`fbx_cache`), and the rest asset is that FBX held in the rest pose
 (`tools/build_rest_fbx.py`), so a restored clip is already in the asset's space.
 The writer drives nodes by name through the Autodesk FBX SDK, holding the
 joints `RigRecord.fixed` lists at the asset's rest transform. All 73 Truebones
