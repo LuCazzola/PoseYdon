@@ -15,17 +15,26 @@
 custom_imports: []
 
 paths:
-  raw: data/_raw/truebones             # raw/source/<Rig>/*.bvh, *.fbx (vendor files, never edited)
+  raw: data/_raw/truebones             # raw/source/<Rig>/*.fbx, *.bvh (vendor files, never edited)
   root: data/truebones                 # the prepared corpus: clips/<Rig>/, rigs/<Rig>/
   rigs: data/truebones/rigs            # one directory per rig: manifest.yaml + its built files
   index: data/truebones/index.jsonl    # one row per trainable clip
 
 source:
-  pattern: "*.bvh"
-  # Every one of the 1153 raw Truebones clips is 30 fps, so this is a real check
-  # rather than a default: a clip at another rate is reported and skipped. The
-  # reference's FPS=20 is not a data rate at all -- it discards each file's
-  # frame time and only labels its rendered videos 20 fps.
+  type: fbx_cache
+  # The vendor FBX of every BVH-era action (`rig,action,file`; the `bvh` column
+  # records which BVH each replaced). Motion and mesh come from one file, so
+  # export writes onto it by node name.
+  index: data/truebones/fbx_clips.csv
+  cache: data/truebones/cache/fbx      # scripts/build_fbx_cache.py --data truebones
+  # The rest pose is the one each rig's rest asset holds: the manifest's
+  # `rest_pose:`, on its vendor FBX and bind (tools/build_rest_fbx.py).
+  rest_asset: true
+  min_frames: 1                        # a one-frame T-pose is written (left out of the index)
+  # Every Truebones clip is 30 fps, so this is a real check rather than a
+  # default: a clip at another rate is reported and skipped. The reference's
+  # FPS=20 is not a data rate at all -- it discards each file's frame time and
+  # only labels its rendered videos 20 fps.
   fps: 30
 
 # Stage 1: the invertible source -> canonical chain (`PREPARE`). Each stage's
@@ -42,7 +51,7 @@ prepare:
   - {type: centre_xz}                  # root at the XZ origin on the rest pose
   - {type: scale, target: 0.20921428571428569}       # mean bone length = the reference's HML_AVG_BONELEN
   - {type: ground, mode: mesh}         # rest pose on y = 0: its lowest vendor-mesh vertex
-                                       # (tools/build_rest_mesh.py), or `joints`; a manifest's
+                                       # (tools/build_rest_fbx.py), or `joints`; a manifest's
                                        # `ground:` overrides it for its rig
 
 # Stage 2: which joints the model sees (`REDUCE`), tried in this order joint by

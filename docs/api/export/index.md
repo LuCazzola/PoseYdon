@@ -2,9 +2,13 @@
 
 The last arrow of the pipeline: reduced canonical motion back onto a
 character. `RigRecord` loads what the corpus recorded about one rig (its
-reduction, its preparation parameters from `preproc.npz`, and its FBX
-calibrations, fitted from the vendor files under `data/_raw/<dataset>/source/<Rig>/`)
-and moves a clip between the model view, prepared space and source space.
+reduction, its preparation parameters from `preproc.npz`, and its rest asset,
+`<corpus>/cache/rigs/<Rig>/rest.fbx`: the vendor FBX held in the rest pose by
+`tools/build_rest_fbx.py`) and moves a clip between the model view, prepared
+space and source space. A source FBX dataset (`fbx_cache`: truebones, unimate)
+reads its clips in the FBX's own space, so a restored clip drives the asset's
+nodes by name, with no calibration; a prepared clip is placed in canonical space
+by one similarity solved on the clip (`RigRecord.placement`).
 It writes nothing: `BVH.from_animation` or `FBX.from_animation`
 ([io](../io/index.md)) write whatever animation they are given, so the space a
 clip is in decides what the file holds. The space is stated by the caller,
@@ -22,8 +26,13 @@ It does not own the transforms it inverts (`build.prepare`,
 | space | joints | frame | get it with | BVH | FBX |
 |---|---|---|---|---|---|
 | **model view** | reduced, exactly the model's | canonical: +Z, scaled, centred, grounded | the model's output | `BVH.from_animation(anim)` | expand first: the mesh needs every node |
-| **prepared** | every joint | canonical | `record.expand(model)`, or a corpus clip | `BVH.from_animation(anim)` | `FBX.from_animation(anim, record.calibration("prepared"))`: the vendor asset, mesh and skin, placed in canonical space |
-| **source** | the source's own | source units, frame, names | `record.restore(anim, facing_from=...)` | `BVH.from_animation(anim, channels=record.source_channels)` | `FBX.from_animation(anim, record.calibration("source"))`: the vendor asset in its own space |
+| **prepared** | every joint | canonical | `record.expand(model)`, or a corpus clip | `BVH.from_animation(anim)` | `FBX.from_animation(*record.placement(anim), ...)`: `placement` restores the clip and returns the similarity that puts the asset, mesh and skin, in canonical space (`FBX.from_animation(restored, record.asset, space)`) |
+| **source** | the source's own | source units, frame, names | `record.restore(anim, facing_from=...)` | `BVH.from_animation(anim, channels=record.source_channels)` | `FBX.from_animation(anim, record.asset)`: the rest asset in its own space |
+
+`record.source_channels` is `None` (the writer's default layout) where the source
+has no CHANNELS layout (`fbx_cache`: `EnforceRigid` then records `inferred`) or the
+recorded one is for another skeleton: `data=unimate` infers it on the pruned,
+BFS-ordered joints, while a restored clip has every removed joint back, in source order.
 
 Every FBX carries the rig's mesh; there is no bare-skeleton FBX
 (`poseydon export --bare-skeleton` writes BVH only). Joints the reduction
@@ -42,9 +51,25 @@ dropped are driven by `invert_reduction`'s reconstruction.
   skin, at rest. Export from the `.anim.npz` that `sample` and `retarget` write
   beside the BVH, which keeps them.
 - **A clip in the wrong space with the right joints writes at the wrong place
-  and scale.** `FbxCalibration.drive` raises on missing joints, but nothing in
-  a clip tells prepared from source (their joints nearly coincide), so passing
-  `calibration("source")` a prepared clip is not caught.
+  and scale.** `FBX.from_animation` raises when no joint names a node, but
+  nothing in a clip tells prepared from source (their joints nearly coincide),
+  so passing it a prepared clip without `placement` is not caught.
+- **Joints held by structure stay at the asset's rest transform in an FBX.**
+  `RigRecord.fixed` (the chain above a promoted root, its dead branches, and
+  the roots rig cleanup removed) is passed to `FBX.from_animation`, so those
+  nodes keep the rest asset's local transform while the body's root is driven
+  absolutely. `restore` cannot give them their clip values (only their product
+  was observable): its chain follows the body (Crow's came back 30.9 units off
+  under a root travelling 208), which a BVH must keep. A locator placed
+  differently in the rest file than in a clip (Crow's `N_ALL`) sits where the
+  rest file has it; nothing is skinned to it.
+- **Animated node scale is lost.** An `Animation` carries no scale, so an FBX
+  export holds every node at the asset's scale: Bear's `feast` and `groundpaw`
+  squash `NPC_Neck1` by up to 3.5%, and the export does not. Nothing in the
+  pipeline warns about it.
+- **A dataset whose motion is not read from FBX has no FBX export.**
+  `RigRecord.asset` needs `rest.fbx`, which `tools/build_rest_fbx.py` builds only
+  for `fbx_cache` datasets; a BVH-only rig has no mesh to drive.
 - **`restore()` without `facing_from` restores the rest pose's facing.** A
   generated clip has no recorded heading, so it comes back on the source rig
   heading the way the rest pose did; pass `facing_from=<action>` to borrow a
@@ -61,25 +86,18 @@ classDiagram
     rig: str
     params: dict
     clip_params: dict
-    load(corpus, raw, rig, layout)$ RigRecord
+    load(corpus, rig, layout)$ RigRecord
     expand(anim) Animation
     restore(anim, facing_from) Animation
-    calibration(space) FbxCalibration
-  }
-  class FbxCalibration {
-    <<dataclass>>
-    scale, rotation, translation
-    residual
-    fit(bvh_path, fbx_path)$ FbxCalibration
-    drive(anim) dict
+    asset Path
+    fixed tuple
+    placement(anim, facing_from) (Animation, space)
   }
   RigRecord o-- PrepareChain : chain, inverted by restore
   RigRecord o-- JointReduction : reduction, undone by expand
-  RigRecord *-- FbxCalibration : fitted lazily, cached per space
   RigRecord ..> RigTransform : load reads preproc.npz
   RigRecord ..> Animation : expand, restore
   cssClass "RigRecord" impl
-  cssClass "FbxCalibration" data
   cssClass "PrepareChain,JointReduction,RigTransform,Animation" ext
 ```
 

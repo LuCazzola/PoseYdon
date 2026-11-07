@@ -15,6 +15,12 @@ End Sites are treated as ordinary joints with an offset, a name and no channels.
 A name may be given in a nonstandard ``#name:`` comment; where it is missing --
 the usual case, and every Truebones file -- one is derived from the parent.
 
+A leaf that is a real joint (not an End Site) has no channels in a plain file, so
+its own rotation is lost. ``BVH.from_animation(..., leaf_rotations=True)`` writes
+it as a JOINT with rotation channels and a zero-offset ``End Site #synthetic``
+below it; ``read`` drops exactly those marked End Sites, so the joint list is the
+animation's own. Without the option no file carries the marker.
+
 The MOTION block is parsed in a single vectorized pass rather than line by line,
 which is where a naive parser spends nearly all its time.
 """
@@ -41,6 +47,9 @@ _POSITION_CHANNELS = ("Xposition", "Yposition", "Zposition")
 DEFAULT_ROTATION_ORDER = "ZYX"
 _DEFAULT_ROTATION_CHANNELS = tuple(f"{axis}rotation" for axis in DEFAULT_ROTATION_ORDER)
 
+#: Marks the End Site `leaf_rotations` adds under a real leaf joint; `read` drops it.
+SYNTHETIC_END = "#synthetic"
+
 _END_SITE_RE = re.compile(r"End\s+Site\s*(?:#\s*name:\s*(\S+))?", re.IGNORECASE)
 
 
@@ -62,6 +71,7 @@ def _parse_hierarchy(text: str):
         channels.append([])
         return len(names) - 1
 
+    synthetic: list[int] = []
     pending: int | None = None
     for raw in text.splitlines():
         line = raw.strip()
@@ -75,6 +85,8 @@ def _parse_hierarchy(text: str):
             if name is None:
                 name = f"{names[stack[-1]]}_End" if stack else "End"
             pending = add(name)
+            if SYNTHETIC_END in line:
+                synthetic.append(pending)
         elif line.startswith("{"):
             if pending is None:
                 raise BvhParseError("found '{' before any ROOT, JOINT or End Site")
@@ -102,6 +114,14 @@ def _parse_hierarchy(text: str):
         raise BvhParseError("unbalanced '{' in HIERARCHY")
     if not names:
         raise BvhParseError("no joints found in HIERARCHY")
+
+    if synthetic:   # leaves, so no kept joint has one as its parent
+        keep = [j for j in range(len(names)) if j not in set(synthetic)]
+        new = {old: i for i, old in enumerate(keep)}
+        names = [names[j] for j in keep]
+        parents = [new[parents[j]] if parents[j] >= 0 else -1 for j in keep]
+        offsets = [offsets[j] for j in keep]
+        channels = [channels[j] for j in keep]
 
     return (
         tuple(names),
@@ -270,7 +290,8 @@ class BVH:
 
     @classmethod
     def from_animation(
-        cls, animation: Animation, channels: tuple[tuple[str, ...], ...] | None = None
+        cls, animation: Animation, channels: tuple[tuple[str, ...], ...] | None = None,
+        leaf_rotations: bool = False,
     ) -> BVH:
         """Prepare an animation for writing.
 
@@ -281,7 +302,29 @@ class BVH:
         file's declaration even though the values in those channels are now the
         constant rest offsets, so the returned rig is structurally the one the
         user supplied.
+
+        ``leaf_rotations`` keeps the rotation of a leaf joint: it is written as a
+        JOINT with rotation channels (where ``channels`` gives it none) and a
+        zero-offset End Site marked `SYNTHETIC_END`, which `read` drops again.
         """
+        if leaf_rotations:
+            n = animation.n_joints
+            leaves = [j for j in range(1, n) if j not in set(int(p) for p in animation.parents)]
+            if channels is None:
+                channels = cls.from_animation(animation).channels
+            channels = [tuple(spec) for spec in channels]
+            for j in leaves:
+                channels[j] = channels[j] or _DEFAULT_ROTATION_CHANNELS
+            extra = len(leaves)
+            animation = Animation(
+                rotations=np.concatenate([animation.rotations, np.broadcast_to(QUAT_IDENTITY, (animation.n_frames, extra, 4))], axis=1),
+                translations=np.concatenate([animation.translations, np.zeros((animation.n_frames, extra, 3))], axis=1),
+                offsets=np.concatenate([animation.offsets, np.zeros((extra, 3))]),
+                parents=np.concatenate([animation.parents, np.array(leaves, dtype=animation.parents.dtype)]),
+                names=(*animation.names, *(animation.names[j] + SYNTHETIC_END for j in leaves)),
+                fps=animation.fps,
+            )
+            channels += [()] * extra
         if channels is None:
             moves = ~np.all(
                 np.isclose(animation.translations, animation.offsets[np.newaxis], atol=1e-9),
@@ -429,6 +472,8 @@ def _write_joint(lines, bvh, children, joint, depth, order) -> None:
         # a corpus ever does that.
         derived = f"{bvh.names[bvh.parents[joint]]}_End"
         named = "" if bvh.names[joint] == derived else f" #name: {bvh.names[joint]}"
+        if bvh.names[joint].endswith(SYNTHETIC_END):
+            named = f" {SYNTHETIC_END}"
         lines.append(f"{pad}End Site{named}")
     elif joint == 0:
         lines.append(f"{pad}ROOT {bvh.names[joint]}")

@@ -1,5 +1,6 @@
 skeleton: Alligator
 rest_pose: __TPOSE.bvh
+promote_root: locator2   # the FBX roots at static EAL1_2 and N_ALL above the body's root joint (the BVH left them out)
 facing:
   hips:      {right: R_momo, left: L_momo}
   shoulders: {right: R_hiji, left: L_hiji}
@@ -9,8 +10,8 @@ foot_joints:
 tags: [quadruped]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

@@ -15,8 +15,8 @@ foot_joints:
 tags: [quadruped]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

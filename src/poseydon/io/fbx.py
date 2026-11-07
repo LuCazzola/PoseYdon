@@ -7,8 +7,10 @@ given. On Flamingo's root (FBX-local Y at 90 degrees) it wrote frames 4.76
 degrees off its own input matrix. This module keys rotations itself, in
 float64, and leaves the file format to Autodesk's own SDK.
 
-Everything here stays in the FILE's native space (its units and axes). Mapping
-that space onto a BVH's is a calibration, owned by `poseydon.export`.
+Everything here stays in the FILE's native space (its units and axes). A clip
+read from an FBX (`poseydon.build.sources.FbxCache`) is in that space already,
+so writing it back is by node name (`FBX.from_animation`); `FBX.pose` holds the
+file in any pose, on its own bind and mesh.
 
 The SDK is proprietary and x86-64 only: it is imported here and nowhere else,
 and only the `fbxsdk` container has it (see the Dockerfile).
@@ -28,9 +30,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from poseydon.core.rotations import rotation_part
+
 if TYPE_CHECKING:
     from poseydon.core.animation import Animation
-    from poseydon.export.rig import FbxCalibration
 
 try:
     import fbx
@@ -45,14 +48,6 @@ except ImportError as error:  # pragma: no cover - depends on the image
 def _matrix(m) -> np.ndarray:
     """An FbxAMatrix (row-vector convention) as a column-vector 4x4."""
     return np.array([[m.Get(r, c) for c in range(4)] for r in range(4)]).T
-
-
-def _polar(linear: np.ndarray) -> np.ndarray:
-    """The rotation part of ``(..., 3, 3)`` rotation-times-scale matrices."""
-    u, _, vt = np.linalg.svd(linear)
-    fix = np.ones(linear.shape[:-1])
-    fix[..., -1] = np.sign(np.linalg.det(u @ vt))
-    return (u * fix[..., None, :]) @ vt
 
 
 def _frame(frame: int, mode):
@@ -79,6 +74,22 @@ def _time_mode(fps: float):
         if abs(fbx.FbxTime.GetFrameRate(mode) - fps) < 1e-4 * fps:
             return mode
     raise ValueError(f"{fps} fps has no FBX time mode; only standard rates are written")
+
+@dataclass(frozen=True)
+class Skin:
+    """One skin deformer's weights, per node of the file.
+
+    ``max_weight`` and ``weight_sum`` are ``(N,)`` over every node: the largest
+    single weight and the summed weight a node's cluster gives its vertices
+    (0 for a node with no cluster). Enough to tell a bone that moves the mesh
+    from one that is only a bind-time joint, without keeping per-vertex weights.
+    """
+
+    mesh: str
+    n_vertices: int
+    max_weight: np.ndarray
+    weight_sum: np.ndarray
+
 
 @dataclass
 class FBX:
@@ -116,16 +127,38 @@ class FBX:
         return cls(manager, scene, nodes, np.array(parents, dtype=np.int32))
 
     @classmethod
-    def from_animation(cls, anim: Animation, calibration: FbxCalibration) -> FBX:
-        """``anim`` on the calibration's asset: its nodes, mesh, skin and materials.
+    def from_animation(cls, anim: Animation, asset: str | Path, space: np.ndarray | None = None,
+                       fixed: tuple[str, ...] = ()) -> FBX:
+        """``anim`` on ``asset``: its nodes, mesh, skin and materials, each joint
+        driving the node of its name, except those in ``fixed``, which keep the
+        asset's own local transform (`RigRecord.fixed`: joints a restored clip
+        holds by structure only).
 
-        ``calibration`` must be the one fitted for ``anim``'s space
-        (`RigRecord.calibration`); a clip in another space still writes, at the
-        wrong place and scale, which nothing in the clip can reveal.
+        ``anim`` must be in the asset's own space, as a clip read from it is
+        (`RigRecord.restore` gives a corpus clip back in it). Each node keeps its
+        own world scale on the asset's first frame (Crow's armature is scaled 5),
+        which an `Animation` does not carry. ``space`` moves the whole scene, mesh
+        included (`FBX.animate`): `RigRecord.placement` puts it in canonical space.
         """
-        asset = cls.read(calibration.asset)
-        asset.animate(calibration.drive(anim), anim.fps, space=calibration.placement)
-        return asset
+        scene = cls.read(asset)
+        names = [n for n in anim.names if n in scene.names and n not in fixed]
+        if not names:
+            raise ValueError(f"{asset}: no node shares a name with the clip's joints")
+        positions, rotations = anim.global_transforms()
+        scale = np.linalg.norm(scene.world(scene.frames()[:1])[0, :, :3, :3], axis=-2)
+        world = {}
+        for name in names:
+            j, node = anim.names.index(name), scene.names.index(name)
+            m = np.zeros((anim.n_frames, 4, 4))
+            m[:, :3, :3] = Rotation.from_quat(rotations[:, j]).as_matrix() * scale[node]
+            m[:, :3, 3], m[:, 3, 3] = positions[:, j], 1.0
+            world[name] = m
+        scene.animate(world, anim.fps, space=space)
+        return scene
+
+    def close(self) -> None:
+        """Free the SDK manager and everything it owns. The object is unusable after."""
+        self.manager.Destroy()
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -137,11 +170,16 @@ class FBX:
             attribute.GetAttributeType() == fbx.FbxNodeAttribute.EType.eSkeleton
         )
 
+    def _stacks(self) -> list:
+        kind = fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId)
+        found = (self.scene.GetSrcObject(kind, s) for s in range(self.scene.GetSrcObjectCount(kind)))
+        # The criteria is not a strict filter: Eagle's and Horse's files return
+        # FbxNodes through it, which `animate` would otherwise have destroyed.
+        return [o for o in found if isinstance(o, fbx.FbxAnimStack)]
+
     def _stack(self):
-        count = self.scene.GetSrcObjectCount(fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId))
-        if count == 0:
-            return None
-        return self.scene.GetSrcObject(fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId), 0)
+        stacks = self._stacks()
+        return stacks[0] if stacks else None
 
     @property
     def _mode(self):
@@ -164,6 +202,132 @@ class FBX:
         start = span.GetStart().GetFrameCount(self._mode)
         stop = span.GetStop().GetFrameCount(self._mode)
         return np.arange(start, stop + 1)
+
+    def node_types(self) -> tuple[str, ...]:
+        """Attribute type name per node (``"eSkeleton"``, ``"eMesh"``, ...; ``""`` if none)."""
+        return tuple(
+            "" if (a := node.GetNodeAttribute()) is None else a.GetAttributeType().name
+            for node in self.nodes
+        )
+
+    def bind_matrices(self) -> np.ndarray:
+        """``(N, 4, 4)`` world bind matrix per node, NaN where the file has none.
+
+        A skin cluster's ``TransformLinkMatrix`` wins (it is what the skin was
+        bound against); else the scene's bind `FbxPose`. Read straight from the
+        file: no animation evaluated, no transform-model check.
+        """
+        out = np.full((len(self.nodes), 4, 4), np.nan)
+        # Python proxies of one SDK object are not identical: match by unique id.
+        by_uid = {node.GetUniqueID(): j for j, node in enumerate(self.nodes)}
+        for pose_i in range(self.scene.GetPoseCount()):
+            pose = self.scene.GetPose(pose_i)
+            if not pose.IsBindPose():
+                continue
+            for k in range(pose.GetCount()):
+                node = pose.GetNode(k)
+                at = by_uid.get(node.GetUniqueID()) if node is not None else None
+                if at is not None and np.isnan(out[at, 0, 0]):
+                    out[at] = _matrix(pose.GetMatrix(k))
+        for skin in self._skins():
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                at = by_uid.get(cluster.GetLink().GetUniqueID())
+                if at is not None:
+                    link = fbx.FbxAMatrix()
+                    cluster.GetTransformLinkMatrix(link)
+                    out[at] = _matrix(link)
+        return out
+
+    def bind_or_first(self) -> np.ndarray:
+        """``(N, 4, 4)`` `bind_matrices`, the first frame's world where a node has no bind."""
+        bind = self.bind_matrices()
+        missing = np.isnan(bind).any(axis=(-2, -1))
+        if missing.any():
+            bind[missing] = self.world(self.frames()[:1])[0][missing]
+        return bind
+
+    def pose(self, world: dict[str, np.ndarray], fps: float) -> np.ndarray:
+        """Hold this scene in the pose ``world`` (node name -> 4x4 world matrix).
+
+        A node not named keeps its local bind transform under its parent. The
+        scene's animation becomes a one-frame take at the pose; mesh, skin and
+        bind pose stay the file's, so the mesh there is the vendor's, skinned
+        into the pose. Returns every node's world matrix in that pose, in float64
+        (the take's keys are float32).
+        """
+        bind = self.bind_or_first()
+        index = {name: j for j, name in enumerate(self.names)}
+        unknown = sorted(set(world) - set(index))
+        if unknown:
+            raise ValueError(f"no node named {unknown[:3]} in this file")
+        posed = np.empty_like(bind)
+        for j, parent in enumerate(self.parents):
+            if self.names[j] in world:
+                posed[j] = world[self.names[j]]
+            else:
+                posed[j] = bind[j] if parent < 0 else posed[parent] @ np.linalg.inv(bind[parent]) @ bind[j]
+        self.animate({name: posed[j][None] for name, j in index.items()}, fps)
+        return posed
+
+    def key_range(self) -> tuple[float, float]:
+        """First and last key time, in frames, over every curve of the first take.
+
+        What a Blender import calls the action's frame range. ``(0, 0)`` for a
+        file with no keys.
+        """
+        stack = self._stack()
+        if stack is None:
+            return 0.0, 0.0
+        times = []
+        layers = stack.GetMemberCount(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId))
+        kind = fbx.FbxCriteria.ObjectType(fbx.FbxAnimCurveNode.ClassId)
+        for i in range(layers):
+            layer = stack.GetMember(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId), i)
+            if not isinstance(layer, fbx.FbxAnimLayer):
+                continue
+            for n in range(layer.GetSrcObjectCount(kind)):
+                curve_node = layer.GetSrcObject(kind, n)
+                # The criteria also lets other objects through on some files
+                # (FbxNodes on 349 Truebones clips).
+                if not isinstance(curve_node, fbx.FbxAnimCurveNode):
+                    continue
+                for channel in range(curve_node.GetChannelsCount()):
+                    for c in range(curve_node.GetCurveCount(channel)):
+                        curve = curve_node.GetCurve(channel, c)
+                        if curve.KeyGetCount() == 0:
+                            continue
+                        for k in (0, curve.KeyGetCount() - 1):
+                            times.append(curve.KeyGetTime(k).GetFrameCountPrecise(self._mode))
+        return (min(times), max(times)) if times else (0.0, 0.0)
+
+    def up_axis(self) -> str:
+        """The file's up axis from its global axis system: ``"+Y"``, ``"-Z"``, ..."""
+        up, sign = self.scene.GetGlobalSettings().GetAxisSystem().GetUpVector()
+        return ("+" if sign >= 0 else "-") + up.name[1]
+
+    def _skins(self) -> list:
+        kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
+        found = (self.scene.GetSrcObject(kind, s) for s in range(self.scene.GetSrcObjectCount(kind)))
+        return [o for o in found if isinstance(o, fbx.FbxSkin)]  # the criteria is not a strict filter
+
+    def skins(self) -> list[Skin]:
+        """Every skin deformer's per-node weight summary (see `Skin`)."""
+        by_uid = {node.GetUniqueID(): j for j, node in enumerate(self.nodes)}
+        out = []
+        for skin in self._skins():
+            geometry = skin.GetGeometry()
+            top = np.zeros(len(self.nodes))
+            total = np.zeros(len(self.nodes))
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                at = by_uid.get(cluster.GetLink().GetUniqueID())
+                weight = np.array(cluster.GetControlPointWeights(), dtype=float)
+                if at is not None and weight.size:
+                    top[at], total[at] = max(top[at], weight.max()), total[at] + weight.sum()
+            node = geometry.GetNode()
+            out.append(Skin(node.GetName() if node else "", geometry.GetControlPointsCount(), top, total))
+        return out
 
     def world(self, frames: np.ndarray | None = None) -> np.ndarray:
         """``(F, N, 4, 4)`` world matrices of every node, evaluated by the SDK."""
@@ -192,10 +356,8 @@ class FBX:
             self.scene.SetCurrentAnimationStack(self._stack())
         evaluator = self.scene.GetAnimationEvaluator()
         time = _frame(frame, self._mode)
-        kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
         out = []
-        for s in range(self.scene.GetSrcObjectCount(kind)):
-            skin = self.scene.GetSrcObject(kind, s)
+        for skin in self._skins():
             points = np.array([[p[0], p[1], p[2], 1.0] for p in skin.GetGeometry().GetControlPoints()])
             moved = np.zeros((len(points), 4))
             total = np.zeros(len(points))
@@ -268,15 +430,11 @@ class FBX:
                 local[:, j] = local0[j]
                 target[:, j] = above @ local0[j]
 
-        for stack_index in reversed(range(1, self.scene.GetSrcObjectCount(
-            fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId)
-        ))):
-            self.scene.GetSrcObject(
-                fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId), stack_index
-            ).Destroy()
+        for extra in self._stacks()[1:]:
+            extra.Destroy()
         stack = self._stack() or fbx.FbxAnimStack.Create(self.scene, "Take 001")
         layer = stack.GetMember(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId), 0)
-        if layer is None:
+        if not isinstance(layer, fbx.FbxAnimLayer):
             layer = fbx.FbxAnimLayer.Create(self.scene, "Base Layer")
             stack.AddMember(layer)
 
@@ -312,7 +470,7 @@ class FBX:
     @staticmethod
     def _euler(linear: np.ndarray) -> np.ndarray:
         """``(F, 3)`` LclRotation degrees giving these local linear parts."""
-        euler = Rotation.from_matrix(_polar(linear)).as_euler("xyz")
+        euler = Rotation.from_matrix(rotation_part(linear)).as_euler("xyz")
         # Any branch reproduces the rotation exactly; unwrapping only keeps
         # neighbouring keys close so that an interpolating reader does not spin.
         return np.degrees(np.unwrap(euler, axis=0))

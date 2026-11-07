@@ -1,5 +1,6 @@
 skeleton: Deer
 rest_pose: __Idle.bvh
+promote_root: Hips   # the FBX roots at static NPC_Root__Root_ above the body's root joint (the BVH left them out)
 facing:
   hips:      {right: ElkRFemur, left: ElkLFemur}
   shoulders: {right: ElkRScapula, left: ElkLScapula}
@@ -9,8 +10,8 @@ foot_joints:
 tags: [quadruped]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

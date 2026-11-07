@@ -17,8 +17,8 @@ foot_joints:
 tags: [flying]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

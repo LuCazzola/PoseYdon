@@ -1,6 +1,6 @@
-"""docs/index/ must track the tree it describes.
+"""The docs map must track the tree it describes.
 
-Only structure is checked: that INDEX.md names every package, script and tool,
+Only structure is checked: that docs/reference/map.md names every package, script and tool,
 and names no path that has gone. Whether the prose is still true cannot be
 tested; that is the upkeep rule in CLAUDE.md.
 """
@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX = ROOT / "docs" / "index" / "INDEX.md"
+INDEX = ROOT / "docs" / "reference" / "map.md"
 
 _CODE = re.compile(r"`([^`\n]+)`")
 
@@ -85,12 +85,12 @@ def test_required_paths_ignores_non_packages(tmp_path):
 
 def test_index_names_every_package_script_and_tool():
     missing = required_paths(ROOT) - mentioned_paths(INDEX.read_text())
-    assert not missing, f"add to docs/index/INDEX.md: {sorted(missing)}"
+    assert not missing, f"add to docs/reference/map.md: {sorted(missing)}"
 
 
 def test_index_names_only_existing_paths():
     stale = sorted(p for p in mentioned_paths(INDEX.read_text()) if not (ROOT / p).exists())
-    assert not stale, f"docs/index/INDEX.md names paths that do not exist: {stale}"
+    assert not stale, f"docs/reference/map.md names paths that do not exist: {stale}"
 
 
 def test_docs_do_not_cite_planning_notes():

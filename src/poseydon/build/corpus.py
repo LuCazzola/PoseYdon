@@ -41,6 +41,21 @@ class PerRigDirectory:
         return sorted((Path(root) / "clips" / rig).glob(self.pattern))
 
 
+def corpus_root(manifest: SkeletonManifest) -> Path:
+    """The dataset directory a rig's manifest lives in (`<root>/rigs/<Rig>/manifest.yaml`)."""
+    return Path(manifest.source).parents[2]
+
+
+def cache_dir(root: str | Path) -> Path:
+    """Where a dataset keeps what is derived from vendor files and not part of the corpus."""
+    return Path(root) / "cache"
+
+
+def rig_cache(root: str | Path, rig: str) -> Path:
+    """A rig's derived files (the rest mesh)."""
+    return cache_dir(root) / "rigs" / rig
+
+
 def read_labels(path: str | Path) -> dict:
     """A clip's authored label file, or an empty mapping when absent."""
     path = Path(path)
@@ -68,14 +83,19 @@ def write_labels(path: str | Path, derived: dict, relabel: bool = False) -> None
     path.write_text(yaml.safe_dump(merged, sort_keys=True))
 
 
+BIND_POSE_ACTION = "bind_pose"
+
+
 def rest_action(manifest: SkeletonManifest) -> str:
     """The prepared-clip action slug for this rig's declared rest pose.
 
     Consumers working on `clips/<Rig>/` need the slug, not the raw filename;
-    deriving it here keeps one source of truth in the manifest.
+    deriving it here keeps one source of truth in the manifest. A rig with no
+    ``rest_pose:`` (`fbx_cache`) has its bind pose as the rest: stage 1 writes it
+    as the one-frame clip `BIND_POSE_ACTION`.
     """
     if manifest.rest_pose is None:
-        raise ValueError(f"{manifest.name}: manifest declares no `rest_pose`")
+        return BIND_POSE_ACTION
     stem = Path(manifest.rest_pose).stem
     return strip_skeleton_prefix(action_slug(stem), manifest.name)
 

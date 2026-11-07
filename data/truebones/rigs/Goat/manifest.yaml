@@ -1,5 +1,6 @@
 skeleton: Goat
 rest_pose: __TPOSE_authored.bvh   # authored T-pose (tools/tpose_author.py)
+promote_root: Hips   # the FBX roots at static Null above the body's root joint (the BVH left them out)
 facing:
   hips:      {right: Bip01_R_Thigh, left: Bip01_L_Thigh}
   shoulders: {right: Bip01_R_UpperArm, left: Bip01_L_UpperArm}
@@ -11,8 +12,8 @@ foot_joints:
 tags: [quadruped, mammal]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

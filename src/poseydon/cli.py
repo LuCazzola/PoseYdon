@@ -58,9 +58,12 @@ def _train(args: argparse.Namespace) -> int:
 
     # `--out` is a directory OF runs; this run gets its own inside it, holding
     # its recipe, its checkpoints and its logs together. Named from the config
-    # rather than from the clock so that re-running the same configuration --
-    # or resuming it -- lands back in the same place.
+    # rather than from the clock so that resuming a configuration lands back in
+    # the same place. A new run of it does not: it would overwrite the recipe
+    # and the retargets of the finished one, whatever `max_steps` it runs for.
     run_dir = Path(args.out) / run_name(config)
+    if args.resume is None and any((run_dir / "checkpoints").glob("*.ckpt")):
+        raise SystemExit(f"{run_dir} holds a trained run: pass --resume, or another --out")
 
     L.seed_everything(config.seed, workers=True)
     data = build_datamodule(config)
@@ -333,7 +336,7 @@ def _export(args: argparse.Namespace) -> int:
         BVH.from_animation(anim).write(args.out)
         print(f"wrote {args.out}")
         return 0
-    record = RigRecord.load(args.corpus, args.raw, args.rig, layout=args.layout)
+    record = RigRecord.load(args.corpus, args.rig, layout=args.layout)
     if path.suffix.lower() == ".bvh" and tuple(anim.names) == record._model_names:
         print(
             "warning: a model-view BVH has no rotation for its leaves (Dog's ears, "
@@ -341,17 +344,20 @@ def _export(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     try:
-        if args.representation == "source":
-            anim = record.restore(anim, facing_from=args.facing_from)
-        if args.format == "bvh":
+        if args.format == "fbx":
+            from poseydon.io.fbx import FBX
+            # The asset is in source space; a prepared clip is placed in canonical space.
+            space = None
+            if args.representation == "source":
+                anim = record.restore(anim, facing_from=args.facing_from)
+            else:
+                anim, space = record.placement(anim, facing_from=args.facing_from)
+            FBX.from_animation(anim, record.asset, space, record.fixed).write(args.out, embed_textures=True)
+        else:
+            if args.representation == "source":
+                anim = record.restore(anim, facing_from=args.facing_from)
             channels = record.source_channels if args.representation == "source" else None
             BVH.from_animation(anim, channels=channels).write(args.out)
-        else:
-            from poseydon.io.fbx import FBX
-            if args.representation == "prepared" and tuple(anim.names) != tuple(record.reduction.source_names):
-                anim = record.expand(anim)  # the model view: the mesh needs every node driven
-            calibration = record.calibration(args.representation)
-            FBX.from_animation(anim, calibration).write(args.out, embed_textures=True)
     except (LookupError, ValueError, RuntimeError, OSError) as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -466,7 +472,6 @@ def main(argv: list[str] | None = None) -> int:
     export = sub.add_parser("export", help="export prepared or original motion")
     export.add_argument("input")
     export.add_argument("--corpus", default="data/truebones")
-    export.add_argument("--raw", default="data/_raw/truebones")
     export.add_argument("--rig", required=True)
     export.add_argument("--out", required=True)
     export.add_argument("--representation", choices=("prepared", "source"), default="prepared")

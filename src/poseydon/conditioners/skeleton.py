@@ -15,7 +15,7 @@ from poseydon.losses.base import NORM_STATS
 from poseydon.models.modiffae import JOINT_NAMES
 
 #: Built once by `tools/build_joint_name_cache.py`; see `JointNames`.
-DEFAULT_JOINT_NAME_CACHE = Path("data/truebones/joint_names_t5.npz")
+DEFAULT_JOINT_NAME_CACHE = Path("data/truebones/cache/joint_names_t5.npz")
 
 
 def _pad_square(tensor: torch.Tensor, max_joints: int, value: int = 0) -> torch.Tensor:

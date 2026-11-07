@@ -1,0 +1,1145 @@
+rig,action,file,bvh
+Alligator,bigmouth,Alligator/AlligatorALL-BigMouth.fbx,__BigMouth.bvh
+Alligator,bite1,Alligator/AlligatorALL-Bite1.fbx,__Bite1.bvh
+Alligator,bite2,Alligator/AlligatorALL-Bite2.fbx,__Bite2.bvh
+Alligator,bite3,Alligator/AlligatorALL-Bite3.fbx,__Bite3.bvh
+Alligator,bite4,Alligator/AlligatorALL-Bite4.fbx,__Bite4.bvh
+Alligator,bite5,Alligator/AlligatorALL-Bite5.fbx,__Bite5.bvh
+Alligator,bite6,Alligator/AlligatorALL-Bite6.fbx,__Bite6.bvh
+Alligator,bite7,Alligator/AlligatorALL-Bite7.fbx,__Bite7.bvh
+Alligator,catch,Alligator/AlligatorALL-Catch.fbx,__Catch.bvh
+Alligator,die,Alligator/AlligatorALL-DIe.fbx,__DIe.bvh
+Alligator,dash,Alligator/AlligatorALL-Dash.fbx,__Dash.bvh
+Alligator,dash2,Alligator/AlligatorALL-Dash2.fbx,__Dash2.bvh
+Alligator,deadup,Alligator/AlligatorALL-DeadUp.fbx,__DeadUp.bvh
+Alligator,dieloop,Alligator/AlligatorALL-DieLoop.fbx,__DieLoop.bvh
+Alligator,shake,Alligator/AlligatorALL-Shake.fbx,__Shake.bvh
+Alligator,standidle,Alligator/AlligatorALL-StandIdle.fbx,__StandIdle.bvh
+Alligator,tpose,Alligator/AlligatorALL-TPOSE.fbx,__TPOSE.bvh
+Alligator,throw,Alligator/AlligatorALL-Throw.fbx,__Throw.bvh
+Alligator,throw2,Alligator/AlligatorALL-Throw2.fbx,__Throw2.bvh
+Alligator,walk1,Alligator/AlligatorALL-Walk1.fbx,__Walk1.bvh
+Alligator,walk2,Alligator/AlligatorALL-Walk2.fbx,__Walk2.bvh
+Alligator,walk3,Alligator/AlligatorALL-Walk3.fbx,__Walk3.bvh
+Anaconda,attack,Anaconda/AnacondaALL-Attack.fbx,__Attack.bvh
+Anaconda,bite,Anaconda/AnacondaALL-Bite.fbx,__Bite.bvh
+Anaconda,bite2,Anaconda/AnacondaALL-Bite2.fbx,__Bite2.bvh
+Anaconda,die,Anaconda/AnacondaALL-Die.fbx,__Die.bvh
+Anaconda,hiss,Anaconda/AnacondaALL-Hiss.fbx,__Hiss.bvh
+Anaconda,idle,Anaconda/AnacondaALL-Idle.fbx,__Idle.bvh
+Anaconda,idle2,Anaconda/AnacondaALL-Idle2.fbx,__Idle2.bvh
+Anaconda,rise,Anaconda/AnacondaALL-Rise.fbx,__Rise.bvh
+Anaconda,rise2,Anaconda/AnacondaALL-Rise2.fbx,__Rise2.bvh
+Anaconda,run,Anaconda/AnacondaALL-Run.fbx,__Run.bvh
+Anaconda,sneaky,Anaconda/AnacondaALL-Sneaky.fbx,__Sneaky.bvh
+Anaconda,spin,Anaconda/AnacondaALL-Spin.fbx,__Spin.bvh
+Anaconda,strike,Anaconda/AnacondaALL-Strike.fbx,__Strike.bvh
+Anaconda,strike2,Anaconda/AnacondaALL-Strike2.fbx,__Strike2.bvh
+Anaconda,struckdie,Anaconda/AnacondaALL-StruckDie.fbx,__StruckDie.bvh
+Anaconda,tired,Anaconda/AnacondaALL-Tired.fbx,__Tired.bvh
+Anaconda,twistrattle,Anaconda/AnacondaALL-Twistrattle.fbx,__Twistrattle.bvh
+Anaconda,walkslow,Anaconda/AnacondaALL-WalkSLow.fbx,__WalkSLow.bvh
+Ant,attack,Ant/Ant-Attack.fbx,__Attack.bvh
+Ant,cleaning,Ant/Ant-Cleaning.fbx,__Cleaning.bvh
+Ant,die,Ant/Ant-Die.fbx,__Die.bvh
+Ant,die2,Ant/Ant-Die2.fbx,__Die2.bvh
+Ant,dieloop,Ant/Ant-DieLoop.fbx,__DieLoop.bvh
+Ant,dieup,Ant/Ant-DieUp.fbx,__DieUp.bvh
+Ant,idle,Ant/Ant-Idle.fbx,__Idle.bvh
+Ant,idle2,Ant/Ant-Idle2.fbx,__Idle2.bvh
+Ant,idle3,Ant/Ant-Idle3.fbx,__Idle3.bvh
+Ant,jumpforward,Ant/Ant-JumpForward.fbx,__JumpForward.bvh
+Ant,knockedback,Ant/Ant-KnockedBack.fbx,__KnockedBack.bvh
+Ant,march,Ant/Ant-March.fbx,__March.bvh
+Ant,shake,Ant/Ant-Shake.fbx,__Shake.bvh
+Ant,sting,Ant/Ant-Sting.fbx,__Sting.bvh
+Ant,sting2,Ant/Ant-Sting2.fbx,__Sting2.bvh
+Ant,tpose,Ant/Ant-TPOSE.fbx,__TPOSE.bvh
+Ant,throw,Ant/Ant-Throw.fbx,__Throw.bvh
+Ant,walk,Ant/Ant-Walk.fbx,__Walk.bvh
+Bat,attackbite,Bat/Bat-AttackBite.fbx,__AttackBite.bvh
+Bat,float,Bat/Bat-Float.fbx,__Float.bvh
+Bat,fly,Bat/Bat-Fly.fbx,__Fly.bvh
+Bat,flyglide,Bat/Bat-FlyGlide.fbx,__FlyGlide.bvh
+Bat,flyloop,Bat/Bat-FlyLoop.fbx,__FlyLoop.bvh
+Bat,kick,Bat/Bat-Kick.fbx,__Kick.bvh
+Bat,knockedback,Bat/Bat-KnockedBack.fbx,__KnockedBack.bvh
+Bat,looking,Bat/Bat-Looking.fbx,__Looking.bvh
+Bat,slowfly,Bat/Bat-SlowFly.fbx,__SlowFly.bvh
+Bat,walk,Bat/Bat-Walk.fbx,__Walk.bvh
+Bear,angeryswat,Bear/BEAR-AngerySwat.fbx,__AngerySwat.bvh
+Bear,backup,Bear/BEAR-BackUp.fbx,__BackUp.bvh
+Bear,bearrun,Bear/BEAR-BearRun.fbx,__BearRun.bvh
+Bear,bite,Bear/BEAR-Bite.fbx,__Bite.bvh
+Bear,catchfish,Bear/BEAR-CatchFish.fbx,__CatchFish.bvh
+Bear,feast,Bear/BEAR-Feast.fbx,__Feast.bvh
+Bear,fishbite,Bear/BEAR-FishBite.fbx,__FishBite.bvh
+Bear,getup,Bear/BEAR-GetUp.fbx,__GetUp.bvh
+Bear,groundpaw,Bear/BEAR-GroundPaw.fbx,__GroundPaw.bvh
+Bear,growl,Bear/BEAR-Growl.fbx,__Growl.bvh
+Bear,idle,Bear/BEAR-Idle.fbx,__Idle.bvh
+Bear,idlepant,Bear/BEAR-IdlePant.fbx,__IdlePant.bvh
+Bear,jumpbite,Bear/BEAR-JumpBite.fbx,__JumpBite.bvh
+Bear,laydown,Bear/BEAR-LayDown.fbx,__LayDown.bvh
+Bear,riseroar,Bear/BEAR-RiseRoar.fbx,__RiseRoar.bvh
+Bear,runningbear,Bear/BEAR-RunningBear.fbx,__RunningBear.bvh
+Bear,slowwalk,Bear/BEAR-SlowWalk.fbx,__SlowWalk.bvh
+Bear,stalking,Bear/BEAR-Stalking.fbx,__Stalking.bvh
+Bear,stand,Bear/BEAR-Stand.fbx,__Stand.bvh
+Bear,swatleft,Bear/BEAR-SwatLeft.fbx,__SwatLeft.bvh
+Bear,swatright,Bear/BEAR-SwatRight.fbx,__SwatRight.bvh
+Bear,tpose,Bear/BEAR-TPOSE.fbx,__TPOSE.bvh
+Bear,tipleft,Bear/BEAR-TipLeft.fbx,__TipLeft.bvh
+Bear,trot,Bear/BEAR-Trot.fbx,__Trot.bvh
+Bear,trotting,Bear/BEAR-Trotting.fbx,__Trotting.bvh
+Bear,turn180,Bear/BEAR-Turn180.fbx,__Turn180.bvh
+Bear,turnleft,Bear/BEAR-TurnLeft.fbx,__TurnLeft.bvh
+Bear,wakeup,Bear/BEAR-WakeUp.fbx,__WakeUp.bvh
+Bear,walkforward,Bear/BEAR-WalkForward.fbx,__WalkForward.bvh
+Bear,wetshake,Bear/BEAR-WetShake.fbx,__WetShake.bvh
+Bird,attack,Bird/BIRD-Attack.fbx,__Attack.bvh
+Bird,attack2,Bird/BIRD-Attack2.fbx,__Attack2.bvh
+Bird,attack3,Bird/BIRD-Attack3.fbx,__Attack3.bvh
+Bird,attack4,Bird/BIRD-Attack4.fbx,__Attack4.bvh
+Bird,circleland,Bird/BIRD-CircleLand.fbx,__CircleLand.bvh
+Bird,fallen,Bird/BIRD-Fallen.fbx,__Fallen.bvh
+Bird,falling,Bird/BIRD-Falling.fbx,__Falling.bvh
+Bird,floater,Bird/BIRD-Floater.fbx,__Floater.bvh
+Bird,flyfast,Bird/BIRD-FlyFast.fbx,__FlyFast.bvh
+Bird,flyloop,Bird/BIRD-FlyLoop.fbx,__FlyLoop.bvh
+Bird,flyslow,Bird/BIRD-FlySlow.fbx,__FlySlow.bvh
+Bird,flying,Bird/BIRD-Flying.fbx,__Flying.bvh
+Bird,groundflap,Bird/BIRD-GroundFlap.fbx,__GroundFlap.bvh
+Bird,idleloop,Bird/BIRD-IdleLoop.fbx,__IdleLoop.bvh
+Bird,lander,Bird/BIRD-Lander.fbx,__Lander.bvh
+Bird,lookright,Bird/BIRD-LookRight.fbx,__LookRight.bvh
+Bird,slowlook,Bird/BIRD-SlowLook.fbx,__SlowLook.bvh
+Bird,takeoff,Bird/BIRD-TakeOff.fbx,__TakeOff.bvh
+BrownBear,attack,BrownBear/BEAR-Attack.fbx,__Attack.bvh
+BrownBear,attack2,BrownBear/BEAR-Attack2.fbx,__Attack2.bvh
+BrownBear,attack3,BrownBear/BEAR-Attack3.fbx,__Attack3.bvh
+BrownBear,charge,BrownBear/BEAR-Charge.fbx,__Charge.bvh
+BrownBear,deathloop,BrownBear/BEAR-DeathLoop.fbx,__DeathLoop.bvh
+BrownBear,eatfish,BrownBear/BEAR-EatFish.fbx,__EatFish.bvh
+BrownBear,falling,BrownBear/BEAR-Falling.fbx,__Falling.bvh
+BrownBear,idle,BrownBear/BEAR-Idle.fbx,__Idle.bvh
+BrownBear,limp,BrownBear/BEAR-Limp.fbx,__Limp.bvh
+BrownBear,limping,BrownBear/BEAR-Limping.fbx,__Limping.bvh
+BrownBear,ready,BrownBear/BEAR-Ready.fbx,__Ready.bvh
+BrownBear,rise,BrownBear/BEAR-Rise.fbx,__Rise.bvh
+BrownBear,riseattack,BrownBear/BEAR-RiseAttack.fbx,__RiseAttack.bvh
+BrownBear,riseswat,BrownBear/BEAR-RiseSwat.fbx,__RiseSwat.bvh
+BrownBear,runloop,BrownBear/BEAR-RunLoop.fbx,__RunLoop.bvh
+BrownBear,scratchear,BrownBear/BEAR-ScratchEar.fbx,__ScratchEar.bvh
+BrownBear,sitclean,BrownBear/BEAR-SitClean.fbx,__SitClean.bvh
+BrownBear,sleepy,BrownBear/BEAR-Sleepy.fbx,__Sleepy.bvh
+BrownBear,slowwalk,BrownBear/BEAR-SlowWalk.fbx,__SlowWalk.bvh
+BrownBear,tpose,BrownBear/BEAR-Tpose.fbx,__Tpose.bvh
+BrownBear,twitching,BrownBear/BEAR-Twitching.fbx,__Twitching.bvh
+BrownBear,walkloop,BrownBear/BEAR-WalkLoop.fbx,__WalkLoop.bvh
+Buffalo,alertidle,Buffalo/Buffalo-AlertIdle.fbx,__AlertIdle.bvh
+Buffalo,angryantlers,Buffalo/Buffalo-AngryAntlers.fbx,__AngryAntlers.bvh
+Buffalo,attack,Buffalo/Buffalo-Attack.fbx,__Attack.bvh
+Buffalo,attack1,Buffalo/Buffalo-Attack1.fbx,__Attack1.bvh
+Buffalo,chargedup,Buffalo/Buffalo-ChargedUp.fbx,__ChargedUp.bvh
+Buffalo,cud,Buffalo/Buffalo-Cud.fbx,__Cud.bvh
+Buffalo,die,Buffalo/Buffalo-Die.fbx,__Die.bvh
+Buffalo,fall,Buffalo/Buffalo-Fall.fbx,__Fall.bvh
+Buffalo,getup,Buffalo/Buffalo-GetUp.fbx,__GetUp.bvh
+Buffalo,groundloop,Buffalo/Buffalo-GroundLoop.fbx,__GroundLoop.bvh
+Buffalo,hoofscrape,Buffalo/Buffalo-HoofScrape.fbx,__HoofScrape.bvh
+Buffalo,idle,Buffalo/Buffalo-Idle.fbx,__Idle.bvh
+Buffalo,jump,Buffalo/Buffalo-Jump.fbx,__Jump.bvh
+Buffalo,loweredhead,Buffalo/Buffalo-LoweredHead.fbx,__LoweredHead.bvh
+Buffalo,runloop,Buffalo/Buffalo-RunLoop.fbx,__RunLoop.bvh
+Buffalo,shot,Buffalo/Buffalo-Shot.fbx,__Shot.bvh
+Buffalo,sleepup,Buffalo/Buffalo-SleepUp.fbx,__SleepUp.bvh
+Buffalo,tpose,Buffalo/Buffalo-TPOSE.fbx,__TPOSE.bvh
+Buffalo,walkloop,Buffalo/Buffalo-WalkLoop.fbx,__WalkLoop.bvh
+Buzzard,attack1,Buzzard/BUZZARD-Attack1.fbx,__Attack1.bvh
+Buzzard,attack2,Buzzard/BUZZARD-Attack2.fbx,__Attack2.bvh
+Buzzard,attack3,Buzzard/BUZZARD-Attack3.fbx,__Attack3.bvh
+Buzzard,die1,Buzzard/BUZZARD-Die1.fbx,__Die1.bvh
+Buzzard,dying,Buzzard/BUZZARD-Dying.fbx,__Dying.bvh
+Buzzard,flyloop,Buzzard/BUZZARD-FlyLoop.fbx,__FlyLoop.bvh
+Buzzard,slowfly,Buzzard/BUZZARD-SlowFly.fbx,__SlowFly.bvh
+Buzzard,slowloop,Buzzard/BUZZARD-SlowLoop.fbx,__SlowLoop.bvh
+Buzzard,slowtoland,Buzzard/BUZZARD-SlowtoLand.fbx,__SlowtoLand.bvh
+Buzzard,soaring,Buzzard/BUZZARD-Soaring.fbx,__Soaring.bvh
+Buzzard,tpose,Buzzard/BUZZARD-Tpose.fbx,__Tpose.bvh
+Camel,bite,Camel/Camel-Bite.fbx,__Bite.bvh
+Camel,buck,Camel/Camel-Buck.fbx,__Buck.bvh
+Camel,downloop,Camel/Camel-DownLoop.fbx,__DownLoop.bvh
+Camel,fall,Camel/Camel-Fall.fbx,__Fall.bvh
+Camel,idleloop,Camel/Camel-IdleLoop.fbx,__IdleLoop.bvh
+Camel,laydown,Camel/Camel-LayDown.fbx,__LayDown.bvh
+Camel,mope,Camel/Camel-Mope.fbx,__Mope.bvh
+Camel,restless,Camel/Camel-Restless.fbx,__Restless.bvh
+Camel,run,Camel/Camel-Run.fbx,__Run.bvh
+Camel,runfast,Camel/Camel-RunFast.fbx,__RunFast.bvh
+Camel,scrapehoof,Camel/Camel-ScrapeHoof.fbx,__ScrapeHoof.bvh
+Camel,slowwalk,Camel/Camel-SlowWalk.fbx,__SlowWalk.bvh
+Camel,specail,Camel/Camel-Specail.fbx,__Specail.bvh
+Camel,standup,Camel/Camel-StandUp.fbx,__StandUp.bvh
+Camel,stopwalk,Camel/Camel-StopWalk.fbx,__StopWalk.bvh
+Camel,trot,Camel/Camel-Trot.fbx,__Trot.bvh
+Camel,wild1,Camel/Camel-Wild1.fbx,__Wild1.bvh
+Camel,yell,Camel/Camel-Yell.fbx,__Yell.bvh
+Cat,idlepurr,Cat/Cat-IdlePurr.fbx,CAT_IdlePurr.bvh
+Cat,lickcleanidle,Cat/Cat-LickCleanIdle.fbx,CAT_LickCleanIdle.bvh
+Cat,stretchyawnidle,Cat/Cat-StretchYawnIdle.fbx,CAT_StretchYawnIdle.bvh
+Cat,tpose,Cat/Cat-TPOSE.fbx,CAT_TPOSE.bvh
+Cat,walk,Cat/Cat-Walk.fbx,CAT_Walk.bvh
+Centipede,attack,Centipede/Centipede-Attack.fbx,__Attack.bvh
+Centipede,attack1,Centipede/Centipede-Attack1.fbx,__Attack1.bvh
+Centipede,attack2,Centipede/Centipede-Attack2.fbx,__Attack2.bvh
+Centipede,die,Centipede/Centipede-Die.fbx,__Die.bvh
+Centipede,idle,Centipede/Centipede-Idle.fbx,__Idle.bvh
+Centipede,idle2,Centipede/Centipede-Idle2.fbx,__Idle2.bvh
+Centipede,idle3,Centipede/Centipede-Idle3.fbx,__Idle3.bvh
+Centipede,rearing,Centipede/Centipede-Rearing.fbx,__Rearing.bvh
+Centipede,run,Centipede/Centipede-Run.fbx,__Run.bvh
+Centipede,tpose,Centipede/Centipede-Tpose.fbx,__Tpose.bvh
+Chicken,egglaying,Chicken/Chicken-EggLaying.fbx,Chicken_EggLaying.bvh
+Chicken,idlepecking,Chicken/Chicken-IdlePecking.fbx,Chicken_IdlePecking.bvh
+Chicken,tpose,Chicken/Chicken-TPOSE.fbx,Chicken_TPOSE.bvh
+Chicken,walk,Chicken/Chicken-Walk.fbx,Chicken_Walk.bvh
+Comodoa,attack1,Comodoa/ComodoaALL-Attack1.fbx,__Attack1.bvh
+Comodoa,attack2,Comodoa/ComodoaALL-Attack2.fbx,__Attack2.bvh
+Comodoa,attack3,Comodoa/ComodoaALL-Attack3.fbx,__Attack3.bvh
+Comodoa,die,Comodoa/ComodoaALL-Die.fbx,__Die.bvh
+Comodoa,idle,Comodoa/ComodoaALL-Idle.fbx,__Idle.bvh
+Comodoa,idle2,Comodoa/ComodoaALL-Idle2.fbx,__Idle2.bvh
+Comodoa,run,Comodoa/ComodoaALL-Run.fbx,__Run.bvh
+Comodoa,tpose,Comodoa/ComodoaALL-TPOSE.fbx,__TPOSE.bvh
+Comodoa,walk,Comodoa/ComodoaALL-Walk.fbx,__Walk.bvh
+Comodoa,yawn,Comodoa/ComodoaALL-Yawn.fbx,__Yawn.bvh
+Coyote,attack1,Coyote/Coyote-Attack1.fbx,__Attack1.bvh
+Coyote,attack2,Coyote/Coyote-Attack2.fbx,__Attack2.bvh
+Coyote,attack3,Coyote/Coyote-Attack3.fbx,__Attack3.bvh
+Coyote,die,Coyote/Coyote-Die.fbx,__Die.bvh
+Coyote,howling,Coyote/Coyote-Howling.fbx,__Howling.bvh
+Coyote,idle,Coyote/Coyote-Idle.fbx,__Idle.bvh
+Coyote,restless,Coyote/Coyote-Restless.fbx,__Restless.bvh
+Coyote,running,Coyote/Coyote-Running.fbx,__Running.bvh
+Coyote,sniffing,Coyote/Coyote-Sniffing.fbx,__Sniffing.bvh
+Coyote,tpose,Coyote/Coyote-TPOSE.fbx,__TPOSE.bvh
+Coyote,walking,Coyote/Coyote-Walking.fbx,__Walking.bvh
+Crab,attack1,Crab/Crab-Attack1.fbx,__Attack1.bvh
+Crab,attack2,Crab/Crab-Attack2.fbx,__Attack2.bvh
+Crab,attack3,Crab/Crab-Attack3.fbx,__Attack3.bvh
+Crab,attack4,Crab/Crab-Attack4.fbx,__Attack4.bvh
+Crab,defeated,Crab/Crab-Defeated.fbx,__Defeated.bvh
+Crab,die,Crab/Crab-Die.fbx,__Die.bvh
+Crab,eat,Crab/Crab-Eat.fbx,__Eat.bvh
+Crab,hitback,Crab/Crab-HitBack.fbx,__HitBack.bvh
+Crab,strafe,Crab/Crab-Strafe.fbx,__Strafe.bvh
+Crab,tpose,Crab/Crab-TPOSE.fbx,__TPOSE.bvh
+Crab,walk,Crab/Crab-Walk.fbx,__Walk.bvh
+Cricket,attack1,Cricket/Cricket-Attack1.fbx,__Attack1.bvh
+Cricket,attack2,Cricket/Cricket-Attack2.fbx,__Attack2.bvh
+Cricket,attack3,Cricket/Cricket-Attack3.fbx,__Attack3.bvh
+Cricket,attack4,Cricket/Cricket-Attack4.fbx,__Attack4.bvh
+Cricket,burrough,Cricket/Cricket-Burrough.fbx,__Burrough.bvh
+Cricket,die,Cricket/Cricket-Die.fbx,__Die.bvh
+Cricket,idle,Cricket/Cricket-Idle.fbx,__Idle.bvh
+Cricket,idlepissed,Cricket/Cricket-IdlePissed.fbx,__IdlePissed.bvh
+Cricket,lookaround,Cricket/Cricket-LookAround.fbx,__LookAround.bvh
+Cricket,outofground,Cricket/Cricket-OutOfGround.fbx,__OutOfGround.bvh
+Cricket,running,Cricket/Cricket-Running.fbx,__Running.bvh
+Cricket,walking,Cricket/Cricket-Walking.fbx,__Walking.bvh
+Crocodile,attack,Crocodile/Crocodile-Attack.fbx,__Attack.bvh
+Crocodile,bite,Crocodile/Crocodile-Bite.fbx,__Bite.bvh
+Crocodile,bounce,Crocodile/Crocodile-Bounce.fbx,__Bounce.bvh
+Crocodile,die,Crocodile/Crocodile-Die.fbx,__Die.bvh
+Crocodile,getup,Crocodile/Crocodile-GetUp.fbx,__GetUp.bvh
+Crocodile,heavybreathe,Crocodile/Crocodile-HeavyBreathe.fbx,__HeavyBreathe.bvh
+Crocodile,idle,Crocodile/Crocodile-Idle.fbx,__Idle.bvh
+Crocodile,normalbreath,Crocodile/Crocodile-NormalBreath.fbx,__NormalBreath.bvh
+Crocodile,running,Crocodile/Crocodile-Running.fbx,__Running.bvh
+Crocodile,sleeploop,Crocodile/Crocodile-SleepLoop.fbx,__SleepLoop.bvh
+Crocodile,tailwhip,Crocodile/Crocodile-TailWhip.fbx,__TailWhip.bvh
+Crocodile,tpose,Crocodile/Crocodile-Tpose.fbx,__Tpose.bvh
+Crocodile,yawning,Crocodile/Crocodile-Yawning.fbx,__Yawning.bvh
+Crow,ascend,Crow/CrowALL-Ascend.fbx,__Ascend.bvh
+Crow,attack,Crow/CrowALL-Attack.fbx,__Attack.bvh
+Crow,attack2,Crow/CrowALL-Attack2.fbx,__Attack2.bvh
+Crow,flystart,Crow/CrowALL-FlyStart.fbx,__FlyStart.bvh
+Crow,glide,Crow/CrowALL-Glide.fbx,__Glide.bvh
+Crow,idle,Crow/CrowALL-Idle.fbx,__Idle.bvh
+Crow,idleflap,Crow/CrowALL-IdleFlap.fbx,__IdleFlap.bvh
+Crow,landflap,Crow/CrowALL-Landflap.fbx,__Landflap.bvh
+Crow,peckeat,Crow/CrowALL-PeckEat.fbx,__PeckEat.bvh
+Crow,tpose,Crow/CrowALL-TPOSE.fbx,__TPOSE.bvh
+Crow,takeoff,Crow/CrowALL-TakeOff.fbx,__TakeOff.bvh
+Deer,backing,Deer/DEER-Backing.fbx,__Backing.bvh
+Deer,bleat,Deer/DEER-Bleat.fbx,__Bleat.bvh
+Deer,buckshy,Deer/DEER-BuckShy.fbx,__BuckShy.bvh
+Deer,charge,Deer/DEER-Charge.fbx,__Charge.bvh
+Deer,comedown,Deer/DEER-ComeDown.fbx,__ComeDown.bvh
+Deer,gallop,Deer/DEER-Gallop.fbx,__Gallop.bvh
+Deer,getup,Deer/DEER-GetUp.fbx,__GetUp.bvh
+Deer,getupagain,Deer/DEER-GetUpAgain.fbx,__GetUpAgain.bvh
+Deer,grazing,Deer/DEER-Grazing.fbx,__Grazing.bvh
+Deer,idle,Deer/DEER-Idle.fbx,__Idle.bvh
+Deer,rearup,Deer/DEER-RearUp.fbx,__RearUp.bvh
+Deer,rutting,Deer/DEER-Rutting.fbx,__Rutting.bvh
+Deer,squirly,Deer/DEER-Squirly.fbx,__Squirly.bvh
+Deer,tpose,Deer/DEER-TPOSE.fbx,__TPOSE.bvh
+Deer,takeoff,Deer/DEER-TakeOff.fbx,__TakeOff.bvh
+Deer,trot,Deer/DEER-Trot.fbx,__Trot.bvh
+Deer,turnleft,Deer/DEER-TurnLeft.fbx,__TurnLeft.bvh
+Deer,walkback,Deer/DEER-WalkBack.fbx,__WalkBack.bvh
+Deer,walkcall,Deer/DEER-WalkCall.fbx,__WalkCall.bvh
+Deer,walkforward,Deer/DEER-WalkForward.fbx,__WalkForward.bvh
+Deer,idleearflik,Deer/DEER-idleEarFlik.fbx,__idleEarFlik.bvh
+Dog,attack,Dog/Dog-Attack.fbx,__Attack.bvh
+Dog,back_away,Dog/Dog-Back Away.fbx,__Back_Away.bvh
+Dog,bark_jump,Dog/Dog-Bark Jump.fbx,__Bark_Jump.bvh
+Dog,barking,Dog/Dog-Barking.fbx,__Barking.bvh
+Dog,bite_arm,Dog/Dog-Bite Arm.fbx,__Bite_Arm.bvh
+Dog,floor_rise_left,Dog/Dog-Floor Rise Left.fbx,__Floor_Rise_Left.bvh
+Dog,floor_rise_right,Dog/Dog-Floor Rise Right.fbx,__Floor_Rise_Right.bvh
+Dog,frightened,Dog/Dog-Frightened.fbx,__Frightened.bvh
+Dog,galloping,Dog/Dog-Galloping.fbx,__Galloping.bvh
+Dog,grab,Dog/Dog-Grab.fbx,__Grab.bvh
+Dog,hit_left,Dog/Dog-Hit Left.fbx,__Hit_Left.bvh
+Dog,hit_right,Dog/Dog-Hit Right.fbx,__Hit_Right.bvh
+Dog,idle,Dog/Dog-Idle.fbx,__Idle.bvh
+Dog,investigate_loop,Dog/Dog-Investigate Loop.fbx,__Investigate_Loop.bvh
+Dog,leash_attack,Dog/Dog-Leash Attack.fbx,__Leash_Attack.bvh
+Dog,leash_hot,Dog/Dog-Leash Hot.fbx,__Leash_Hot.bvh
+Dog,limp_loop,Dog/Dog-Limp Loop.fbx,__Limp_Loop.bvh
+Dog,look_left,Dog/Dog-Look Left.fbx,__Look_Left.bvh
+Dog,look_right,Dog/Dog-Look Right.fbx,__Look_Right.bvh
+Dog,panting,Dog/Dog-PAnting.fbx,__PAnting.bvh
+Dog,paddle,Dog/Dog-Paddle.fbx,__Paddle.bvh
+Dog,rise,Dog/Dog-Rise.fbx,__Rise.bvh
+Dog,run_frisbee,Dog/Dog-Run Frisbee.fbx,__Run_Frisbee.bvh
+Dog,running,Dog/Dog-Running.fbx,__Running.bvh
+Dog,sniffed,Dog/Dog-SNiffed.fbx,__SNiffed.bvh
+Dog,scratch_right,Dog/Dog-Scratch Right.fbx,__Scratch_Right.bvh
+Dog,single_bark,Dog/Dog-Single bark.fbx,__Single_bark.bvh
+Dog,sit,Dog/Dog-Sit.fbx,__Sit.bvh
+Dog,snarling,Dog/Dog-Snarling.fbx,__Snarling.bvh
+Dog,stare,Dog/Dog-Stare.fbx,__Stare.bvh
+Dog,swim_fast,Dog/Dog-Swim Fast.fbx,__Swim_Fast.bvh
+Dog,swim_right,Dog/Dog-Swim Right.fbx,__Swim_Right.bvh
+Dog,turn_left,Dog/Dog-Turn Left.fbx,__Turn_Left.bvh
+Dog,turn_right,Dog/Dog-Turn Right.fbx,__Turn_Right.bvh
+Dog,wag,Dog/Dog-Wag.fbx,__Wag.bvh
+Dog,walk,Dog/Dog-Walk.fbx,__Walk.bvh
+Dog,walk_backwards_loop,Dog/Dog-Walk Backwards Loop.fbx,__Walk_Backwards_Loop.bvh
+Dog,walk_loop,Dog/Dog-Walk Loop.fbx,__Walk_Loop.bvh
+Dog,wine,Dog/Dog-Wine.fbx,__Wine.bvh
+Dog,woof,Dog/Dog-Woof.fbx,__Woof.bvh
+Dog,retreat,Dog/Dog-retreat.fbx,__retreat.bvh
+Dog,swim,Dog/Dog-swim.fbx,__swim.bvh
+Dog,swim_left,Dog/Dog-swim left.fbx,__swim_left.bvh
+Dog-2,armbite,Dog-2/DOG-ArmBite.fbx,__ArmBite.bvh
+Dog-2,attack,Dog-2/DOG-Attack.fbx,__Attack.bvh
+Dog-2,backoff,Dog-2/DOG-BackOff.fbx,__BackOff.bvh
+Dog-2,bark,Dog-2/DOG-Bark.fbx,__Bark.bvh
+Dog-2,bark2,Dog-2/DOG-Bark2.fbx,__Bark2.bvh
+Dog-2,bitearmshake,Dog-2/DOG-BiteArmShake.fbx,__BiteArmShake.bvh
+Dog-2,bitejump,Dog-2/DOG-BiteJump.fbx,__BiteJump.bvh
+Dog-2,getup,Dog-2/DOG-GetUp.fbx,__GetUp.bvh
+Dog-2,growl,Dog-2/DOG-Growl.fbx,__Growl.bvh
+Dog-2,idlebreathe,Dog-2/DOG-IdleBreathe.fbx,__IdleBreathe.bvh
+Dog-2,leashjump,Dog-2/DOG-Leashjump.fbx,__Leashjump.bvh
+Dog-2,lookleft,Dog-2/DOG-LookLeft.fbx,__LookLeft.bvh
+Dog-2,lookright,Dog-2/DOG-LookRight.fbx,__LookRight.bvh
+Dog-2,paddle,Dog-2/DOG-Paddle.fbx,__Paddle.bvh
+Dog-2,ready,Dog-2/DOG-Ready.fbx,__Ready.bvh
+Dog-2,runfast,Dog-2/DOG-RunFast.fbx,__RunFast.bvh
+Dog-2,runjump,Dog-2/DOG-RunJump.fbx,__RunJump.bvh
+Dog-2,scratch,Dog-2/DOG-Scratch.fbx,__Scratch.bvh
+Dog-2,sense,Dog-2/DOG-Sense.fbx,__Sense.bvh
+Dog-2,shake,Dog-2/DOG-Shake.fbx,__Shake.bvh
+Dog-2,sit,Dog-2/DOG-Sit.fbx,__Sit.bvh
+Dog-2,slowtail,Dog-2/DOG-Slowtail.fbx,__Slowtail.bvh
+Dog-2,sniffing,Dog-2/DOG-Sniffing.fbx,__Sniffing.bvh
+Dog-2,swim,Dog-2/DOG-Swim.fbx,__Swim.bvh
+Dog-2,swimidle,Dog-2/DOG-SwimIdle.fbx,__SwimIdle.bvh
+Dog-2,swimturn2,Dog-2/DOG-SwimTurn2.fbx,__SwimTurn2.bvh
+Dog-2,swimturn,Dog-2/DOG-Swimturn.fbx,__Swimturn.bvh
+Dog-2,tpose,Dog-2/DOG-Tpose.fbx,__Tpose.bvh
+Dog-2,turnleft,Dog-2/DOG-TurnLeft.fbx,__TurnLeft.bvh
+Dog-2,turnright,Dog-2/DOG-TurnRight.fbx,__TurnRight.bvh
+Dog-2,wag,Dog-2/DOG-Wag.fbx,__Wag.bvh
+Dog-2,walklimp,Dog-2/DOG-WalkLimp.fbx,__WalkLimp.bvh
+Dog-2,walkloop,Dog-2/DOG-WalkLoop.fbx,__WalkLoop.bvh
+Dog-2,walknormal,Dog-2/DOG-WalkNormal.fbx,__WalkNormal.bvh
+Dog-2,walkbackward,Dog-2/DOG-Walkbackward.fbx,__Walkbackward.bvh
+Dog-2,woof,Dog-2/DOG-Woof.fbx,__Woof.bvh
+Dragon,attack,Dragon/Wyvern-Attack.fbx,__Attack.bvh
+Dragon,attack2,Dragon/Wyvern-Attack2.fbx,__Attack2.bvh
+Dragon,attack3,Dragon/Wyvern-Attack3.fbx,__Attack3.bvh
+Dragon,die,Dragon/Wyvern-Die.fbx,__Die.bvh
+Dragon,fly,Dragon/Wyvern-Fly.fbx,__Fly.bvh
+Dragon,idle,Dragon/Wyvern-Idle.fbx,__Idle.bvh
+Dragon,idle2,Dragon/Wyvern-Idle2.fbx,__Idle2.bvh
+Dragon,idle3,Dragon/Wyvern-Idle3.fbx,__Idle3.bvh
+Dragon,slowfly,Dragon/Wyvern-SlowFly.fbx,__SlowFly.bvh
+Dragon,tpose,Dragon/Wyvern-Tpose.fbx,__Tpose.bvh
+Eagle,eggsteal,Eagle/Eagle-EggSteal.fbx,__EggSteal.bvh
+Eagle,floatdown,Eagle/Eagle-FloatDown.fbx,__FloatDown.bvh
+Eagle,floattup,Eagle/Eagle-FloattUp.fbx,__FloattUp.bvh
+Eagle,flyloop,Eagle/Eagle-FlyLoop.fbx,__FlyLoop.bvh
+Eagle,glideloop,Eagle/Eagle-GlideLoop.fbx,__GlideLoop.bvh
+Eagle,idlenest,Eagle/Eagle-IdleNest.fbx,__IdleNest.bvh
+Eagle,landing,Eagle/Eagle-Landing.fbx,__Landing.bvh
+Eagle,ridewind,Eagle/Eagle-RideWind.fbx,__RideWind.bvh
+Eagle,shot,Eagle/Eagle-Shot.fbx,__Shot.bvh
+Eagle,strike1,Eagle/Eagle-Strike1.fbx,__Strike1.bvh
+Eagle,strike2,Eagle/Eagle-Strike2.fbx,__Strike2.bvh
+Eagle,takeoff,Eagle/Eagle-TakeOff.fbx,__TakeOff.bvh
+Eagle,tpose,Eagle/Eagle-Tpose.fbx,__Tpose.bvh
+Elephant,attack1,Elephant/atk 1.fbx,__Attack1.bvh
+Elephant,attack2,Elephant/atk 2.fbx,__Attack2.bvh
+Elephant,die,Elephant/die.fbx,__Die.bvh
+Elephant,downin,Elephant/down in.fbx,__DownIn.bvh
+Elephant,downloop,Elephant/down loop.fbx,__DownLoop.bvh
+Elephant,downout,Elephant/down out.fbx,__DownOut.bvh
+Elephant,firing,Elephant/firing.fbx,__Firing.bvh
+Elephant,idle1,Elephant/idle 1.fbx,__Idle1.bvh
+Elephant,idle3,Elephant/idle 3.fbx,__Idle3.bvh
+Elephant,passout,Elephant/passout.fbx,__Passout.bvh
+Elephant,run,Elephant/run.fbx,__Run.bvh
+Elephant,idle2,Elephant/idle 2.fbx,__idle2.bvh
+Elephant,walk,Elephant/walk.fbx,__walk.bvh
+FireAnt,angry,FireAnt/Fire ant-Angry.fbx,__Angry.bvh
+FireAnt,annoyed,FireAnt/Fire ant-Annoyed.fbx,__Annoyed.bvh
+FireAnt,backup,FireAnt/Fire ant-BackUp.fbx,__BackUp.bvh
+FireAnt,bite,FireAnt/Fire ant-Bite.fbx,__Bite.bvh
+FireAnt,creep,FireAnt/Fire ant-Creep.fbx,__Creep.bvh
+FireAnt,feel,FireAnt/Fire ant-Feel.fbx,__Feel.bvh
+FireAnt,fightoff,FireAnt/Fire ant-FightOff.fbx,__FightOff.bvh
+FireAnt,forwardmarch,FireAnt/Fire ant-ForwardMarch.fbx,__ForwardMarch.bvh
+FireAnt,gesture,FireAnt/Fire ant-Gesture.fbx,__Gesture.bvh
+FireAnt,hit,FireAnt/Fire ant-Hit.fbx,__Hit.bvh
+FireAnt,hungry,FireAnt/Fire ant-Hungry.fbx,__Hungry.bvh
+FireAnt,idle,FireAnt/Fire ant-Idle.fbx,__Idle.bvh
+FireAnt,jump,FireAnt/Fire ant-Jump.fbx,__Jump.bvh
+FireAnt,left,FireAnt/Fire ant-Left.fbx,__Left.bvh
+FireAnt,right,FireAnt/Fire ant-Right.fbx,__Right.bvh
+FireAnt,rip,FireAnt/Fire ant-Rip.fbx,__Rip.bvh
+FireAnt,ripflesh,FireAnt/Fire ant-RipFlesh.fbx,__RipFlesh.bvh
+FireAnt,ripflesh2,FireAnt/Fire ant-RipFlesh2.fbx,__RipFlesh2.bvh
+FireAnt,roar,FireAnt/Fire ant-Roar.fbx,__Roar.bvh
+FireAnt,snap,FireAnt/Fire ant-Snap.fbx,__Snap.bvh
+FireAnt,tpose,FireAnt/Fire ant-TPOSE.fbx,__TPOSE.bvh
+FireAnt,turnleft,FireAnt/Fire ant-TurnLeft.fbx,__TurnLeft.bvh
+FireAnt,turnright,FireAnt/Fire ant-TurnRight.fbx,__TurnRight.bvh
+FireAnt,upfromdown,FireAnt/Fire ant-UpFromDown.fbx,__UpFromDown.bvh
+FireAnt,upfromdown2,FireAnt/Fire ant-UpFromDown2.fbx,__UpFromDown2.bvh
+Flamingo,bendidle,Flamingo/Flamingo-BendIdle.fbx,Flamingo_BendIdle.bvh
+Flamingo,onelegbent,Flamingo/Flamingo-OneLEgBEnt.fbx,Flamingo_OneLEgBEnt.bvh
+Flamingo,sleep,Flamingo/Flamingo-Sleep.fbx,Flamingo_Sleep.bvh
+Flamingo,tpose,Flamingo/Flamingo-Tpose.fbx,Flamingo_Tpose.bvh
+Flamingo,walk,Flamingo/Flamingo-Walk.fbx,Flamingo_Walk.bvh
+Fox,attack1,Fox/atk 1.fbx,-_Attack1.bvh
+Fox,attack2,Fox/atk 2.fbx,-_Attack2.bvh
+Fox,attack3,Fox/atk 3.fbx,-_Attack3.bvh
+Fox,attack4,Fox/atk 4.fbx,-_Attack4.bvh
+Fox,die,Fox/die.fbx,-_Die.bvh
+Fox,die2,Fox/die2.fbx,-_Die2.bvh
+Fox,idle1,Fox/idle 1.fbx,-_Idle1.bvh
+Fox,idle2,Fox/idle 2.fbx,-_Idle2.bvh
+Fox,idle3,Fox/idle 3.fbx,-_Idle3.bvh
+Fox,idle4,Fox/idle 4.fbx,-_Idle4.bvh
+Fox,idle5,Fox/idle 5.fbx,-_Idle5.bvh
+Fox,run,Fox/run.fbx,-_Run.bvh
+Fox,walk,Fox/walk.fbx,-_Walk.bvh
+Gazelle,alert,Gazelle/Gazelle-Alert.fbx,__Alert.bvh
+Gazelle,attack,Gazelle/Gazelle-Attack.fbx,__Attack.bvh
+Gazelle,attack1,Gazelle/Gazelle-Attack1.fbx,__Attack1.bvh
+Gazelle,fall,Gazelle/Gazelle-Fall.fbx,__Fall.bvh
+Gazelle,headpoke,Gazelle/Gazelle-HeadPoke.fbx,__HeadPoke.bvh
+Gazelle,idle,Gazelle/Gazelle-Idle.fbx,__Idle.bvh
+Gazelle,idleready,Gazelle/Gazelle-IdleReady.fbx,__IdleReady.bvh
+Gazelle,run,Gazelle/Gazelle-Run.fbx,__Run.bvh
+Gazelle,tpose,Gazelle/Gazelle-TPOSE.fbx,__TPOSE.bvh
+Gazelle,walk,Gazelle/Gazelle-Walk.fbx,__Walk.bvh
+Giantbee,attack,Giantbee/Giantbee-Attack.fbx,__Attack.bvh
+Giantbee,attack2,Giantbee/Giantbee-Attack2.fbx,__Attack2.bvh
+Giantbee,attack3,Giantbee/Giantbee-Attack3.fbx,__Attack3.bvh
+Giantbee,attack4,Giantbee/Giantbee-Attack4.fbx,__Attack4.bvh
+Giantbee,die,Giantbee/Giantbee-Die.fbx,__Die.bvh
+Giantbee,die2,Giantbee/Giantbee-Die2.fbx,__Die2.bvh
+Giantbee,fly,Giantbee/Giantbee-Fly.fbx,__Fly.bvh
+Giantbee,idle,Giantbee/Giantbee-Idle.fbx,__Idle.bvh
+Giantbee,idle2,Giantbee/Giantbee-Idle2.fbx,__Idle2.bvh
+Giantbee,tpose,Giantbee/Giantbee-Tpose.fbx,__Tpose.bvh
+Goat,attack,Goat/Goat-Attack.fbx,__Attack.bvh
+Goat,bleat,Goat/Goat-Bleat.fbx,__Bleat.bvh
+Goat,die,Goat/Goat-Die.fbx,__Die.bvh
+Goat,headbutt,Goat/Goat-HeadButt.fbx,__HeadButt.bvh
+Goat,headbutt2,Goat/Goat-HeadButt2.fbx,__HeadButt2.bvh
+Goat,hoofscrape,Goat/Goat-HoofScrape.fbx,__HoofScrape.bvh
+Goat,idle,Goat/Goat-Idle.fbx,__Idle.bvh
+Goat,jumpknock,Goat/Goat-JumpKnock.fbx,__JumpKnock.bvh
+Goat,run,Goat/Goat-Run.fbx,__Run.bvh
+Goat,walk,Goat/Goat-Walk.fbx,__Walk.bvh
+Hamster,idle,Hamster/Hamster-Idle.fbx,__Idle.bvh
+Hamster,rollattack,Hamster/Hamster-RollAttack.fbx,__RollAttack.bvh
+Hamster,run,Hamster/Hamster-Run.fbx,__Run.bvh
+Hamster,sniff,Hamster/Hamster-Sniff.fbx,__Sniff.bvh
+Hamster,tpose,Hamster/Hamster-TPOSE.fbx,__TPOSE.bvh
+Hamster,walk,Hamster/Hamster-Walk.fbx,__Walk.bvh
+HermitCrab,die,HermitCrab/CrabAll-Die.fbx,__Die.bvh
+HermitCrab,eat,HermitCrab/CrabAll-Eat.fbx,__Eat.bvh
+HermitCrab,expire,HermitCrab/CrabAll-Expire.fbx,__Expire.bvh
+HermitCrab,fighting,HermitCrab/CrabAll-Fighting.fbx,__Fighting.bvh
+HermitCrab,knockedback,HermitCrab/CrabAll-KnockedBack.fbx,__KnockedBack.bvh
+HermitCrab,knockedout,HermitCrab/CrabAll-KnockedOut.fbx,__KnockedOut.bvh
+HermitCrab,outofground,HermitCrab/CrabAll-OutofGround.fbx,__OutofGround.bvh
+HermitCrab,pinchers,HermitCrab/CrabAll-Pinchers.fbx,__Pinchers.bvh
+HermitCrab,sandburrough,HermitCrab/CrabAll-SandBurrough.fbx,__SandBurrough.bvh
+HermitCrab,sleep,HermitCrab/CrabAll-Sleep.fbx,__Sleep.bvh
+HermitCrab,slowwalk,HermitCrab/CrabAll-Slowwalk.fbx,__Slowwalk.bvh
+HermitCrab,tpose,HermitCrab/CrabAll-TPOSE.fbx,__TPOSE.bvh
+HermitCrab,take_001,HermitCrab/CrabAll-Take 001.fbx,__Take_001.bvh
+HermitCrab,walk,HermitCrab/CrabAll-Walk.fbx,__Walk.bvh
+Hippopotamus,attack,Hippopotamus/Hippopotamus-Attack.fbx,__Attack.bvh
+Hippopotamus,attack2,Hippopotamus/Hippopotamus-Attack2.fbx,__Attack2.bvh
+Hippopotamus,attack3,Hippopotamus/Hippopotamus-Attack3.fbx,__Attack3.bvh
+Hippopotamus,attack4,Hippopotamus/Hippopotamus-Attack4.fbx,__Attack4.bvh
+Hippopotamus,die,Hippopotamus/Hippopotamus-Die.fbx,__Die.bvh
+Hippopotamus,idle,Hippopotamus/Hippopotamus-Idle.fbx,__Idle.bvh
+Hippopotamus,idle2,Hippopotamus/Hippopotamus-Idle2.fbx,__Idle2.bvh
+Hippopotamus,run,Hippopotamus/Hippopotamus-Run.fbx,__Run.bvh
+Hippopotamus,tpose,Hippopotamus/Hippopotamus-TPOSE.fbx,__TPOSE.bvh
+Hippopotamus,walk,Hippopotamus/Hippopotamus-Walk.fbx,__Walk.bvh
+Hippopotamus,yawn,Hippopotamus/Hippopotamus-Yawn.fbx,__Yawn.bvh
+Horse,attack,Horse/HorseALL-Attack.fbx,__Attack.bvh
+Horse,backup,Horse/HorseALL-BackUp.fbx,__BackUp.bvh
+Horse,bucking,Horse/HorseALL-Bucking.fbx,__Bucking.bvh
+Horse,dying,Horse/HorseALL-Dying.fbx,__Dying.bvh
+Horse,feetup,Horse/HorseALL-FeetUp.fbx,__FeetUp.bvh
+Horse,getup,Horse/HorseALL-GetUp.fbx,__GetUp.bvh
+Horse,hoofscrape,Horse/HorseALL-HoofScrape.fbx,__HoofScrape.bvh
+Horse,hoofscrape2,Horse/HorseALL-HoofScrape2.fbx,__HoofScrape2.bvh
+Horse,idle,Horse/HorseALL-Idle.fbx,__Idle.bvh
+Horse,idle3,Horse/HorseALL-Idle3.fbx,__Idle3.bvh
+Horse,idleears,Horse/HorseALL-IdleEars.fbx,__IdleEars.bvh
+Horse,inair,Horse/HorseALL-InAir.fbx,__InAir.bvh
+Horse,jumpland,Horse/HorseALL-JumpLand.fbx,__JumpLand.bvh
+Horse,jumping,Horse/HorseALL-Jumping.fbx,__Jumping.bvh
+Horse,knockedback,Horse/HorseALL-KnockedBack.fbx,__KnockedBack.bvh
+Horse,landrun,Horse/HorseALL-LandRun.fbx,__LandRun.bvh
+Horse,loneranger,Horse/HorseALL-LoneRanger.fbx,__LoneRanger.bvh
+Horse,lying,Horse/HorseALL-Lying.fbx,__Lying.bvh
+Horse,rearing,Horse/HorseALL-Rearing.fbx,__Rearing.bvh
+Horse,rearing2,Horse/HorseALL-Rearing2.fbx,__Rearing2.bvh
+Horse,restless,Horse/HorseALL-Restless.fbx,__Restless.bvh
+Horse,restless2,Horse/HorseALL-Restless2.fbx,__Restless2.bvh
+Horse,restless3,Horse/HorseALL-Restless3.fbx,__Restless3.bvh
+Horse,runjump,Horse/HorseALL-RunJump.fbx,__RunJump.bvh
+Horse,runloop,Horse/HorseALL-RunLoop.fbx,__RunLoop.bvh
+Horse,runtostop,Horse/HorseALL-RunToStop.fbx,__RunToStop.bvh
+Horse,slowidle,Horse/HorseALL-SlowIdle.fbx,__SlowIdle.bvh
+Horse,slowwalk,Horse/HorseALL-SlowWalk.fbx,__SlowWalk.bvh
+Horse,tpose,Horse/HorseALL-TPOSE.fbx,__TPOSE.bvh
+Hound,attack,Hound/Hound-Attack.fbx,__Attack.bvh
+Hound,bark1,Hound/Hound-Bark1.fbx,__Bark1.bvh
+Hound,barking,Hound/Hound-Barking.fbx,__Barking.bvh
+Hound,die,Hound/Hound-Die.fbx,__Die.bvh
+Hound,dieloop,Hound/Hound-DieLoop.fbx,__DieLoop.bvh
+Hound,getup,Hound/Hound-GetUp.fbx,__GetUp.bvh
+Hound,hit,Hound/Hound-Hit.fbx,__Hit.bvh
+Hound,idle,Hound/Hound-Idle.fbx,__Idle.bvh
+Hound,ready2,Hound/Hound-Ready2.fbx,__Ready2.bvh
+Hound,restless,Hound/Hound-Restless.fbx,__Restless.bvh
+Hound,runloop,Hound/Hound-RunLoop.fbx,__RunLoop.bvh
+Hound,sniff,Hound/Hound-Sniff.fbx,__Sniff.bvh
+Hound,tpose,Hound/Hound-Tpose.fbx,__Tpose.bvh
+Hound,walkloop,Hound/Hound-WalkLoop.fbx,__WalkLoop.bvh
+Isopetra,attack,Isopetra/Isopetra-Attack.fbx,__Attack.bvh
+Isopetra,attack2,Isopetra/Isopetra-Attack2.fbx,__Attack2.bvh
+Isopetra,attack3,Isopetra/Isopetra-Attack3.fbx,__Attack3.bvh
+Isopetra,die,Isopetra/Isopetra-Die.fbx,__Die.bvh
+Isopetra,idle,Isopetra/Isopetra-Idle.fbx,__Idle.bvh
+Isopetra,idle2,Isopetra/Isopetra-Idle2.fbx,__Idle2.bvh
+Isopetra,idle3,Isopetra/Isopetra-Idle3.fbx,__Idle3.bvh
+Isopetra,run,Isopetra/Isopetra-Run.fbx,__Run.bvh
+Isopetra,tpose,Isopetra/Isopetra-TPOSE.fbx,__TPOSE.bvh
+Isopetra,walk,Isopetra/Isopetra-Walk.fbx,__Walk.bvh
+Jaguar,attack,Jaguar/Jaguar-Attack.fbx,__Attack.bvh
+Jaguar,attack1,Jaguar/Jaguar-Attack1.fbx,__Attack1.bvh
+Jaguar,attack2,Jaguar/Jaguar-Attack2.fbx,__Attack2.bvh
+Jaguar,die1,Jaguar/Jaguar-Die1.fbx,__Die1.bvh
+Jaguar,die2,Jaguar/Jaguar-Die2.fbx,__Die2.bvh
+Jaguar,getup,Jaguar/Jaguar-GetUp.fbx,__GetUp.bvh
+Jaguar,idle,Jaguar/Jaguar-Idle.fbx,__Idle.bvh
+Jaguar,lieidle,Jaguar/Jaguar-LieIdle.fbx,__LieIdle.bvh
+Jaguar,low,Jaguar/Jaguar-Low.fbx,__Low.bvh
+Jaguar,run,Jaguar/Jaguar-Run.fbx,__Run.bvh
+Jaguar,sit,Jaguar/Jaguar-Sit.fbx,__Sit.bvh
+Jaguar,stancing,Jaguar/Jaguar-Stancing.fbx,__Stancing.bvh
+Jaguar,tpose,Jaguar/Jaguar-TPOSE.fbx,__TPOSE.bvh
+Jaguar,walk,Jaguar/Jaguar-Walk.fbx,__Walk.bvh
+KingCobra,attack,KingCobra/Cobra-Attack.fbx,__Attack.bvh
+KingCobra,attack2,KingCobra/Cobra-Attack2.fbx,__Attack2.bvh
+KingCobra,bite,KingCobra/Cobra-Bite.fbx,__Bite.bvh
+KingCobra,circlebite,KingCobra/Cobra-CircleBite.fbx,__CircleBite.bvh
+KingCobra,getup,KingCobra/Cobra-GetUp.fbx,__GetUp.bvh
+KingCobra,idle,KingCobra/Cobra-Idle.fbx,__Idle.bvh
+KingCobra,idleloop,KingCobra/Cobra-IdleLoop.fbx,__IdleLoop.bvh
+KingCobra,killed,KingCobra/Cobra-Killed.fbx,__Killed.bvh
+KingCobra,steady,KingCobra/Cobra-Steady.fbx,__Steady.bvh
+KingCobra,tpose,KingCobra/Cobra-Tpose.fbx,__Tpose.bvh
+Leapord,attack,Leapord/Leopard-Attack.fbx,__Attack.bvh
+Leapord,bite,Leapord/Leopard-Bite.fbx,__Bite.bvh
+Leapord,death,Leapord/Leopard-Death.fbx,__Death.bvh
+Leapord,die,Leapord/Leopard-Die.fbx,__Die.bvh
+Leapord,dieloop,Leapord/Leopard-DieLoop.fbx,__DieLoop.bvh
+Leapord,graze,Leapord/Leopard-Graze.fbx,__Graze.bvh
+Leapord,growl,Leapord/Leopard-Growl.fbx,__Growl.bvh
+Leapord,idle,Leapord/Leopard-Idle.fbx,__Idle.bvh
+Leapord,jumpup,Leapord/Leopard-JumpUp.fbx,__JumpUp.bvh
+Leapord,pounce,Leapord/Leopard-Pounce.fbx,__Pounce.bvh
+Leapord,pounceswipe,Leapord/Leopard-PounceSwipe.fbx,__PounceSwipe.bvh
+Leapord,run,Leapord/Leopard-Run.fbx,__Run.bvh
+Leapord,sick,Leapord/Leopard-Sick.fbx,__Sick.bvh
+Leapord,tpose,Leapord/Leopard-TPOSE.fbx,__TPOSE.bvh
+Leapord,walk,Leapord/Leopard-Walk.fbx,__Walk.bvh
+Lion,attack,Lion/LionAll-Attack.fbx,__Attack.bvh
+Lion,attack1,Lion/LionAll-Attack1.fbx,__Attack1.bvh
+Lion,deathidle,Lion/LionAll-DeathIdle.fbx,__DeathIdle.bvh
+Lion,die,Lion/LionAll-Die.fbx,__Die.bvh
+Lion,die2,Lion/LionAll-Die2.fbx,__Die2.bvh
+Lion,getup,Lion/LionAll-GetUp.fbx,__GetUp.bvh
+Lion,growl,Lion/LionAll-Growl.fbx,__Growl.bvh
+Lion,jumpbite,Lion/LionAll-JumpBite.fbx,__JumpBite.bvh
+Lion,leapbite,Lion/LionAll-LeapBite.fbx,__LeapBite.bvh
+Lion,run,Lion/LionAll-Run.fbx,__Run.bvh
+Lion,slowidle,Lion/LionAll-SlowIdle.fbx,__SlowIdle.bvh
+Lion,sniff,Lion/LionAll-Sniff.fbx,__Sniff.bvh
+Lion,swatting,Lion/LionAll-Swatting.fbx,__Swatting.bvh
+Lion,walk,Lion/LionAll-Walk.fbx,__Walk.bvh
+Lion,yawn,Lion/LionAll-Yawn.fbx,__Yawn.bvh
+Lynx,attack,Lynx/Lynx-Attack.fbx,__Attack.bvh
+Lynx,attack2,Lynx/Lynx-Attack2.fbx,__Attack2.bvh
+Lynx,attack3,Lynx/Lynx-Attack3.fbx,__Attack3.bvh
+Lynx,die,Lynx/Lynx-Die.fbx,__Die.bvh
+Lynx,die2,Lynx/Lynx-Die2.fbx,__Die2.bvh
+Lynx,dieloop,Lynx/Lynx-DieLoop.fbx,__DieLoop.bvh
+Lynx,idle,Lynx/Lynx-Idle.fbx,__Idle.bvh
+Lynx,idle2,Lynx/Lynx-Idle2.fbx,__Idle2.bvh
+Lynx,idle3,Lynx/Lynx-Idle3.fbx,__Idle3.bvh
+Lynx,jump,Lynx/Lynx-Jump.fbx,__Jump.bvh
+Lynx,run,Lynx/Lynx-Run.fbx,__Run.bvh
+Lynx,stand,Lynx/Lynx-Stand.fbx,__Stand.bvh
+Lynx,tpose,Lynx/Lynx-TPOSE.fbx,__TPOSE.bvh
+Lynx,walk,Lynx/Lynx-Walk.fbx,__Walk.bvh
+Mammoth,bellow,Mammoth/Mammoth-Bellow.fbx,__Bellow.bvh
+Mammoth,deathloop,Mammoth/Mammoth-DeathLoop.fbx,__DeathLoop.bvh
+Mammoth,die,Mammoth/Mammoth-Die.fbx,__Die.bvh
+Mammoth,die2,Mammoth/Mammoth-Die2.fbx,__Die2.bvh
+Mammoth,gesture,Mammoth/Mammoth-Gesture.fbx,__Gesture.bvh
+Mammoth,getup,Mammoth/Mammoth-GetUp.fbx,__GetUp.bvh
+Mammoth,idle,Mammoth/Mammoth-IDLE.fbx,__IDLE.bvh
+Mammoth,idle2,Mammoth/Mammoth-Idle2.fbx,__Idle2.bvh
+Mammoth,rise,Mammoth/Mammoth-Rise.fbx,__Rise.bvh
+Mammoth,run,Mammoth/Mammoth-Run.fbx,__Run.bvh
+Mammoth,sideswipe,Mammoth/Mammoth-SideSwipe.fbx,__SideSwipe.bvh
+Mammoth,tpose,Mammoth/Mammoth-TPOSE.fbx,__TPOSE.bvh
+Mammoth,walk,Mammoth/Mammoth-Walk.fbx,__Walk.bvh
+Monkey,attack1,Monkey/atk 1.fbx,__Attack1.bvh
+Monkey,attack2,Monkey/atk 2.fbx,__Attack2.bvh
+Monkey,attack3,Monkey/atk 3.fbx,__Attack3.bvh
+Monkey,attack4,Monkey/atk 4.fbx,__Attack4.bvh
+Monkey,b1idle,Monkey/B01 idle.fbx,__B1Idle.bvh
+Monkey,b2attack,Monkey/B02 atk.fbx,__B2Attack.bvh
+Monkey,die,Monkey/die.fbx,__Die.bvh
+Monkey,idle1,Monkey/idle 1.fbx,__Idle1.bvh
+Monkey,idle2,Monkey/idle 2.fbx,__Idle2.bvh
+Monkey,idle3,Monkey/idle 3.fbx,__Idle3.bvh
+Monkey,run,Monkey/run.fbx,__Run.bvh
+Monkey,walk,Monkey/walk.fbx,__Walk.bvh
+Ostrich,attack,Ostrich/Ostrich-Attack.fbx,__Attack.bvh
+Ostrich,attack2,Ostrich/Ostrich-Attack2.fbx,__Attack2.bvh
+Ostrich,attack3,Ostrich/Ostrich-Attack3.fbx,__Attack3.bvh
+Ostrich,attack4,Ostrich/Ostrich-Attack4.fbx,__Attack4.bvh
+Ostrich,die,Ostrich/Ostrich-Die.fbx,__Die.bvh
+Ostrich,idle,Ostrich/Ostrich-Idle.fbx,__Idle.bvh
+Ostrich,idle2,Ostrich/Ostrich-Idle2.fbx,__Idle2.bvh
+Ostrich,idle3,Ostrich/Ostrich-Idle3.fbx,__Idle3.bvh
+Ostrich,run,Ostrich/Ostrich-Run.fbx,__Run.bvh
+Ostrich,tpose,Ostrich/Ostrich-Tpose.fbx,__Tpose.bvh
+Ostrich,walk,Ostrich/Ostrich-Walk.fbx,__Walk.bvh
+Parrot,attack,Parrot/Parrot-Attack.fbx,__Attack.bvh
+Parrot,circlefly,Parrot/Parrot-CircleFly.fbx,__CircleFly.bvh
+Parrot,die,Parrot/Parrot-Die.fbx,__Die.bvh
+Parrot,die2,Parrot/Parrot-Die2.fbx,__Die2.bvh
+Parrot,die3,Parrot/Parrot-Die3.fbx,__Die3.bvh
+Parrot,fly,Parrot/Parrot-Fly.fbx,__Fly.bvh
+Parrot,hover,Parrot/Parrot-Hover.fbx,__Hover.bvh
+Parrot,idle,Parrot/Parrot-Idle.fbx,__Idle.bvh
+Parrot,idle2,Parrot/Parrot-Idle2.fbx,__Idle2.bvh
+Parrot,land,Parrot/Parrot-Land.fbx,__Land.bvh
+Parrot,preen,Parrot/Parrot-Preen.fbx,__Preen.bvh
+Parrot,rise,Parrot/Parrot-Rise.fbx,__Rise.bvh
+Parrot,tpose,Parrot/Parrot-TPOSE.fbx,__TPOSE.bvh
+Parrot,walk,Parrot/Parrot-Walk.fbx,__Walk.bvh
+Parrot2,parrot_idle,Parrot2/Parrot-Idle.fbx,Parrot_Idle.bvh
+Parrot2,parrot_idleclean,Parrot2/Parrot-IdleClean.fbx,Parrot_IdleClean.bvh
+Parrot2,parrot_land,Parrot2/Parrot-Land.fbx,Parrot_Land.bvh
+Parrot2,parrot_tpose,Parrot2/Parrot-TPOSE.fbx,Parrot_TPOSE.bvh
+Pigeon,circle,Pigeon/Pigeon-Circle.fbx,__Circle.bvh
+Pigeon,cooing,Pigeon/Pigeon-Cooing.fbx,__Cooing.bvh
+Pigeon,flyloop,Pigeon/Pigeon-FlyLoop.fbx,__FlyLoop.bvh
+Pigeon,idle,Pigeon/Pigeon-Idle.fbx,__Idle.bvh
+Pigeon,idleloop,Pigeon/Pigeon-IdleLoop.fbx,__IdleLoop.bvh
+Pigeon,land,Pigeon/Pigeon-Land.fbx,__Land.bvh
+Pigeon,left,Pigeon/Pigeon-Left.fbx,__Left.bvh
+Pigeon,peck,Pigeon/Pigeon-Peck.fbx,__Peck.bvh
+Pigeon,right,Pigeon/Pigeon-Right.fbx,__Right.bvh
+Pigeon,tpose,Pigeon/Pigeon-TPOSE.fbx,__TPOSE.bvh
+Pigeon,takeoff,Pigeon/Pigeon-TakeOff.fbx,__TakeOff.bvh
+Pigeon,walk,Pigeon/Pigeon-Walk.fbx,__Walk.bvh
+Pirrana,biting,Pirrana/Piranna-Biting.fbx,__Biting.bvh
+Pirrana,biting2,Pirrana/Piranna-Biting2.fbx,__Biting2.bvh
+Pirrana,deadfloat,Pirrana/Piranna-DeadFloat.fbx,__DeadFloat.bvh
+Pirrana,deadfloat2,Pirrana/Piranna-DeadFloat2.fbx,__DeadFloat2.bvh
+Pirrana,divein,Pirrana/Piranna-DiveIn.fbx,__DiveIn.bvh
+Pirrana,flopping,Pirrana/Piranna-Flopping.fbx,__Flopping.bvh
+Pirrana,jump2,Pirrana/Piranna-Jump2.fbx,__Jump2.bvh
+Pirrana,midswim,Pirrana/Piranna-MidSwim.fbx,__MidSwim.bvh
+Pirrana,risetop,Pirrana/Piranna-RiseTop.fbx,__RiseTop.bvh
+Pirrana,swim,Pirrana/Piranna-Swim.fbx,__Swim.bvh
+Pirrana,swimjump,Pirrana/Piranna-SwimJump.fbx,__SwimJump.bvh
+Pirrana,tpose,Pirrana/Piranna-Tpose.fbx,__Tpose.bvh
+PolarBear,attack,PolarBear/PolarBear-Attack.fbx,__Attack.bvh
+PolarBear,attack2,PolarBear/PolarBear-Attack2.fbx,__Attack2.bvh
+PolarBear,attack3,PolarBear/PolarBear-Attack3.fbx,__Attack3.bvh
+PolarBear,die,PolarBear/PolarBear-Die.fbx,__Die.bvh
+PolarBear,idle,PolarBear/PolarBear-Idle.fbx,__Idle.bvh
+PolarBear,idle2,PolarBear/PolarBear-Idle2.fbx,__Idle2.bvh
+PolarBear,idle3,PolarBear/PolarBear-Idle3.fbx,__Idle3.bvh
+PolarBear,run,PolarBear/PolarBear-Run.fbx,__Run.bvh
+PolarBear,tpose,PolarBear/PolarBear-TPOSE.fbx,__TPOSE.bvh
+PolarBear,walk,PolarBear/PolarBear-Walk.fbx,__Walk.bvh
+PolarBearB,fall,PolarBearB/PolarBearB-Fall.fbx,__Fall.bvh
+PolarBearB,getup,PolarBearB/PolarBearB-GetUp.fbx,__GetUp.bvh
+PolarBearB,idle,PolarBearB/PolarBearB-Idle.fbx,__Idle.bvh
+PolarBearB,idle2,PolarBearB/PolarBearB-Idle2.fbx,__Idle2.bvh
+PolarBearB,play,PolarBearB/PolarBearB-Play.fbx,__Play.bvh
+PolarBearB,run,PolarBearB/PolarBearB-Run.fbx,__Run.bvh
+PolarBearB,tpose,PolarBearB/PolarBearB-TPOSE.fbx,__TPOSE.bvh
+PolarBearB,walk,PolarBearB/PolarBearB-Walk.fbx,__Walk.bvh
+Pteranodon,arcleft,Pteranodon/Pteranodon-ArcLeft.fbx,__ArcLeft.bvh
+Pteranodon,arcright,Pteranodon/Pteranodon-ArcRight.fbx,__ArcRight.bvh
+Pteranodon,death,Pteranodon/Pteranodon-Death.fbx,__Death.bvh
+Pteranodon,death2,Pteranodon/Pteranodon-Death2.fbx,__Death2.bvh
+Pteranodon,fancy,Pteranodon/Pteranodon-Fancy.fbx,__Fancy.bvh
+Pteranodon,flapergasted,Pteranodon/Pteranodon-Flapergasted.fbx,__Flapergasted.bvh
+Pteranodon,flyloop,Pteranodon/Pteranodon-FlyLoop.fbx,__FlyLoop.bvh
+Pteranodon,glidescream,Pteranodon/Pteranodon-GlideScream.fbx,__GlideScream.bvh
+Pteranodon,hit,Pteranodon/Pteranodon-Hit.fbx,__Hit.bvh
+Pteranodon,hit2,Pteranodon/Pteranodon-Hit2.fbx,__Hit2.bvh
+Pteranodon,lander,Pteranodon/Pteranodon-Lander.fbx,__Lander.bvh
+Pteranodon,screamfly,Pteranodon/Pteranodon-ScreamFly.fbx,__ScreamFly.bvh
+Puppy,idleenergetic,Puppy/Puppy-IdleEnergetic.fbx,Puppy_IdleEnergetic.bvh
+Puppy,idlelaydown,Puppy/Puppy-IdleLayDown.fbx,Puppy_IdleLayDown.bvh
+Puppy,run,Puppy/Puppy-Run.fbx,Puppy_Run.bvh
+Puppy,tpose,Puppy/Puppy-TPOSE.fbx,Puppy_TPOSE.bvh
+Puppy,walk,Puppy/Puppy-Walk.fbx,Puppy_Walk.bvh
+Raindeer,attack,Raindeer/Raindeer-Attack.fbx,__Attack.bvh
+Raindeer,attack2,Raindeer/Raindeer-Attack2.fbx,__Attack2.bvh
+Raindeer,attack3,Raindeer/Raindeer-Attack3.fbx,__Attack3.bvh
+Raindeer,die,Raindeer/Raindeer-Die.fbx,__Die.bvh
+Raindeer,idle,Raindeer/Raindeer-Idle.fbx,__Idle.bvh
+Raindeer,run,Raindeer/Raindeer-Run.fbx,__Run.bvh
+Raindeer,stance,Raindeer/Raindeer-Stance.fbx,__Stance.bvh
+Raindeer,tpose,Raindeer/Raindeer-Tpose.fbx,__Tpose.bvh
+Raindeer,walk,Raindeer/Raindeer-Walk.fbx,__Walk.bvh
+Raindeer,yell,Raindeer/Raindeer-Yell.fbx,__Yell.bvh
+Raptor,attack,Raptor/Raptor-Attack.fbx,__Attack.bvh
+Raptor,die,Raptor/Raptor-Die.fbx,__Die.bvh
+Raptor,fastwalk,Raptor/Raptor-FastWalk.fbx,__FastWalk.bvh
+Raptor,headsmash,Raptor/Raptor-HeadSmash.fbx,__HeadSmash.bvh
+Raptor,idle,Raptor/Raptor-Idle.fbx,__Idle.bvh
+Raptor,idle2,Raptor/Raptor-Idle2.fbx,__Idle2.bvh
+Raptor,legscratch,Raptor/Raptor-LegScratch.fbx,__LegScratch.bvh
+Raptor,roar,Raptor/Raptor-Roar.fbx,__Roar.bvh
+Raptor,slowwalk,Raptor/Raptor-SlowWalk.fbx,__SlowWalk.bvh
+Raptor,tpose,Raptor/Raptor-TPOSE.fbx,__TPOSE.bvh
+Raptor,yawn,Raptor/Raptor-Yawn.fbx,__Yawn.bvh
+Raptor2,breatheidle,Raptor2/Raptor-BreatheIdle.fbx,__BreatheIdle.bvh
+Raptor2,clean,Raptor2/Raptor-Clean.fbx,__Clean.bvh
+Raptor2,die,Raptor2/Raptor-Die.fbx,__Die.bvh
+Raptor2,die2getup,Raptor2/Raptor-Die2GetUp.fbx,__Die2GetUp.bvh
+Raptor2,diegetup,Raptor2/Raptor-DieGetUp.fbx,__DieGetUp.bvh
+Raptor2,eat,Raptor2/Raptor-Eat.fbx,__Eat.bvh
+Raptor2,eatgrass,Raptor2/Raptor-EatGrass.fbx,__EatGrass.bvh
+Raptor2,eggtend,Raptor2/Raptor-EggTend.fbx,__EggTend.bvh
+Raptor2,fall,Raptor2/Raptor-Fall.fbx,__Fall.bvh
+Raptor2,fallgetup,Raptor2/Raptor-FallGetUp.fbx,__FallGetUp.bvh
+Raptor2,fenceclimbfall,Raptor2/Raptor-FenceClimbFall.fbx,__FenceClimbFall.bvh
+Raptor2,idle,Raptor2/Raptor-Idle.fbx,__Idle.bvh
+Raptor2,idlealert,Raptor2/Raptor-IdleAlert.fbx,__IdleAlert.bvh
+Raptor2,idlebiteapple,Raptor2/Raptor-IdleBiteApple.fbx,__IdleBiteApple.bvh
+Raptor2,idlecurious,Raptor2/Raptor-IdleCurious.fbx,__IdleCurious.bvh
+Raptor2,idleforward,Raptor2/Raptor-IdleForward.fbx,__IdleForward.bvh
+Raptor2,idleleft,Raptor2/Raptor-IdleLeft.fbx,__IdleLeft.bvh
+Raptor2,idlelookleft,Raptor2/Raptor-IdleLookLeft.fbx,__IdleLookLeft.bvh
+Raptor2,idlelookright,Raptor2/Raptor-IdleLookRight.fbx,__IdleLookRight.bvh
+Raptor2,idleright,Raptor2/Raptor-IdleRight.fbx,__IdleRight.bvh
+Raptor2,jumpspinrun,Raptor2/Raptor-JumpSpinRun.fbx,__JumpSpinRun.bvh
+Raptor2,leftheadrun,Raptor2/Raptor-LeftHeadRun.fbx,__LeftHeadRun.bvh
+Raptor2,leftrunbite,Raptor2/Raptor-LeftRunBite.fbx,__LeftRunBite.bvh
+Raptor2,reverserun,Raptor2/Raptor-ReverseRun.fbx,__ReverseRun.bvh
+Raptor2,rightheadrun,Raptor2/Raptor-RightHeadRun.fbx,__RightHeadRun.bvh
+Raptor2,rightrunbite,Raptor2/Raptor-RightRunBite.fbx,__RightRunBite.bvh
+Raptor2,run,Raptor2/Raptor-Run.fbx,__Run.bvh
+Raptor2,runfall,Raptor2/Raptor-RunFall.fbx,__RunFall.bvh
+Raptor2,runjump,Raptor2/Raptor-RunJump.fbx,__RunJump.bvh
+Raptor2,runjumpbite,Raptor2/Raptor-RunJumpBite.fbx,__RunJumpBite.bvh
+Raptor2,runjumpfall,Raptor2/Raptor-RunJumpFall.fbx,__RunJumpFall.bvh
+Raptor2,runjumplandback,Raptor2/Raptor-RunJumpLandBack.fbx,__RunJumpLandBack.bvh
+Raptor2,runjumproll,Raptor2/Raptor-RunJumpRoll.fbx,__RunJumpRoll.bvh
+Raptor2,runscreamjump,Raptor2/Raptor-RunScreamJump.fbx,__RunScreamJump.bvh
+Raptor2,runtostoproar,Raptor2/Raptor-RunToStopRoar.fbx,__RunToStopRoar.bvh
+Raptor2,runtostoproar2,Raptor2/Raptor-RunToStopRoar2.fbx,__RunToStopRoar2.bvh
+Raptor2,spinrun,Raptor2/Raptor-SpinRun.fbx,__SpinRun.bvh
+Raptor2,stride,Raptor2/Raptor-Stride.fbx,__Stride.bvh
+Raptor2,tpose,Raptor2/Raptor-Tpose.fbx,__Tpose.bvh
+Raptor2,walk,Raptor2/Raptor-Walk.fbx,__Walk.bvh
+Raptor3,attackright,Raptor3/Raptor-AttackRight.fbx,__AttackRight.bvh
+Raptor3,barkforward,Raptor3/Raptor-BarkForward.fbx,__BarkForward.bvh
+Raptor3,leftpuke,Raptor3/Raptor-LeftPuke.fbx,__LeftPuke.bvh
+Raptor3,meanleft,Raptor3/Raptor-MeanLEft.fbx,__MeanLEft.bvh
+Raptor3,meanright,Raptor3/Raptor-MeanRight.fbx,__MeanRight.bvh
+Raptor3,roarleft,Raptor3/Raptor-RoarLeft.fbx,__RoarLeft.bvh
+Raptor3,roarright,Raptor3/Raptor-RoarRight.fbx,__RoarRight.bvh
+Raptor3,stepleft,Raptor3/Raptor-StepLeft.fbx,__StepLeft.bvh
+Raptor3,stepright,Raptor3/Raptor-StepRight.fbx,__StepRight.bvh
+Raptor3,steproar,Raptor3/Raptor-StepRoar.fbx,__StepRoar.bvh
+Raptor3,tpose,Raptor3/Raptor-TPOSE.fbx,__TPOSE.bvh
+Raptor3,yell,Raptor3/Raptor-Yell.fbx,__Yell.bvh
+Raptor3,roarforward,Raptor3/Raptor-roarforward.fbx,__roarforward.bvh
+Raptor3,run,Raptor3/Raptor-run.fbx,__run.bvh
+Rat,alertrun,Rat/Rat-AlertRun.fbx,__AlertRun.bvh
+Rat,clean,Rat/Rat-Clean.fbx,__Clean.bvh
+Rat,eat,Rat/Rat-Eat.fbx,__Eat.bvh
+Rat,itch,Rat/Rat-Itch.fbx,__Itch.bvh
+Rat,scamper,Rat/Rat-Scamper.fbx,__Scamper.bvh
+Rat,trottle,Rat/Rat-Trottle.fbx,__Trottle.bvh
+Rhino,attack,Rhino/Rhino-Attack.fbx,__Attack.bvh
+Rhino,attack2,Rhino/Rhino-Attack2.fbx,__Attack2.bvh
+Rhino,attack3,Rhino/Rhino-Attack3.fbx,__Attack3.bvh
+Rhino,die,Rhino/Rhino-Die.fbx,__Die.bvh
+Rhino,idle2,Rhino/Rhino-Idle2.fbx,__Idle2.bvh
+Rhino,idle3,Rhino/Rhino-Idle3.fbx,__Idle3.bvh
+Rhino,run,Rhino/Rhino-Run.fbx,__Run.bvh
+Rhino,tpose,Rhino/Rhino-TPOSE.fbx,__TPOSE.bvh
+Rhino,walk,Rhino/Rhino-Walk.fbx,__Walk.bvh
+Rhino,idle,Rhino/Rhino-idle.fbx,__idle.bvh
+Roach,bristle,Roach/roach-Bristle.fbx,__Bristle.bvh
+Roach,fall,Roach/roach-Fall.fbx,__Fall.bvh
+Roach,hop,Roach/roach-Hop.fbx,__Hop.bvh
+Roach,left,Roach/roach-Left.fbx,__Left.bvh
+Roach,move,Roach/roach-Move.fbx,__Move.bvh
+Roach,scurry,Roach/roach-Scurry.fbx,__Scurry.bvh
+Roach,shake,Roach/roach-Shake.fbx,__Shake.bvh
+Roach,smelling,Roach/roach-Smelling.fbx,__Smelling.bvh
+Roach,tpose,Roach/roach-TPOSE.fbx,__TPOSE.bvh
+Roach,turnleft,Roach/roach-TurnLeft.fbx,__TurnLeft.bvh
+Roach,turnright,Roach/roach-TurnRight.fbx,__TurnRight.bvh
+Roach,uppity,Roach/roach-Uppity.fbx,__Uppity.bvh
+SabreToothTiger,180flip,SabreToothTiger/SABREALL-180Flip.fbx,__180Flip.bvh
+SabreToothTiger,180right,SabreToothTiger/SABREALL-180RIght.fbx,__180RIght.bvh
+SabreToothTiger,45turnleft,SabreToothTiger/SABREALL-45TurnLeft.fbx,__45TurnLeft.bvh
+SabreToothTiger,agitated,SabreToothTiger/SABREALL-Agitated.fbx,__Agitated.bvh
+SabreToothTiger,attack,SabreToothTiger/SABREALL-Attack.fbx,__Attack.bvh
+SabreToothTiger,backup,SabreToothTiger/SABREALL-BackUp.fbx,__BackUp.bvh
+SabreToothTiger,backing,SabreToothTiger/SABREALL-Backing.fbx,__Backing.bvh
+SabreToothTiger,begg,SabreToothTiger/SABREALL-Begg.fbx,__Begg.bvh
+SabreToothTiger,bite,SabreToothTiger/SABREALL-Bite.fbx,__Bite.bvh
+SabreToothTiger,cagebat,SabreToothTiger/SABREALL-CageBat.fbx,__CageBat.bvh
+SabreToothTiger,cowering,SabreToothTiger/SABREALL-Cowering.fbx,__Cowering.bvh
+SabreToothTiger,cowering2,SabreToothTiger/SABREALL-Cowering2.fbx,__Cowering2.bvh
+SabreToothTiger,eating,SabreToothTiger/SABREALL-Eating.fbx,__Eating.bvh
+SabreToothTiger,getup,SabreToothTiger/SABREALL-GetUp.fbx,__GetUp.bvh
+SabreToothTiger,getup2,SabreToothTiger/SABREALL-GetUp2.fbx,__GetUp2.bvh
+SabreToothTiger,getupmad,SabreToothTiger/SABREALL-GetUpMad.fbx,__GetUpMad.bvh
+SabreToothTiger,growling,SabreToothTiger/SABREALL-Growling.fbx,__Growling.bvh
+SabreToothTiger,layout,SabreToothTiger/SABREALL-Layout.fbx,__Layout.bvh
+SabreToothTiger,leaper,SabreToothTiger/SABREALL-Leaper.fbx,__Leaper.bvh
+SabreToothTiger,leftturn,SabreToothTiger/SABREALL-LeftTurn.fbx,__LeftTurn.bvh
+SabreToothTiger,mean,SabreToothTiger/SABREALL-Mean.fbx,__Mean.bvh
+SabreToothTiger,pawswatting,SabreToothTiger/SABREALL-PawSwatting.fbx,__PawSwatting.bvh
+SabreToothTiger,pissedoff,SabreToothTiger/SABREALL-PissedOff.fbx,__PissedOff.bvh
+SabreToothTiger,pissedoff2,SabreToothTiger/SABREALL-PissedOff2.fbx,__PissedOff2.bvh
+SabreToothTiger,raged,SabreToothTiger/SABREALL-Raged.fbx,__Raged.bvh
+SabreToothTiger,roaring,SabreToothTiger/SABREALL-Roaring.fbx,__Roaring.bvh
+SabreToothTiger,run,SabreToothTiger/SABREALL-Run.fbx,__Run.bvh
+SabreToothTiger,run2,SabreToothTiger/SABREALL-Run2.fbx,__Run2.bvh
+SabreToothTiger,sit,SabreToothTiger/SABREALL-Sit.fbx,__Sit.bvh
+SabreToothTiger,sitting,SabreToothTiger/SABREALL-Sitting.fbx,__Sitting.bvh
+SabreToothTiger,sitting2,SabreToothTiger/SABREALL-Sitting2.fbx,__Sitting2.bvh
+SabreToothTiger,slow180,SabreToothTiger/SABREALL-Slow180.fbx,__Slow180.bvh
+SabreToothTiger,snap,SabreToothTiger/SABREALL-Snap.fbx,__Snap.bvh
+SabreToothTiger,spin180,SabreToothTiger/SABREALL-Spin180.fbx,__Spin180.bvh
+SabreToothTiger,stablize,SabreToothTiger/SABREALL-Stablize.fbx,__Stablize.bvh
+SabreToothTiger,stalker,SabreToothTiger/SABREALL-Stalker.fbx,__Stalker.bvh
+SabreToothTiger,startleft,SabreToothTiger/SABREALL-StartLeft.fbx,__StartLeft.bvh
+SabreToothTiger,startwalk,SabreToothTiger/SABREALL-Startwalk.fbx,__Startwalk.bvh
+SabreToothTiger,swatlft,SabreToothTiger/SABREALL-SwatLft.fbx,__SwatLft.bvh
+SabreToothTiger,swim,SabreToothTiger/SABREALL-Swim.fbx,__Swim.bvh
+SabreToothTiger,tiredyawn,SabreToothTiger/SABREALL-TiredYawn.fbx,__TiredYawn.bvh
+SabreToothTiger,trot,SabreToothTiger/SABREALL-Trot.fbx,__Trot.bvh
+SabreToothTiger,turnleft,SabreToothTiger/SABREALL-TurnLeft.fbx,__TurnLeft.bvh
+SabreToothTiger,warning,SabreToothTiger/SABREALL-Warning.fbx,__Warning.bvh
+SandMouse,attack,SandMouse/SandMouse-Attack.fbx,__Attack.bvh
+SandMouse,attack2,SandMouse/SandMouse-Attack2.fbx,__Attack2.bvh
+SandMouse,die,SandMouse/SandMouse-Die.fbx,__Die.bvh
+SandMouse,die2,SandMouse/SandMouse-Die2.fbx,__Die2.bvh
+SandMouse,die3,SandMouse/SandMouse-Die3.fbx,__Die3.bvh
+SandMouse,digin,SandMouse/SandMouse-DigIn.fbx,__DigIn.bvh
+SandMouse,digout,SandMouse/SandMouse-DigOut.fbx,__DigOut.bvh
+SandMouse,idle,SandMouse/SandMouse-Idle.fbx,__Idle.bvh
+SandMouse,idle2,SandMouse/SandMouse-Idle2.fbx,__Idle2.bvh
+SandMouse,idle3,SandMouse/SandMouse-Idle3.fbx,__Idle3.bvh
+SandMouse,idle4,SandMouse/SandMouse-Idle4.fbx,__Idle4.bvh
+SandMouse,run,SandMouse/SandMouse-Run.fbx,__Run.bvh
+SandMouse,tpose,SandMouse/SandMouse-TPOSE.fbx,__TPOSE.bvh
+SandMouse,walk,SandMouse/SandMouse-Walk.fbx,__Walk.bvh
+Scorpion,agitated,Scorpion/scorpion-Agitated.fbx,__Agitated.bvh
+Scorpion,attack1,Scorpion/scorpion-Attack1.fbx,__Attack1.bvh
+Scorpion,backup,Scorpion/scorpion-BackUp.fbx,__BackUp.bvh
+Scorpion,defend,Scorpion/scorpion-Defend.fbx,__Defend.bvh
+Scorpion,idleloop,Scorpion/scorpion-IdleLoop.fbx,__IdleLoop.bvh
+Scorpion,recoil,Scorpion/scorpion-Recoil.fbx,__Recoil.bvh
+Scorpion,recoil2,Scorpion/scorpion-Recoil2.fbx,__Recoil2.bvh
+Scorpion,slowforward,Scorpion/scorpion-SlowForward.fbx,__SlowForward.bvh
+Scorpion,stinger,Scorpion/scorpion-Stinger.fbx,__Stinger.bvh
+Scorpion,stretcharms,Scorpion/scorpion-StretchArms.fbx,__StretchArms.bvh
+Scorpion,tpose,Scorpion/scorpion-TPOSE.fbx,__TPOSE.bvh
+Scorpion,turnleft,Scorpion/scorpion-TurnLeft.fbx,__TurnLeft.bvh
+Scorpion,turnright,Scorpion/scorpion-TurnRight.fbx,__TurnRight.bvh
+Scorpion,walkforward,Scorpion/scorpion-WalkForward.fbx,__WalkForward.bvh
+Scorpion-2,attack_retreat,Scorpion-2/Scorpion-Attack Retreat.fbx,__Attack_Retreat.bvh
+Scorpion-2,back_up,Scorpion-2/Scorpion-Back Up.fbx,__Back_Up.bvh
+Scorpion-2,back_confused,Scorpion-2/Scorpion-Back confused.fbx,__Back_confused.bvh
+Scorpion-2,backing_crazy,Scorpion-2/Scorpion-Backing Crazy.fbx,__Backing_Crazy.bvh
+Scorpion-2,belly_death,Scorpion-2/Scorpion-Belly Death.fbx,__Belly_Death.bvh
+Scorpion-2,belly_death_1,Scorpion-2/Scorpion-Belly death 1.fbx,__Belly_death_1.bvh
+Scorpion-2,bite_attack,Scorpion-2/Scorpion-Bite Attack.fbx,__Bite_Attack.bvh
+Scorpion-2,bite_grab,Scorpion-2/Scorpion-Bite Grab.fbx,__Bite_Grab.bvh
+Scorpion-2,blasted_death,Scorpion-2/Scorpion-Blasted Death.fbx,__Blasted_Death.bvh
+Scorpion-2,death,Scorpion-2/Scorpion-Death.fbx,__Death.bvh
+Scorpion-2,death_2,Scorpion-2/Scorpion-Death 2.fbx,__Death_2.bvh
+Scorpion-2,flipped,Scorpion-2/Scorpion-Flipped.fbx,__Flipped.bvh
+Scorpion-2,guns,Scorpion-2/Scorpion-Guns.fbx,__Guns.bvh
+Scorpion-2,hasppy_fangs,Scorpion-2/Scorpion-Hasppy Fangs.fbx,__Hasppy_Fangs.bvh
+Scorpion-2,hit_and_sorr,Scorpion-2/Scorpion-Hit and Sorr.fbx,__Hit_and_Sorr.bvh
+Scorpion-2,idle,Scorpion-2/Scorpion-Idle.fbx,__Idle.bvh
+Scorpion-2,jump_sting,Scorpion-2/Scorpion-Jump Sting.fbx,__Jump_Sting.bvh
+Scorpion-2,limp_alive,Scorpion-2/Scorpion-Limp Alive.fbx,__Limp_Alive.bvh
+Scorpion-2,lunge_forward,Scorpion-2/Scorpion-Lunge Forward.fbx,__Lunge_Forward.bvh
+Scorpion-2,on_back_dying,Scorpion-2/Scorpion-On back Dying.fbx,__On_back_Dying.bvh
+Scorpion-2,pissed_fangs,Scorpion-2/Scorpion-Pissed Fangs.fbx,__Pissed_Fangs.bvh
+Scorpion-2,rising_walk,Scorpion-2/Scorpion-Rising Walk.fbx,__Rising_Walk.bvh
+Scorpion-2,run_attack,Scorpion-2/Scorpion-Run Attack.fbx,__Run_Attack.bvh
+Scorpion-2,run_to_attrack,Scorpion-2/Scorpion-Run To Attrack.fbx,__Run_To_Attrack.bvh
+Scorpion-2,settle_back,Scorpion-2/Scorpion-Settle Back.fbx,__Settle_Back.bvh
+Scorpion-2,slide_back,Scorpion-2/Scorpion-Slide Back.fbx,__Slide_Back.bvh
+Scorpion-2,slow_idle,Scorpion-2/Scorpion-Slow Idle.fbx,__Slow_Idle.bvh
+Scorpion-2,stand_attack,Scorpion-2/Scorpion-Stand Attack.fbx,__Stand_Attack.bvh
+Scorpion-2,standing_run,Scorpion-2/Scorpion-Standing Run.fbx,__Standing_Run.bvh
+Scorpion-2,steadywalk,Scorpion-2/Scorpion-SteadyWalk.fbx,__SteadyWalk.bvh
+Scorpion-2,sting_kill,Scorpion-2/Scorpion-Sting Kill.fbx,__Sting_Kill.bvh
+Scorpion-2,sting_kill_2,Scorpion-2/Scorpion-Sting Kill 2.fbx,__Sting_Kill_2.bvh
+Scorpion-2,sting_ya_ya,Scorpion-2/Scorpion-Sting Ya YA.fbx,__Sting_Ya_YA.bvh
+Scorpion-2,sting_ya,Scorpion-2/Scorpion-Sting ya.fbx,__Sting_ya.bvh
+Scorpion-2,strafe_left,Scorpion-2/Scorpion-Strafe Left.fbx,__Strafe_Left.bvh
+Scorpion-2,strafe_right,Scorpion-2/Scorpion-Strafe Right.fbx,__Strafe_Right.bvh
+Scorpion-2,walk_forward,Scorpion-2/Scorpion-Walk Forward.fbx,__Walk_Forward.bvh
+Scorpion-2,walk_and_rise,Scorpion-2/Scorpion-Walk and Rise.fbx,__Walk_and_Rise.bvh
+Scorpion-2,wild_death,Scorpion-2/Scorpion-Wild Death.fbx,__Wild_Death.bvh
+Scorpion-2,stand_ready,Scorpion-2/Scorpion-stand ready.fbx,__stand_ready.bvh
+Skunk,die,Skunk/Skunk-Die.fbx,__Die.bvh
+Skunk,idle,Skunk/Skunk-Idle.fbx,__Idle.bvh
+Skunk,idle2,Skunk/Skunk-Idle2.fbx,__Idle2.bvh
+Skunk,idle3,Skunk/Skunk-Idle3.fbx,__Idle3.bvh
+Skunk,run,Skunk/Skunk-Run.fbx,__Run.bvh
+Skunk,spray,Skunk/Skunk-Spray.fbx,__Spray.bvh
+Skunk,tpose,Skunk/Skunk-Tpose.fbx,__Tpose.bvh
+Skunk,walk,Skunk/Skunk-Walk.fbx,__Walk.bvh
+Spider,attack1,Spider/SPIDER-Attack1.fbx,__Attack1.bvh
+Spider,attack2,Spider/SPIDER-Attack2.fbx,__Attack2.bvh
+Spider,attack4,Spider/SPIDER-Attack4.fbx,__Attack4.bvh
+Spider,attack5,Spider/SPIDER-Attack5.fbx,__Attack5.bvh
+Spider,attackleft,Spider/SPIDER-AttackLeft.fbx,__AttackLeft.bvh
+Spider,attackright,Spider/SPIDER-Attackright.fbx,__Attackright.bvh
+Spider,backrear,Spider/SPIDER-BackRear.fbx,__BackRear.bvh
+Spider,backitup,Spider/SPIDER-BackitUp.fbx,__BackitUp.bvh
+Spider,fangy,Spider/SPIDER-Fangy.fbx,__Fangy.bvh
+Spider,gliding,Spider/SPIDER-Gliding.fbx,__Gliding.bvh
+Spider,hurt,Spider/SPIDER-Hurt.fbx,__Hurt.bvh
+Spider,jump,Spider/SPIDER-Jump.fbx,__Jump.bvh
+Spider,landinhair,Spider/SPIDER-LandinHAir.fbx,__LandinHAir.bvh
+Spider,landing,Spider/SPIDER-Landing.fbx,__Landing.bvh
+Spider,rearing,Spider/SPIDER-Rearing.fbx,__Rearing.bvh
+Spider,retreat,Spider/SPIDER-Retreat.fbx,__Retreat.bvh
+Spider,retreatinjured,Spider/SPIDER-RetreatInjured.fbx,__RetreatInjured.bvh
+Spider,retreatslow,Spider/SPIDER-RetreatSlow.fbx,__RetreatSlow.bvh
+Spider,riser,Spider/SPIDER-Riser.fbx,__Riser.bvh
+Spider,rising,Spider/SPIDER-Rising.fbx,__Rising.bvh
+Spider,scary,Spider/SPIDER-Scary.fbx,__Scary.bvh
+Spider,scramble,Spider/SPIDER-Scramble.fbx,__Scramble.bvh
+Spider,slowidle,Spider/SPIDER-SlowIdle.fbx,__SlowIdle.bvh
+Spider,travelweb,Spider/SPIDER-TravelWeb.fbx,__TravelWeb.bvh
+Spider,walker,Spider/SPIDER-Walker.fbx,__Walker.bvh
+Spider,barking,Spider/SPIDER-barking.fbx,__barking.bvh
+Spider,injuredwalk,Spider/SPIDER-injuredwalk.fbx,__injuredwalk.bvh
+Spider,runleft,Spider/SPIDER-runleft.fbx,__runleft.bvh
+Spider,walkleft,Spider/SPIDER-walkleft.fbx,__walkleft.bvh
+Spider,walkloop,Spider/SPIDER-walkloop.fbx,__walkloop.bvh
+Spider,weaver,Spider/SPIDER-weaver.fbx,__weaver.bvh
+Spider,weaving,Spider/SPIDER-weaving.fbx,__weaving.bvh
+SpiderG,attack,SpiderG/Spider-Attack.fbx,__Attack.bvh
+SpiderG,attack2,SpiderG/Spider-Attack2.fbx,__Attack2.bvh
+SpiderG,attack3,SpiderG/Spider-Attack3.fbx,__Attack3.bvh
+SpiderG,attack4,SpiderG/Spider-Attack4.fbx,__Attack4.bvh
+SpiderG,attack5,SpiderG/Spider-Attack5.fbx,__Attack5.bvh
+SpiderG,attack6,SpiderG/Spider-Attack6.fbx,__Attack6.bvh
+SpiderG,attack7,SpiderG/Spider-Attack7.fbx,__Attack7.bvh
+SpiderG,burrough,SpiderG/Spider-Burrough.fbx,__Burrough.bvh
+SpiderG,comeout,SpiderG/Spider-ComeOut.fbx,__ComeOut.bvh
+SpiderG,die,SpiderG/Spider-Die.fbx,__Die.bvh
+SpiderG,fangs,SpiderG/Spider-Fangs.fbx,__Fangs.bvh
+SpiderG,idle,SpiderG/Spider-Idle.fbx,__Idle.bvh
+SpiderG,idle2,SpiderG/Spider-Idle2.fbx,__Idle2.bvh
+SpiderG,idle3,SpiderG/Spider-Idle3.fbx,__Idle3.bvh
+SpiderG,retreat,SpiderG/Spider-Retreat.fbx,__Retreat.bvh
+SpiderG,run,SpiderG/Spider-Run.fbx,__Run.bvh
+SpiderG,shiver,SpiderG/Spider-Shiver.fbx,__Shiver.bvh
+SpiderG,tpose,SpiderG/Spider-TPOSE.fbx,__TPOSE.bvh
+SpiderG,walk,SpiderG/Spider-Walk.fbx,__Walk.bvh
+Stego,attack,Stego/Stego-Attack.fbx,__Attack.bvh
+Stego,attack2,Stego/Stego-Attack2.fbx,__Attack2.bvh
+Stego,attack3,Stego/Stego-Attack3.fbx,__Attack3.bvh
+Stego,fall,Stego/Stego-Fall.fbx,__Fall.bvh
+Stego,idle,Stego/Stego-Idle.fbx,__Idle.bvh
+Stego,idle2,Stego/Stego-Idle2.fbx,__Idle2.bvh
+Stego,run,Stego/Stego-Run.fbx,__Run.bvh
+Stego,shake,Stego/Stego-Shake.fbx,__Shake.bvh
+Stego,slowwalk,Stego/Stego-Slowwalk.fbx,__Slowwalk.bvh
+Stego,tailwhip,Stego/Stego-TailWhip.fbx,__TailWhip.bvh
+Stego,tpose,Stego/Stego-Tpose.fbx,__Tpose.bvh
+Trex,big_roar_step,Trex/T-Rex-Big roar step.fbx,__Big_roar_step.bvh
+Trex,chase_roar,Trex/T-Rex-Chase Roar.fbx,__Chase_Roar.bvh
+Trex,roar,Trex/T-Rex-ROAR.fbx,__ROAR.bvh
+Trex,still,Trex/T-Rex-STILL.fbx,__STILL.bvh
+Trex,bite_90_left,Trex/T-Rex-bite 90 left.fbx,__bite_90_left.bvh
+Trex,bite_90_right,Trex/T-Rex-bite 90 right.fbx,__bite_90_right.bvh
+Trex,bite_close_left,Trex/T-Rex-bite close left.fbx,__bite_close_left.bvh
+Trex,bite_close_right,Trex/T-Rex-bite close right.fbx,__bite_close_right.bvh
+Trex,bite_step_back_forward,Trex/T-Rex-bite step back forward.fbx,__bite_step_back_forward.bvh
+Trex,chase_bite,Trex/T-Rex-chase bite.fbx,__chase_bite.bvh
+Trex,chase_bite_left,Trex/T-Rex-chase bite left.fbx,__chase_bite_left.bvh
+Trex,chase_bite_right,Trex/T-Rex-chase bite right.fbx,__chase_bite_right.bvh
+Trex,chase_head_butt_left,Trex/T-Rex-chase head butt left.fbx,__chase_head_butt_left.bvh
+Trex,chase_roar_left,Trex/T-Rex-chase roar left.fbx,__chase_roar_left.bvh
+Trex,chase_roar_right,Trex/T-Rex-chase roar right.fbx,__chase_roar_right.bvh
+Trex,climb_down,Trex/T-Rex-climb down.fbx,__climb_down.bvh
+Trex,climb_up,Trex/T-Rex-climb up.fbx,__climb_up.bvh
+Trex,death,Trex/T-Rex-death.fbx,__death.bvh
+Trex,death_short,Trex/T-Rex-death short.fbx,__death_short.bvh
+Trex,head_butt_left,Trex/T-Rex-head butt left.fbx,__head_butt_left.bvh
+Trex,hit_head_1,Trex/T-Rex-hit head 1.fbx,__hit_head_1.bvh
+Trex,hit_head_2,Trex/T-Rex-hit head 2.fbx,__hit_head_2.bvh
+Trex,hit_head_3,Trex/T-Rex-hit head 3.fbx,__hit_head_3.bvh
+Trex,hit_leg,Trex/T-Rex-hit leg.fbx,__hit_leg.bvh
+Trex,hit_leg_2,Trex/T-Rex-hit leg 2.fbx,__hit_leg_2.bvh
+Trex,hit_torso_left,Trex/T-Rex-hit torso left.fbx,__hit_torso_left.bvh
+Trex,hit_torso_right,Trex/T-Rex-hit torso right.fbx,__hit_torso_right.bvh
+Trex,human_bite,Trex/T-Rex-human bite.fbx,__human_bite.bvh
+Trex,human_kill,Trex/T-Rex-human kill.fbx,__human_kill.bvh
+Trex,human_shake,Trex/T-Rex-human shake.fbx,__human_shake.bvh
+Trex,idle_attack,Trex/T-Rex-idle attack.fbx,__idle_attack.bvh
+Trex,idle_attack_to_run_left,Trex/T-Rex-idle attack to run left.fbx,__idle_attack_to_run_left.bvh
+Trex,idle_attack_to_run_right,Trex/T-Rex-idle attack to run right.fbx,__idle_attack_to_run_right.bvh
+Trex,idle_investigae_out,Trex/T-Rex-idle investigae out.fbx,__idle_investigae_out.bvh
+Trex,idle_investigate,Trex/T-Rex-idle investigate.fbx,__idle_investigate.bvh
+Trex,idle_investigate_loop,Trex/T-Rex-idle investigate loop.fbx,__idle_investigate_loop.bvh
+Trex,idle_sneeze,Trex/T-Rex-idle sneeze.fbx,__idle_sneeze.bvh
+Trex,idle_to_run,Trex/T-Rex-idle to run.fbx,__idle_to_run.bvh
+Trex,kill_long,Trex/T-Rex-kill long.fbx,__kill_long.bvh
+Trex,long_death,Trex/T-Rex-long death.fbx,__long_death.bvh
+Trex,look_forward,Trex/T-Rex-look forward.fbx,__look_forward.bvh
+Trex,look_forward_2,Trex/T-Rex-look forward 2.fbx,__look_forward_2.bvh
+Trex,look_left,Trex/T-Rex-look left.fbx,__look_left.bvh
+Trex,look_right,Trex/T-Rex-look right.fbx,__look_right.bvh
+Trex,mama_cave_bite,Trex/T-Rex-mama cave bite.fbx,__mama_cave_bite.bvh
+Trex,mama_cave_bite_loop,Trex/T-Rex-mama cave bite loop.fbx,__mama_cave_bite_loop.bvh
+Trex,mama_cave_bite_out,Trex/T-Rex-mama cave bite out.fbx,__mama_cave_bite_out.bvh
+Trex,roar_left,Trex/T-Rex-roar left.fbx,__roar_left.bvh
+Trex,roar_right,Trex/T-Rex-roar right.fbx,__roar_right.bvh
+Trex,run_head_butt_right,Trex/T-Rex-run head butt right.fbx,__run_head_butt_right.bvh
+Trex,run_head_loop,Trex/T-Rex-run head loop.fbx,__run_head_loop.bvh
+Trex,run_head_low,Trex/T-Rex-run head low.fbx,__run_head_low.bvh
+Trex,run_head_low_2,Trex/T-Rex-run head low 2.fbx,__run_head_low_2.bvh
+Trex,run_to_stop,Trex/T-Rex-run to stop.fbx,__run_to_stop.bvh
+Trex,sprint_head_left,Trex/T-Rex-sprint head left.fbx,__sprint_head_left.bvh
+Trex,sprint_head_right,Trex/T-Rex-sprint head right.fbx,__sprint_head_right.bvh
+Trex,sprint_loop,Trex/T-Rex-sprint loop.fbx,__sprint_loop.bvh
+Trex,step_back,Trex/T-Rex-step back.fbx,__step_back.bvh
+Trex,stunned,Trex/T-Rex-stunned.fbx,__stunned.bvh
+Trex,turn_180_look,Trex/T-Rex-turn 180 look.fbx,__turn_180_look.bvh
+Trex,turn_180_right,Trex/T-Rex-turn 180 right.fbx,__turn_180_right.bvh
+Trex,turn_180_turn_right,Trex/T-Rex-turn 180 turn right.fbx,__turn_180_turn_right.bvh
+Trex,turn_90_left,Trex/T-Rex-turn 90 left.fbx,__turn_90_left.bvh
+Trex,turn_90_right,Trex/T-Rex-turn 90 right.fbx,__turn_90_right.bvh
+Trex,walk_back,Trex/T-Rex-walk back.fbx,__walk_back.bvh
+Trex,walk_bite,Trex/T-Rex-walk bite.fbx,__walk_bite.bvh
+Trex,walk_head_low,Trex/T-Rex-walk head low.fbx,__walk_head_low.bvh
+Trex,walk_left_bite,Trex/T-Rex-walk left bite.fbx,__walk_left_bite.bvh
+Trex,walk_loop,Trex/T-Rex-walk loop.fbx,__walk_loop.bvh
+Trex,walk_right_bite,Trex/T-Rex-walk right bite.fbx,__walk_right_bite.bvh
+Trex,walk_slow_loop,Trex/T-Rex-walk slow loop.fbx,__walk_slow_loop.bvh
+Tricera,attack,Tricera/Tricera-Attack.fbx,__Attack.bvh
+Tricera,attack2,Tricera/Tricera-Attack2.fbx,__Attack2.bvh
+Tricera,attack3,Tricera/Tricera-Attack3.fbx,__Attack3.bvh
+Tricera,attack4,Tricera/Tricera-Attack4.fbx,__Attack4.bvh
+Tricera,fall,Tricera/Tricera-Fall.fbx,__Fall.bvh
+Tricera,idle,Tricera/Tricera-Idle.fbx,__Idle.bvh
+Tricera,nosedirt,Tricera/Tricera-NoseDirt.fbx,__NoseDirt.bvh
+Tricera,run,Tricera/Tricera-Run.fbx,__Run.bvh
+Tricera,tpose,Tricera/Tricera-TPOSE.fbx,__TPOSE.bvh
+Tricera,walk,Tricera/Tricera-Walk.fbx,__Walk.bvh
+Tukan,fly,Tukan/TUKANALL-Fly.fbx,__Fly.bvh
+Tukan,flyforward,Tukan/TUKANALL-FlyForward.fbx,__FlyForward.bvh
+Tukan,flyloop,Tukan/TUKANALL-FlyLoop.fbx,__FlyLoop.bvh
+Tukan,idlelook,Tukan/TUKANALL-IdleLook.fbx,__IdleLook.bvh
+Tukan,shake,Tukan/TUKANALL-Shake.fbx,__Shake.bvh
+Tukan,slowdown,Tukan/TUKANALL-SlowDown.fbx,__SlowDown.bvh
+Tukan,sqwak,Tukan/TUKANALL-Sqwak.fbx,__Sqwak.bvh
+Tukan,tpose,Tukan/TUKANALL-Tpose.fbx,__Tpose.bvh
+Tukan,wingscratch,Tukan/TUKANALL-WingScratch.fbx,__WingScratch.bvh
+Turtle,attack,Turtle/Turtle-Attack.fbx,__Attack.bvh
+Turtle,attack2,Turtle/Turtle-Attack2.fbx,__Attack2.bvh
+Turtle,attack3,Turtle/Turtle-Attack3.fbx,__Attack3.bvh
+Turtle,hide,Turtle/Turtle-Hide.fbx,__Hide.bvh
+Turtle,idle,Turtle/Turtle-Idle.fbx,__Idle.bvh
+Turtle,idle2,Turtle/Turtle-Idle2.fbx,__Idle2.bvh
+Turtle,onback,Turtle/Turtle-Onback.fbx,__Onback.bvh
+Turtle,run,Turtle/Turtle-Run.fbx,__Run.bvh
+Turtle,tpose,Turtle/Turtle-TPOSE.fbx,__TPOSE.bvh
+Turtle,walk,Turtle/Turtle-Walk.fbx,__Walk.bvh
+Turtle,yawn,Turtle/Turtle-Yawn.fbx,__Yawn.bvh
+Tyranno,attack,Tyranno/Tyranno-Attack.fbx,__Attack.bvh
+Tyranno,attack2,Tyranno/Tyranno-Attack2.fbx,__Attack2.bvh
+Tyranno,fall,Tyranno/Tyranno-Fall.fbx,__Fall.bvh
+Tyranno,headbutt,Tyranno/Tyranno-HeadButt.fbx,__HeadButt.bvh
+Tyranno,idle,Tyranno/Tyranno-Idle.fbx,__Idle.bvh
+Tyranno,idle2,Tyranno/Tyranno-Idle2.fbx,__Idle2.bvh
+Tyranno,roar,Tyranno/Tyranno-Roar.fbx,__Roar.bvh
+Tyranno,run,Tyranno/Tyranno-Run.fbx,__Run.bvh
+Tyranno,tpose,Tyranno/Tyranno-TPOSE.fbx,__TPOSE.bvh
+Tyranno,tailwhip,Tyranno/Tyranno-TailWhip.fbx,__TailWhip.bvh
+Tyranno,walk,Tyranno/Tyranno-Walk.fbx,__Walk.bvh

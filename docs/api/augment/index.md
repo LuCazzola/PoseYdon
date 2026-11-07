@@ -23,7 +23,7 @@ drop and a duplicate, unlike the reference's single exclusive draw.
   pair.** That slot holds its parent's rotation, the one its source joint's
   slot held, but `transport` averages the source joint's moments with the
   parent's, whose `rot6d_bone` slot holds the grandparent's rotation. The
-  `rot6d_joint` default is unaffected. See `docs/index/todo.md`.
+  `rot6d_joint` default is unaffected. See [#10](https://github.com/LuCazzola/PoseYdon/issues/10).
 
 ## Class diagram
 

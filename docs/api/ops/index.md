@@ -23,21 +23,23 @@ for metrics that decode more than once per pair. The whole flow is drawn on
 
 ## Limitations
 
-- **The target rig must keep its rest clip in the dataset.** `find_clip_of_rig`
+- **A rig's rest clip stands for it only when it is indexed.** `find_clip_of_rig`
   templates conditioning and geometry on the rest clip (`rest_action` in
-  `skeleton.npz`), the rig's declared reference. A blacklist or split that
-  leaves the rest clip out makes `sample` and `retarget` raise for that rig,
-  although any clip of it would carry the same geometry.
+  `skeleton.npz`); a one-frame rest (an authored or FBX T-pose) is never in the
+  index, nor is one a blacklist or split leaves out, and then the rig's first
+  indexed clip stands in (same offsets; the rest frame is still the rest
+  clip's). Until 2026-10-21 that raised, which skipped two of the three
+  retarget validation pairs (Coyote to Crab, Goat to Raptor).
 - **`Blend` on a model without a semantic latent does nothing.** `LatentMix`
   writes `z_sem` into the conditioning, and AnyTop never reads it, so the
   result is plain generation with no error. `Retarget` checks for `encode` and
   raises instead.
 - **`Blend` sizes its schedule from `reference.shape[0]`**, the batch axis of a
   `(B, T, C)` latent, while `LatentMix` counts frames on axis -2. Pass
-  `length=` until it is fixed ([todo](../../index/todo.md)).
+  `length=` until it is fixed ([#4](https://github.com/LuCazzola/PoseYdon/issues/4)).
 - **`inbetween` and `blend` have no CLI path.** `poseydon sample` instantiates
   `operation:` from the config, and both take tensors, so they run only from
-  Python ([todo](../../index/todo.md)).
+  Python ([#5](https://github.com/LuCazzola/PoseYdon/issues/5)).
 
 ## Class diagram
 

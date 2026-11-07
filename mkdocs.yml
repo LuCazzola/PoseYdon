@@ -3,21 +3,31 @@
 #   uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs serve
 # mkdocs is pinned below 2: Material does not support MkDocs 2.0.
 site_name: PoseYdon
+site_description: Research infrastructure for neural motion.
+site_url: https://lucazzola.github.io/PoseYdon/
+repo_url: https://github.com/LuCazzola/PoseYdon
+edit_uri: ""
+
 docs_dir: docs
+# The ticket scripts sit beside the page that documents them, not on the site.
+exclude_docs: |
+  reference/*.py
+
 theme:
   name: material
   features:
     - navigation.sections
     - navigation.indexes
+    - navigation.top
     - content.code.copy
     - search.highlight
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      toggle: {icon: material/brightness-7, name: Dark mode}
+      toggle: {icon: material/weather-night, name: Dark mode}
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      toggle: {icon: material/brightness-4, name: Light mode}
+      toggle: {icon: material/weather-sunny, name: Light mode}
 plugins:
   - search
   # API reference, generated from the docstrings by static analysis: nothing
@@ -38,9 +48,14 @@ plugins:
             heading_level: 2
 markdown_extensions:
   - admonition
+  - attr_list
+  - md_in_html
   - tables
   - toc:
       permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
   - pymdownx.superfences:
       custom_fences:
         # Class `diagram`, not `mermaid`: Material's own Mermaid integration
@@ -57,34 +72,40 @@ extra_css:
   - stylesheets/diagrams.css
 # Broken #anchors are only INFO by default, so --strict would not catch them.
 validation:
-  anchors: warn
   nav:
     omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+# Docstring edits live-reload too.
+watch:
+  - src
 nav:
-  - Home: README.md
-  - Concepts:
-      - Design rationale: guides/concepts/rationale.md
-      - Data:
-          - Notation and conventions: guides/concepts/data/notation.md
-          - Dataset layout: guides/concepts/data/layout.md
-          - The round trip: guides/concepts/data/roundtrip.md
+  - Home: index.md
+  - User Guide:
+      - Design rationale: user-guide/index.md
+      - Overview: user-guide/overview.md
+      - The round trip: user-guide/roundtrip.md
   - How-to:
       - Tutorials:
-          - 1. Setting up: guides/how-to/tutorials/setup.md
-          - 2. Building the dataset: guides/how-to/tutorials/build-a-corpus.md
-          - 3. Train, generate, export: guides/how-to/tutorials/train-and-generate.md
+          - 1. Setting up: how-to/tutorials/01-setup.md
+          - 2. Building the dataset: how-to/tutorials/02-build-a-corpus.md
+          - 3. Train, generate, export: how-to/tutorials/03-train-and-generate.md
       - Tasks:
-          - Overview: guides/how-to/tasks/overview.md
-          - Generate: guides/how-to/tasks/generate.md
-          - In-between: guides/how-to/tasks/inbetween.md
-          - Blend: guides/how-to/tasks/blend.md
-          - Retarget: guides/how-to/tasks/retarget.md
-      - Testing: guides/how-to/testing.md
+          - Overview: how-to/tasks/index.md
+          - Generate: how-to/tasks/generate.md
+          - In-between: how-to/tasks/inbetween.md
+          - Blend: how-to/tasks/blend.md
+          - Retarget: how-to/tasks/retarget.md
+      - Adding to PoseYdon: how-to/adding.md
+      - Testing: how-to/testing.md
   - Index:
-      - Where things live: index/INDEX.md
-      - Overview: index/overview.md
-      - Tooling: index/tooling.md
-      - Open work: index/todo.md
+      - Map: reference/map.md
+      - Glossary and conventions: reference/glossary.md
+      - Data formats: reference/data-formats.md
+      - Tooling: reference/tooling.md
+      - Issues & Ideas: reference/ideas.md
   - API:
       - api/index.md
       - Retargeting: api/retargeting.md

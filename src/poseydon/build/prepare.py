@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
+from poseydon.build.corpus import corpus_root, rig_cache
 from poseydon.core.animation import Animation, RigidBodyAnimation, rest_geometry
 from poseydon.core.registry import Registry
 from poseydon.core.rotations import (
@@ -42,6 +44,10 @@ if TYPE_CHECKING:
 
 RIG = "rig"
 CLIP = "clip"
+
+#: Smallest horizontal component of the unit facing-pair vector that still defines
+#: a facing (UniMate's `FACING_EPS`).
+FACING_EPS = 1e-6
 
 
 #: Every preparation stage, by the name its parameters are stored under. A stage
@@ -63,6 +69,20 @@ def _entry(entry) -> dict:
     return {"type": entry} if isinstance(entry, str) else dict(entry)
 
 
+@dataclass(frozen=True)
+class RigEvidence:
+    """What a rig-wide decision looks at beyond the rest pose: the rig's clips and
+    its skin weights. `PrepareChain.fit_rig` hands each stage that
+    ``uses_evidence`` the clips as the preceding stages left them.
+
+    ``skin`` is the largest skin weight per joint name on the rig's main mesh;
+    ``None`` when the source carries none (a BVH).
+    """
+
+    clips: tuple[Animation, ...] = ()
+    skin: Mapping[str, float] | None = None
+
+
 class PrepareStage(ABC):
     """One invertible step of the source-to-prepared transform.
 
@@ -78,6 +98,9 @@ class PrepareStage(ABC):
     #: Stages that must run before this one when the chain has them (the order
     #: check in `PrepareChain`); ``"*"`` means every other stage.
     after: ClassVar[tuple[str, ...]] = ()
+    #: ``True`` for a stage that decides from the rig's clips and skin
+    #: (`RigEvidence`) and so is fitted by `fit_evidence`, not `fit`.
+    uses_evidence: ClassVar[bool] = False
 
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
@@ -87,6 +110,10 @@ class PrepareStage(ABC):
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
         """Parameters derived from ``anim`` as it stands at this point in the chain."""
         return {}
+
+    def fit_evidence(self, anim: Animation, resolved: Any, evidence: RigEvidence) -> dict[str, np.ndarray]:
+        """`fit`, for a stage with ``uses_evidence``: ``anim`` is the rest pose."""
+        return self.fit(anim, resolved)
 
     @abstractmethod
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation: ...
@@ -121,14 +148,17 @@ class PrepareChain:
                 raise ValueError(f"prepare stage `{stage.name}` must come after {late}; the chain is {order}")
 
     def fit_rig(
-        self, rest: Animation, resolved: Any, audit: AuditSink | None = None
+        self, rest: Animation, resolved: Any, audit: AuditSink | None = None,
+        evidence: RigEvidence = RigEvidence(),
     ) -> dict[str, dict]:
         """Fit every stage against the rest pose.
 
         Each stage fits against the animation as the PRECEDING stages left it,
         which is why this applies as it goes: the scale factor is measured on an
         already-rest-relative skeleton, and the ground height on an already
-        scaled one.
+        scaled one. ``evidence.clips`` go through the same stages (a clip-scoped
+        one refitted per clip) up to the last stage that ``uses_evidence``, so
+        that stage sees them as it will see a clip.
 
         CLIP-scoped stages are fitted here too, and their results are kept
         rather than discarded. A clip refits them anyway -- `apply` overwrites
@@ -144,8 +174,16 @@ class PrepareChain:
         """
         params: dict[str, dict] = {}
         current = rest
-        for stage in self.stages:
-            params[stage.name] = stage.fit(current, _rebind(resolved, rest, current))
+        clips = evidence.clips
+        last = max((i for i, s in enumerate(self.stages) if s.uses_evidence), default=-1)
+        for i, stage in enumerate(self.stages):
+            bound = _rebind(resolved, rest, current)
+            if stage.uses_evidence:
+                params[stage.name] = stage.fit_evidence(current, bound, RigEvidence(clips, evidence.skin))
+            else:
+                params[stage.name] = stage.fit(current, bound)
+            if i < last:
+                clips = tuple(self._through(stage, clip, resolved, rest, params[stage.name]) for clip in clips)
             before = current
             current = stage.apply(current, params[stage.name])
             if audit is not None:
@@ -154,6 +192,13 @@ class PrepareChain:
                     parameters=params[stage.name], before=before, after=current,
                 )
         return params
+
+    @staticmethod
+    def _through(stage: PrepareStage, clip: Animation, resolved: Any, rest: Animation, rig_params) -> Animation:
+        """``clip`` after ``stage``: with the rig's parameters, or its own if clip-scoped."""
+        if stage.scope == CLIP:
+            rig_params = stage.fit(clip, _rebind(resolved, rest, clip))
+        return stage.apply(clip, rig_params)
 
     def apply(
         self, anim: Animation, resolved: Any, rig_params: dict[str, dict],
@@ -359,30 +404,29 @@ class PromoteRoot(PrepareStage):
     other joint has a channel to put one in. That is exactly why the reduction
     rule's collapse case requires a zero offset.
 
-    The joints above `target` form a single-child chain and hierarchy order is
-    depth-first, so they occupy indices 0..b-1 contiguously and every other
-    joint descends from `target`. Promotion is a slice.
+    Read from FBX, four more rigs (Alligator, Anaconda, Deer, Goat) root at
+    static nodes above the body that their vendor BVH left out, and promote
+    past them the same way.
 
-    `invert` re-inserts the chain with IDENTITY rotations and the composed
-    product left on the promoted joint. Every joint returns with its name,
-    parent and offset, and `target` and its descendants return to their exact
-    world positions; the locator joints above it do not, because the chain's
-    rotations all turn the same subtree and only their product was ever
-    observable. Spec §9 states this as the contract: structure and reference
-    frame, not motion values.
+    The joints above `target` are its ancestors (the chain); promotion keeps
+    `target` and its descendants. Any other child of a chain joint roots a dead
+    branch -- Tukan's `MESH` geometry holders, Crow's FBX `ECR1 -> Skin` --
+    which `fit` records (`dead_names`/`dead_offsets`/`dead_parents`/
+    `dead_indices`) and `apply` drops, motion and all.
 
-    One rig (Tukan) has a dead sibling subtree hanging off an ancestor --
-    zero offset throughout, no motion, an FBX geometry-holder branch rather
-    than skeleton. `fit` drops it from `apply`'s output (recorded as
-    `dead_names`/`dead_offsets`/`dead_parents`/`dead_indices`) rather than
-    raising the single-child-chain error, but `invert` splices it back at its
-    exact original position with identity rotation and its own rest offset --
-    the same treatment as the chain above the target -- so the structure
-    guarantee still covers every joint, dead or not.
+    `invert` re-inserts the chain and the dead branches with IDENTITY rotations
+    and their own offsets, the composed product left on the promoted joint.
+    Every joint returns with its name, parent and offset, and `target` and its
+    descendants return to their exact world positions. This stage follows
+    `rest_relative`, where identity is the rest pose, so a chain or dead joint
+    that holds its rest pose (a static locator) comes back exactly; one that
+    moved does not, because the chain's rotations all turn the same subtree
+    and only their product was ever observable. Spec §9 states this as the
+    contract: structure and reference frame, not motion values.
     """
 
     #: The joint to promote is the manifest's ``promote_root:``; a rig without
-    #: one is untouched (every method is the identity), as 59 of 73 are.
+    #: one is untouched (every method is the identity), as 55 of 73 are.
     #: Measured on the rest pose as height fraction (rootY - minY) / (maxY - minY),
     #: the corpus splits absolutely: the 14 at f <= 0.005, the other 59 at
     #: f >= 0.189. Thirteen targets are the first branching joint along the
@@ -403,6 +447,7 @@ class PromoteRoot(PrepareStage):
         if target is None:
             return {
                 "n_removed": np.int64(0),
+                "chain_indices": np.empty(0, dtype=np.int64),
                 "names": np.empty(0, dtype="<U1"),
                 "offsets": np.zeros((0, 3)),
                 "dead_indices": np.empty(0, dtype=np.int64),
@@ -419,56 +464,32 @@ class PromoteRoot(PrepareStage):
             )
         index = names.index(target)
 
-        # Every joint above the target must have exactly one child continuing
-        # the chain toward it. An ancestor with a second child is normally the
-        # sibling-subtree hazard this check exists to catch -- but Tukan's
-        # `Hips` carries a `MESH` branch of geometry-holder joints (zero offset
-        # throughout, no motion, dead weight from the FBX export) alongside the
-        # real skeleton. Such a branch occupies no space and nothing surviving
-        # depends on it, so it is dropped outright rather than treated as an
-        # ambiguous chain; anything else with more than one child still raises.
-        dead: list[int] = []
-        for joint in range(index):
-            children = [k for k, p in enumerate(anim.parents) if p == joint]
-            if len(children) == 1:
-                continue
-            live = [c for c in children if index in _subtree(anim.parents, c)]
-            extra = [c for c in children if c not in live]
-            if len(live) != 1 or any(
-                not np.array_equal(anim.offsets[j], np.zeros(3))
-                for c in extra
-                for j in _subtree(anim.parents, c)
-            ):
-                raise ValueError(
-                    f"cannot promote `{target}`: joint `{names[joint]}` above "
-                    f"it has {len(children)} children, so the joints above the "
-                    "target are not a single-child chain"
-                )
-            for c in extra:
-                dead.extend(_subtree(anim.parents, c))
-
-        # `invert` needs to splice the dead subtree back at its exact original
-        # position (Spec §9's structure guarantee is non-negotiable), so its
-        # names, offsets and -- critically -- its ORIGINAL parent indices are
-        # recorded wholesale rather than just the bare indices `apply` needs.
-        # Small in practice: 5 joints for Tukan, the only rig that has any.
-        dead_sorted = sorted(dead)
-        dead_names = np.array([names[i] for i in dead_sorted]) if dead_sorted else np.empty(
-            0, dtype="<U1"
-        )
-        dead_offsets = anim.offsets[dead_sorted].copy() if dead_sorted else np.zeros((0, 3))
-        dead_parents = (
-            anim.parents[dead_sorted].astype(np.int64).copy()
-            if dead_sorted
-            else np.empty(0, dtype=np.int64)
+        # The chain is the target's ancestors. Any other child of one of them
+        # roots a dead branch: Tukan's `Hips` carries a `MESH` branch of
+        # geometry-holder joints, Crow's FBX root `Null` an `ECR1 -> Skin` one.
+        # It is dropped, its motion with it, and comes back at its rest pose:
+        # `promote_root` follows `rest_relative`, so identity is the rest.
+        chain, joint = [], int(anim.parents[index])
+        while joint >= 0:
+            chain.insert(0, joint)
+            joint = int(anim.parents[joint])
+        dead = sorted(
+            j for a in chain for c in np.flatnonzero(anim.parents == a)
+            if c not in chain and c != index for j in _subtree(anim.parents, int(c))
         )
 
-        chain = np.array(names[: index + 1])
+        # `invert` splices the dead branches back at their exact original
+        # position (Spec §9's structure guarantee is non-negotiable), so their
+        # names, offsets and ORIGINAL parent indices are recorded wholesale.
+        dead_names = np.array([names[i] for i in dead]) if dead else np.empty(0, dtype="<U1")
+        dead_offsets = anim.offsets[dead].copy() if dead else np.zeros((0, 3))
+        dead_parents = anim.parents[dead].astype(np.int64).copy() if dead else np.empty(0, dtype=np.int64)
         return {
             "n_removed": np.int64(index),
-            "names": chain,
-            "offsets": anim.offsets[: index + 1].copy(),
-            "dead_indices": np.array(dead_sorted, dtype=np.int64),
+            "chain_indices": np.array(chain, dtype=np.int64),
+            "names": np.array([names[j] for j in chain + [index]]),
+            "offsets": anim.offsets[chain + [index]].copy(),
+            "dead_indices": np.array(dead, dtype=np.int64),
             "dead_names": dead_names,
             "dead_offsets": dead_offsets,
             "dead_parents": dead_parents,
@@ -479,8 +500,7 @@ class PromoteRoot(PrepareStage):
         if index == 0:
             return anim
 
-        dead = {int(i) for i in params.get("dead_indices", np.empty(0, dtype=np.int64))}
-        keep = [j for j in range(anim.n_joints) if j >= index and j not in dead]
+        keep = sorted(_subtree(anim.parents, index))
         old_to_new = {old: new for new, old in enumerate(keep)}
 
         positions, rotations_world = anim.global_transforms()
@@ -514,23 +534,21 @@ class PromoteRoot(PrepareStage):
         if index == 0:
             return anim
 
+        chain = [int(i) for i in params["chain_indices"]]
         chain_names = [str(n) for n in params["names"]]
-        chain_offsets = params["offsets"]
+        chain_offsets = params["offsets"]   # the chain's, then the target's
         dead_indices = [int(i) for i in params.get("dead_indices", np.empty(0, dtype=np.int64))]
         dead_names = [str(n) for n in params.get("dead_names", np.empty(0, dtype="<U1"))]
         dead_offsets = params.get("dead_offsets", np.zeros((0, 3)))
         dead_parents = [int(i) for i in params.get("dead_parents", np.empty(0, dtype=np.int64))]
 
         n_frames = anim.n_frames
-        n_dead = len(dead_indices)
-        n_joints = index + anim.n_joints + n_dead
-
-        dead_set = set(dead_indices)
-        # The target and its surviving descendants, in original absolute-index
-        # order: everything from `index` upward that is not one of the dead
-        # subtree's own joints. `apply` built `anim`'s rows in exactly this
-        # order, so position `local` in `anim` is `kept_abs[local]` here.
-        kept_abs = [p for p in range(index, n_joints) if p not in dead_set]
+        n_joints = len(chain) + len(dead_indices) + anim.n_joints
+        # The target and its descendants, in original absolute-index order:
+        # `apply` built `anim`'s rows in exactly this order, so position `local`
+        # in `anim` is `kept_abs[local]` here.
+        removed = set(chain) | set(dead_indices)
+        kept_abs = [p for p in range(n_joints) if p not in removed]
 
         rotations = np.empty((n_frames, n_joints, 4))
         translations = np.empty((n_frames, n_joints, 3))
@@ -538,23 +556,20 @@ class PromoteRoot(PrepareStage):
         parents = np.empty(n_joints, dtype=np.int32)
         names: list[str] = [""] * n_joints
 
-        # The ancestor chain above the target: identity rotation throughout
-        # (only their product was ever observable), its own rest offset for
-        # translation, and a strict single-parent chain.
-        rotations[:, :index] = QUAT_IDENTITY
-        translations[:, 1:index] = chain_offsets[1:index]
+        # The chain above the target: identity rotation throughout (only their
+        # product was ever observable; identity is the rest pose here), its
+        # own rest offset for translation, each joint the parent of the next.
+        for k, p in enumerate(chain):
+            rotations[:, p] = QUAT_IDENTITY
+            translations[:, p] = chain_offsets[k]
+            offsets[p] = chain_offsets[k]
+            parents[p] = -1 if k == 0 else chain[k - 1]
+            names[p] = chain_names[k]
         # The old root's global position is the target's position minus the
         # offsets accumulated down the (identity-rotation) chain.
-        translations[:, 0] = anim.translations[:, 0] - chain_offsets[1 : index + 1].sum(axis=0)
-        offsets[:index] = chain_offsets[:index]
-        parents[0] = -1
-        parents[1:index] = np.arange(index - 1, dtype=np.int32)
-        for p in range(index):
-            names[p] = chain_names[p]
+        translations[:, chain[0]] = anim.translations[:, 0] - chain_offsets[1:].sum(axis=0)
 
-        # The dead subtree: it never moved (zero offset, identity rotation in
-        # every recorded clip), so reinsertion at its exact original position
-        # and parent is exact, not approximate.
+        # The dead branches: back at their own offset and parent, at rest.
         for local, p in enumerate(dead_indices):
             rotations[:, p] = QUAT_IDENTITY
             translations[:, p] = dead_offsets[local]
@@ -562,16 +577,16 @@ class PromoteRoot(PrepareStage):
             parents[p] = dead_parents[local]
             names[p] = dead_names[local]
 
-        # The target and its surviving descendants: `anim`'s own rows,
-        # remapped from post-`apply` indices back to their absolute original
-        # position (and, for non-root rows, their absolute original parent).
+        # The target and its descendants: `anim`'s own rows, remapped from
+        # post-`apply` indices back to their absolute original position (and,
+        # for non-root rows, their absolute original parent).
         for local, p in enumerate(kept_abs):
             rotations[:, p] = anim.rotations[:, local]
             offsets[p] = anim.offsets[local]
             names[p] = anim.names[local]
             if local == 0:
-                translations[:, p] = chain_offsets[index]
-                parents[p] = index - 1
+                translations[:, p] = chain_offsets[-1]
+                parents[p] = chain[-1]
             else:
                 translations[:, p] = anim.translations[:, local]
                 parents[p] = kept_abs[int(anim.parents[local])]
@@ -669,6 +684,10 @@ class FaceAxis(PrepareStage):
     """
 
     axis: str = "+Z"
+    #: What to do when frame 0's facing pair has no sideways spread (coincident,
+    #: or one above the other): ``"error"`` refuses; ``"nearest"`` takes the first
+    #: frame whose spread exceeds `FACING_EPS`, as UniMate's `get_root_facing_quat`.
+    on_degenerate: str = "error"
 
     name: ClassVar[str] = "face_axis"
     #: After `enforce_rigid`, for the same reason as `face_rest_axis`.
@@ -676,8 +695,19 @@ class FaceAxis(PrepareStage):
     scope: ClassVar[str] = CLIP
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        positions = anim.global_positions()
+        if self.on_degenerate not in ("error", "nearest"):
+            raise ValueError(f"on_degenerate must be `error` or `nearest`, got `{self.on_degenerate}`")
+        frame = 0
+        if self.on_degenerate == "nearest":
+            across = sum(positions[:, r] - positions[:, l] for r, l in resolved.facing_indices)
+            across = across / np.maximum(np.linalg.norm(across, axis=-1, keepdims=True), 1e-8)
+            valid = np.flatnonzero(np.hypot(across[:, 2], across[:, 0]) > FACING_EPS)   # |Y x across|
+            if not len(valid):
+                raise ValueError("the facing pair has no sideways spread in any frame; the facing is undefined")
+            frame = int(valid[0])
         rotation = facing_quats(
-            anim.global_positions()[:1],
+            positions[frame:frame + 1],
             resolved.facing_indices,
             resolved.manifest.extra_yaw_deg,
             axis_vector(self.axis),
@@ -769,7 +799,9 @@ class EnforceRigid(PrepareStage):
         # shape-inference heuristics that differ with the data.
         stored = np.empty(anim.n_joints, dtype=object)
         stored[:] = channels
-        return {"source_channels": stored}
+        # Recorded so `RigRecord.source_channels` does not hand a guessed layout
+        # to a writer as if it were the source's.
+        return {"source_channels": stored, "inferred": np.array(True)}
 
     def apply(self, anim: Animation, params: dict[str, np.ndarray]) -> Animation:
         return anim.as_rigid_body(joint_translation=self.joint_translation)
@@ -797,6 +829,68 @@ class CentreXZ(PrepareStage):
         return _with_root(anim, anim.root_pos + params["root_xz"])
 
 
+def tree_diameter(offsets: np.ndarray, parents: np.ndarray) -> float:
+    """Longest bone-length path between two joints: two sweeps, as UniMate's `get_skeleton_diameter`.
+
+    The farthest joint from the root is one end of a longest path in a tree;
+    the farthest joint from it is the other.
+    """
+    adjacent: list[list[tuple[int, float]]] = [[] for _ in parents]
+    for joint, parent in enumerate(parents):
+        if parent >= 0:
+            length = float(np.linalg.norm(offsets[joint]))
+            adjacent[joint].append((int(parent), length))
+            adjacent[parent].append((joint, length))
+
+    def farthest(start: int) -> tuple[int, float]:
+        dist, queue = {start: 0.0}, [start]
+        for node in queue:
+            for other, length in adjacent[node]:
+                if other not in dist:
+                    dist[other] = dist[node] + length
+                    queue.append(other)
+        end = max(dist, key=dist.get)
+        return end, dist[end]
+
+    return farthest(farthest(0)[0])[1]
+
+
+@dataclass(frozen=True)
+class CentreXZClip(CentreXZ):
+    """`CentreXZ` per clip: the root's frame-0 XZ goes to the origin (UniMate's `per_motion` centring).
+
+    Clip-scoped, so the shift is recorded per clip for `invert`.
+    """
+
+    name: ClassVar[str] = "centre_xz_clip"
+    after: ClassVar[tuple[str, ...]] = ("face_axis",)
+    scope: ClassVar[str] = CLIP
+
+
+@dataclass(frozen=True)
+class GroundClip(PrepareStage):
+    """Put each clip on ``y = 0``: its own lowest joint over all its frames (UniMate's `per_motion` grounding).
+
+    Unlike `PutOnGround` this flattens the height difference between a crouch and a
+    stand, and between clips that fly and clips that walk; that is UniMate's choice.
+    """
+
+    name: ClassVar[str] = "ground_clip"
+    after: ClassVar[tuple[str, ...]] = ("up_axis", "scale")
+    scope: ClassVar[str] = CLIP
+
+    def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
+        return {"height": np.float64(anim.global_positions()[..., 1].min())}
+
+    def apply(self, anim, params):
+        shift = np.array([0.0, float(params["height"]), 0.0])
+        return _with_root(anim, anim.root_pos - shift)
+
+    def invert(self, anim, params):
+        shift = np.array([0.0, float(params["height"]), 0.0])
+        return _with_root(anim, anim.root_pos + shift)
+
+
 @dataclass(frozen=True)
 class ScaleToMeanBoneLength(PrepareStage):
     """Uniformly scale so the rig's MEAN bone length equals ``target``.
@@ -814,19 +908,27 @@ class ScaleToMeanBoneLength(PrepareStage):
     #: cross-rig inconsistency this stage exists to remove. Matches the tolerance
     #: `features.reduce` uses to identify the same joints.
     tolerance: float = 1e-8
+    #: ``"mean_bone"``, or ``"diameter"``: scale so the longest bone-length path
+    #: between two joints equals ``target`` (UniMate uses 2.0).
+    mode: str = "mean_bone"
 
     name: ClassVar[str] = "scale"
     #: After `promote_root`: a locator-to-body connector is not an anatomical bone and must not enter the mean.
-    after: ClassVar[tuple[str, ...]] = ("promote_root", "centre_xz")
+    after: ClassVar[tuple[str, ...]] = ("promote_root", "centre_xz", "centre_xz_clip")
     scope: ClassVar[str] = RIG
 
     def fit(self, anim: Animation, resolved: Any) -> dict[str, np.ndarray]:
-        lengths = np.linalg.norm(anim.offsets[1:], axis=-1)
-        real = lengths[lengths > self.tolerance]
-        if real.size == 0:
+        if self.mode == "diameter":
+            size = tree_diameter(anim.offsets, anim.parents)
+        elif self.mode == "mean_bone":
+            lengths = np.linalg.norm(anim.offsets[1:], axis=-1)
+            real = lengths[lengths > self.tolerance]
+            size = float(real.mean()) if real.size else 0.0
+        else:
+            raise ValueError(f"scale mode must be `mean_bone` or `diameter`, got `{self.mode}`")
+        if size <= 0.0:
             raise ValueError("skeleton has zero mean bone length; cannot scale")
-        mean_length = float(real.mean())
-        return {"factor": np.float64(self.target / mean_length)}
+        return {"factor": np.float64(self.target / size)}
 
     def apply(self, anim, params):
         factor = float(params["factor"])
@@ -845,7 +947,7 @@ class ScaleToMeanBoneLength(PrepareStage):
         )
 
 
-#: Each rig's rest-pose mesh, cached beside its manifest by `tools/build_rest_mesh.py`
+#: Each rig's rest-pose mesh, cached under `rig_cache()` by `tools/build_rest_fbx.py`
 #: (the FBX SDK runs only in the `fbxsdk` container; the build never needs it).
 REST_MESH = "rest_mesh.npz"
 
@@ -910,9 +1012,9 @@ class PutOnGround(PrepareStage):
 
 def _mesh_floor(anim: Animation, manifest: Any) -> tuple[float | None, str]:
     """The cached rest mesh's lowest height under ``anim``'s first frame, or why not."""
-    path = Path(manifest.source).parent / REST_MESH
+    path = rig_cache(corpus_root(manifest), Path(manifest.source).parent.name) / REST_MESH
     if not path.is_file():
-        return None, f"{path} is missing (run tools/build_rest_mesh.py)"
+        return None, f"{path} is missing (run tools/build_rest_fbx.py)"
     with np.load(path) as cache:
         if str(cache["rest_pose"]) != manifest.rest_pose:
             return None, f"{path} was made for {cache['rest_pose']}, not {manifest.rest_pose}"

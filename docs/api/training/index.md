@@ -14,7 +14,7 @@ is a registry name: a config entry names its class by `type:` (model, process,
 window, augmentations, sampler, operation), and lists whose entries take no
 arguments (features, conditioners, losses) by the bare name, so `poseydon list`
 can enumerate them. A config's `custom_imports` are imported first, so a
-registered class of one's own is named the same way. A run writes `runs/<run>/`: checkpoints, `recipe.yaml` and, when
+registered class of one's own is named the same way. A run writes `runs/<run>/` (`poseydon train` refuses a folder that already holds checkpoints unless given `--resume`, so one configuration needs another `--out` to run twice): checkpoints, `recipe.yaml` and, when
 validation is declared, retarget `.npz`/`.anim.npz`/`.bvh`/`.mp4` files logged
 to wandb (or nothing, without `WANDB_API_KEY`). `poseydon sample`,
 `poseydon retarget` and `run_retarget` read the recipe back, and

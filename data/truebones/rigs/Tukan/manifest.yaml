@@ -10,8 +10,8 @@ foot_joints: []   # the reference's heuristic finds none for this rig
 tags: [flying]
 
 authority:
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
   auxiliary_joints: bake
 artifacts:

@@ -75,13 +75,13 @@ emulation registration was lost (it does not survive a reboot): rerun the
 
 | | |
 |---|---|
-| [Tutorials](docs/guides/how-to/tutorials/setup.md) | set up, build the dataset, train, generate, export |
-| [Design rationale](docs/guides/concepts/rationale.md) | how the pieces fit, and why they are separate |
-| [Notation](docs/guides/concepts/data/notation.md) | the words, shapes and axes the code and docs use |
-| [Data round trip](docs/guides/concepts/data/roundtrip.md) | a character in, generated motion back out on that same character |
-| [Motion tasks](docs/guides/how-to/tasks/overview.md) | generate, in-between, blend and retarget with one trained model |
-| [Testing](docs/guides/how-to/testing.md) | what is covered, and how coverage is checked |
-| [Documents](docs/README.md) | the index of the repo, and where the design reasoning lives |
+| [Tutorials](docs/how-to/tutorials/01-setup.md) | set up, build the dataset, train, generate, export |
+| [Design rationale](docs/user-guide/index.md) | how the pieces fit, and why they are separate |
+| [Glossary](docs/reference/glossary.md) | the words, shapes and axes the code and docs use |
+| [Data round trip](docs/user-guide/roundtrip.md) | a character in, generated motion back out on that same character |
+| [Motion tasks](docs/how-to/tasks/index.md) | generate, in-between, blend and retarget with one trained model |
+| [Testing](docs/how-to/testing.md) | what is covered, and how coverage is checked |
+| [Documentation](https://lucazzola.github.io/PoseYdon/) | the whole site: guides, the map of the repo, issues & ideas, API |
 
 ## Layout
 
