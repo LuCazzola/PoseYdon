@@ -18,6 +18,7 @@ fbx = pytest.importorskip("poseydon.io.fbx", exc_type=ImportError)
 import fbx as sdk  # noqa: E402 - the Autodesk module, present whenever poseydon.io.fbx imported
 from scripts.verify_motion import build, judge  # noqa: E402 - needs the SDK too
 from tools.verify.case import load_case, sample_frames  # noqa: E402
+from poseydon.export import RigRecord  # noqa: E402
 from tools.verify.report import Status  # noqa: E402
 from tools.verify.skin import deform, extent  # noqa: E402
 
@@ -113,6 +114,28 @@ def perturb_one_link_bind(path: Path) -> None:
     _mutate(path, edit)
 
 
+def nan_control_point(path: Path) -> None:
+    def edit(scene):
+        scene._skins()[0].GetGeometry().SetControlPointAt(sdk.FbxVector4(np.nan, np.nan, np.nan, 1.0), 0)
+
+    _mutate(path, edit)
+
+
+def add_a_control_point(path: Path) -> None:
+    def edit(scene):
+        geometry = scene._skins()[0].GetGeometry()
+        points = [tuple(p)[:3] for p in geometry.GetControlPoints()]
+        geometry.InitControlPoints(len(points) + 1)
+        for i, p in enumerate(points + [(0.0, 0.0, 0.0)]):
+            geometry.SetControlPointAt(sdk.FbxVector4(*p, 1.0), i)
+
+    _mutate(path, edit)
+
+
+def rename_a_cluster_link(path: Path) -> None:
+    _mutate(path, lambda scene: scene._skins()[0].GetCluster(0).GetLink().SetName("renamed_joint"))
+
+
 def rebind_89bff67(path: Path) -> None:
     """`FBX.rebind` as of commit 89bff67 (positions only): make the rest asset's pose the bind
     pose and the mesh its skinned self, then give the file its animation back."""
@@ -157,6 +180,7 @@ class Mutation:
     expected: dict[str, str]
     rise: float = 0.0
     base_red: bool = False  # the clip fails on the unmutated run already
+    names: str = ""  # a word the C2a line must carry (the stage or joint it names)
     keeps_joints: bool = False  # the edit leaves every node's world as it was
     bounds: tuple[float, float] | None = None  # the C2a value the edit must land in
 
@@ -165,7 +189,10 @@ MUTATIONS = [
     Mutation("strip_mesh", "Camel", None, strip_mesh, {"C1": "FAIL"}),
     Mutation("drop_cluster", "Camel", None, delete_one_cluster, {"C1": "FAIL"}),
     Mutation("no_skin", "Camel", None, delete_skin_deformers, {"C1": "FAIL", "C2a": "NOT RUN"}),
-    Mutation("truncated", "Camel", None, truncate_file, {"C1": "FAIL"}),
+    Mutation("truncated", "Camel", None, truncate_file, {"C1": "FAIL", "C2a": "NOT RUN"}, names="4_roundtrip"),
+    Mutation("nan_point", "Camel", None, nan_control_point, {"C2a": "FAIL"}),
+    Mutation("topology", "Camel", None, add_a_control_point, {"C2a": "FAIL"}),
+    Mutation("missing_link", "Camel", None, rename_a_cluster_link, {"C2a": "FAIL"}, names="Bip01_Pelvis"),
     Mutation("swap_cluster_link", "Camel", None, swap_two_cluster_links, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("perturb_bind", "Camel", None, perturb_one_link_bind, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("rebind", "Goat", None, rebind_89bff67, {"C2a": "FAIL"}, bounds=(2e-2, 1e-1)),
@@ -210,8 +237,8 @@ def test_verifier_goes_red(m, tmp_path):
     for check, want in m.expected.items():
         assert_red(base, after, check, want, m.rise)
     assert after.verdict is not Status.PASS
+    assert m.names in _status(after, "C2a").note
     if m.bounds:
-        print(f"{m.id}: C2a {_status(after, 'C2a').value}")  # recorded in the task report
         assert m.bounds[0] <= _status(after, "C2a").value <= m.bounds[1]
 
 
@@ -229,21 +256,23 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
         (tmp_path / name).write_bytes(rest.read_bytes()[: rest.stat().st_size // 2])
     run = verify_motion.file_case(tmp_path / "a.fbx", tmp_path / "b.fbx", tmp_path)
     assert judge(run).verdict is Status.FAIL
+    # `file` on a readable skinned FBX samples its own frames and reports a C2a value
+    run = verify_motion.file_case(rest, rest, tmp_path)
+    assert _status(judge(run), "C2a").value is not None
 
 
 def test_source_frames_follow_the_recorded_window(tmp_path):
-    """Bear's clip keeps all 24 of its keys, though the vendor's time span ends one early.
-    A one-frame clip cannot be built (`--clip tpose` writes a 1-key take under the asset's
-    31-frame span), so `sample_frames` is driven on a one-frame array directly."""
-    from poseydon.export import RigRecord
-
-    run = build("truebones", "Bear", None, tmp_path)
+    """Scorpion2's clip is trimmed by a head frame (window (1, 91, 1) over keys 0-90), so source
+    frame i+1 is round-trip frame i; Bear keeps all 24 keys though the vendor's time span ends
+    one early, so its C1 frame range is green (C1 compares key ranges). A one-frame clip cannot be built
+    (`--clip tpose` writes a 1-key take under the asset's 31-frame span), so `sample_frames`
+    is driven on a one-frame array directly."""
+    run = build("unimate", "Scorpion2", None, tmp_path)
     case = load_case(run)
-    window = RigRecord.load(Path("data/truebones"), "Bear").clip_params[case.action]["frames"]["window"]
-    source = fbx.FBX.read(case.clip_fbx)
-    first, last = source.key_range()  # `frames()` follows the time span, which can end a key early
-    numbers = np.arange(round(first), round(last) + 1)[slice(*(int(x) for x in window))]
-    source.close()
-    assert list(case.source_frames) == [numbers[i] for i in case.frames]
-    assert _status(judge(run), "C2a").status is Status.PASS
+    assert RigRecord.load(Path("data/unimate"), "Scorpion2").clip_params[case.action]["frames"]["window"].tolist() == [1, 91, 1]
+    assert list(case.source_frames) == [int(f) + 1 for f in case.frames]
+    assert _status(judge(run), "C2a").status is Status.PASS  # C1 still reads the head trim as a frame-range change
+    bear = build("truebones", "Bear", None, tmp_path)
+    assert list(load_case(bear).source_frames) == list(load_case(bear).frames)
+    assert judge(bear).verdict is Status.PASS
     assert list(sample_frames(np.tile(np.eye(4), (1, 3, 1, 1)), 8)) == [0]

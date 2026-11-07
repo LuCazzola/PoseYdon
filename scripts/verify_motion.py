@@ -89,7 +89,7 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
     if len(numbers) != len(world):
         raise ValueError(f"{rig} {action}: the clip's window holds {len(numbers)} frames, the file {len(world)}")
     case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in stages}, run / "1_source.fbx", skin,
-                frames, np.array(numbers)[frames])
+                frames, numbers[frames])
     _write_case(run, case, {})
     return run
 
@@ -123,8 +123,15 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
 def file_case(file: Path, reference: Path, out: Path) -> Path:
     run = out / f"{file.stem}_{hashlib.sha256(str(file.resolve()).encode()).hexdigest()[:8]}"
     run.mkdir(parents=True, exist_ok=True)
-    _write_case(run, Case("", "", file.stem, {"file": file}, reference, reference,
-                          np.zeros(0, dtype=int), np.zeros(0, dtype=int)), {})
+    try:
+        scene = FBX.read(file)
+        try:
+            frames = sample_frames(scene.world(), load_config()["n_frames"])
+        finally:
+            scene.close()
+    except Exception:  # noqa: BLE001 - judge reports an unreadable file
+        frames = np.zeros(0, dtype=int)
+    _write_case(run, Case("", "", file.stem, {"file": file}, reference, reference, frames, frames), {})
     return run
 
 

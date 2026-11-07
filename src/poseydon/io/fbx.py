@@ -120,7 +120,8 @@ class Inventory:
     ``unweighted`` a skinned mesh to its control points no cluster weighs;
     ``clusters`` a skinned mesh to its cluster links. ``unsupported`` names what
     `FBX.skinned_vertices` does not model (one sentence each), so a mesh check
-    can decline rather than compute a wrong number.
+    can decline rather than compute a wrong number. ``frames`` is the first and last
+    key (`FBX.key_range`), not the time span, which can end a key early on a vendor file.
     """
 
     nodes: tuple[str, ...]
@@ -440,7 +441,7 @@ class FBX:
                 clusters[name] = tuple(links)
         scene = self.scene
         textures = (scene.GetTexture(i) for i in range(scene.GetTextureCount()))
-        frames = self.frames()
+        first, last = self.key_range()  # not `frames()`: a vendor file's time span can end one key early
         try:
             fps = float(self.fps)
         except ValueError:
@@ -450,7 +451,7 @@ class FBX:
             tuple(scene.GetMaterial(i).GetName() for i in range(scene.GetMaterialCount())),
             tuple(sorted(Path(t.GetFileName()).name for t in textures)),
             float(scene.GetGlobalSettings().GetSystemUnit().GetScaleFactor()), self.up_axis(), fps,
-            (int(frames[0]), int(frames[-1])), tuple(dict.fromkeys(unsupported)),
+            (round(first), round(last)), tuple(dict.fromkeys(unsupported)),
         )
 
     def world(self, frames: np.ndarray | None = None) -> np.ndarray:

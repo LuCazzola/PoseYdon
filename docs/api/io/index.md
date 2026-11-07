@@ -24,7 +24,7 @@ every control point, triangulated faces, per-cluster link, bind matrices and
 weights), so a skin can be recomputed without the SDK
 (`tools/verify/skin.py`), and `FBX.inventory` lists what a file holds (`Inventory`:
 nodes, meshes with their skinned flag and counts, clusters, unweighted control
-points, materials, textures, units, up axis, fps, frame range, and what
+points, materials, textures, units, up axis, fps, key range (not the time span, which can end a key early), and what
 `skinned_vertices` does not model) for `tools/verify/checks.py`.
 
 ## Limitations

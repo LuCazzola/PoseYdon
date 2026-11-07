@@ -102,88 +102,103 @@ def c1_inventory(case: Case, tol: float) -> list[Check]:
     return checks
 
 
-def _meshes(scene: FBX) -> tuple[dict[str, SkinData], dict[str, np.ndarray]]:
-    """Skinned meshes and, by node name, the control points of those with no skin."""
-    skinned = {s.mesh: s for s in scene.skin_data()}
-    plain = {node.GetName(): np.array([[p[0], p[1], p[2]] for p in node.GetMesh().GetControlPoints()]).reshape(-1, 3)
-             for node, kind in zip(scene.nodes, scene.node_types())
-             if kind == "eMesh" and node.GetName() not in skinned}
-    return skinned, plain
+def reference_skin(case: Case) -> list[SkinData]:
+    """The rig's reference skin: mesh, clusters and bind of ``case.skin_fbx``."""
+    scene = FBX.read(case.skin_fbx)
+    try:
+        return scene.skin_data()
+    finally:
+        scene.close()
 
 
 def _worst(ref: np.ndarray, got: np.ndarray) -> tuple[float, int, int]:
-    """Largest distance of ``(F, V, 3)`` arrays, with its frame and vertex."""
-    error = np.linalg.norm(ref - got, axis=-1)
+    """Largest distance of ``(F, V, 3)`` arrays, with its frame and vertex; a non-finite one counts as infinite."""
+    error = np.nan_to_num(np.linalg.norm(ref - got, axis=-1), nan=np.inf)
     frame, vertex = np.unravel_index(error.argmax(), error.shape)
     return float(error[frame, vertex]), int(frame), int(vertex)
 
 
-def _c2a_file(case: Case, name: str, path: Path, ref: tuple[dict, dict], tol: float) -> Check:
+def _dominant(skin: SkinData, vertex: int) -> str:
+    weights = [dict(zip(i, w)).get(vertex, 0.0) for i, w in zip(skin.indices, skin.weights)]
+    return skin.links[int(np.argmax(weights))] if max(weights, default=0.0) > 0 else "(unweighted)"
+
+
+def _skipped(inventory, mesh: str) -> str | None:
+    """Why C2a cannot judge ``mesh`` of a file: no skin to compare, or a skinning the verifier does not model."""
+    if mesh in inventory.meshes and not inventory.meshes[mesh][2]:
+        return "has no skin deformer"
+    reasons = [u.split(": ", 1)[1] for u in inventory.unsupported if u.startswith(f"{mesh}: ")]
+    return f"uses unsupported {', '.join(reasons)}" if reasons else None
+
+
+def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inventory], tol: float) -> list[Check]:
     evidence, where = _evidence(case), {"rig": case.rig, "clip": case.action, "file": name}
     try:
         scene = FBX.read(path)
         try:
-            skinned, plain = _meshes(scene)
-            world = scene.world(scene.frames()[case.frames])
-            names = scene.names
+            skinned, inventory, frames = {s.mesh: s for s in scene.skin_data()}, scene.inventory(), scene.frames()
+            if len(case.frames) and case.frames.max() >= len(frames):
+                return [Check("C2a", Status.FAIL, evidence, where=where,
+                              note=f"{name} has {len(frames)} frames, the case samples frame {case.frames.max()}")]
+            world, names = scene.world(frames[case.frames]), scene.names
         finally:
             scene.close()
     except Exception as error:  # noqa: BLE001 - an unreadable stage is NOT RUN, not a crash
-        return Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name} ({path.name}) unreadable: {error}")
+        return [Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name} ({path.name}) unreadable: {error}")]
     joints = {n: world[:, j] for j, n in enumerate(names)}
-    notes, shown, worst = [], [], (-1.0, {})
-    for mesh, skin in ref[0].items():
-        if mesh in plain:
-            return Check("C2a", Status.NOT_RUN, evidence, where=where,
-                         note=f"{name}: mesh {mesh} has no skin deformer (C1 reports it)")
+    notes, skipped, shown, worst = [], [], [], (-1.0, {})
+    for mesh, skin in {s.mesh: s for s in ref[0]}.items():
+        why = _skipped(ref[1], mesh) or _skipped(inventory, mesh)
         other = skinned.get(mesh)
-        if other is None:
+        if why:
+            skipped.append(f"mesh {mesh} {why}")
+        elif other is None:
             notes.append(f"mesh {mesh} is missing")
-            continue
-        missing = sorted({*skin.links, *other.links} - joints.keys())
-        if missing:
+        elif (missing := sorted({*skin.links, *other.links} - joints.keys())):
             notes.append(f"mesh {mesh}: no joint named {missing[:3]} in the file")
         elif skin.points.shape != other.points.shape or skin.faces.shape != other.faces.shape \
                 or (skin.faces != other.faces).any():
             notes.append(f"mesh {mesh}: topology differs ({len(skin.points)} -> {len(other.points)} vertices)")
         else:
-            want = deform(skin, joints)
-            size, frame, vertex = _worst(want, deform(other, joints))
+            try:
+                want, got = deform(skin, joints), deform(other, joints)
+            except np.linalg.LinAlgError as error:
+                notes.append(f"mesh {mesh}: a bind matrix is singular ({error})")
+                continue
+            size, frame, vertex = _worst(want, got)
             shown.append(want)
             if size > worst[0]:
-                top = max(range(len(skin.links)),
-                          key=lambda c: dict(zip(skin.indices[c], skin.weights[c])).get(vertex, 0.0))
-                worst = (size, {"mesh": mesh, "frame": int(case.frames[frame]), "vertex": vertex, "joint": skin.links[top]})
-    for mesh, points in ref[1].items():
-        if mesh not in plain or plain[mesh].shape != points.shape or mesh not in names:
-            notes.append(f"mesh {mesh} is missing or changed shape")
-            continue
-        matrix = joints[mesh]
-        want, got = (np.einsum("fij,vj->fvi", matrix, np.c_[p, np.ones(len(p))])[..., :3] for p in (points, plain[mesh]))
-        size, frame, vertex = _worst(want, got)
-        shown.append(want)
-        if size > worst[0]:
-            worst = (size, {"mesh": mesh, "frame": int(case.frames[frame]), "vertex": vertex, "joint": "(unskinned)"})
-    where |= worst[1]
-    value = None
-    if shown:
-        value = worst[0] / max(extent(np.concatenate([m[f] for m in shown])) for f in range(len(case.frames)))
-    failed = bool(notes) or (value is not None and value > tol)
-    return Check("C2a", Status.FAIL if failed else Status.PASS, evidence, value, tol, where, "; ".join(notes))
+                worst = (size, {"mesh": mesh, "frame": int(case.frames[frame]), "vertex": vertex,
+                                "joint": _dominant(skin, vertex)})
+    for mesh, (_, _, has_skin) in ref[1].meshes.items():
+        if not has_skin:
+            skipped.append(f"mesh {mesh} has no skin deformer")
+    out = []
+    if shown or notes:
+        value = worst[0] / max(extent(np.concatenate([m[f] for m in shown])) for f in range(len(case.frames))) \
+            if shown else None
+        failed = bool(notes) or not np.isfinite(value) or value > tol
+        out.append(Check("C2a", Status.FAIL if failed else Status.PASS, evidence, value, tol, where | worst[1],
+                         "; ".join(notes)))
+    if skipped:
+        out.append(Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name}: " + "; ".join(skipped)))
+    return out
 
 
 def c2a_skin(case: Case, cfg: dict) -> list[Check]:
     """Each stage file's own skin against the reference skin, both driven by the joints read
     from that file; per mesh by name and per vertex by index, as a fraction of rig extent.
-    A rig with no mesh has nothing to compare. Takes no allowances."""
+    A mesh with no skin, or a skinning the verifier does not model, is NOT RUN, named; a rig
+    with no mesh has nothing to compare. Takes no allowances."""
     try:
+        skins = reference_skin(case)
         scene = FBX.read(case.skin_fbx)
         try:
-            ref = _meshes(scene)
+            inventory = scene.inventory()
         finally:
             scene.close()
     except Exception as error:  # noqa: BLE001
         return [Check("C2a", Status.NOT_RUN, _evidence(case), note=f"unreadable reference: {error}")]
-    if not ref[0] and not ref[1]:
+    if not inventory.meshes:
         return []
-    return [_c2a_file(case, name, path, ref, cfg["skin_tol"]) for name, path in case.files.items()]
+    return [c for name, path in case.files.items() for c in _c2a_file(case, name, path, (skins, inventory), cfg["skin_tol"])]
