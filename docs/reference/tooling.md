@@ -161,14 +161,17 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
 - `scripts/verify_motion.py` (`fbxsdk` container): judges the FBX files the
   pipeline returns against the rig's vendor file (the `source_fbx` of its
   `rest.npz`; a rig without it must be rebuilt with `tools/build_rest_fbx.py`).
-  `build --data D --rig R [--clip C] [--smoke] [--all-frames] [--out DIR]` writes
+  `build --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]` writes
   `<out>/<Rig>__<clip>/` (the `build_stage_samples.py` files plus `case.json`: paths,
-  sampled frames, SHA-256 of each file, git commit, container); `file FILE --reference REF`
+  sampled frames, the vendor file's frame for each (through the clip's recorded window), SHA-256 of each file, git commit, container); `file FILE --reference REF`
   judges one FBX; `judge DIR` runs the checks and writes `report.json` and
   `report.txt` beside the stage files (default `--out` is `tmp/verify/`). `judge`
   refuses a file whose hash changed since `build`. Exit status is non-zero unless every check
-  is `PASS` or `ALLOWED`. So far one check, C1 (inventory: nodes, hierarchy, meshes,
-  clusters, binds, materials, textures, units, up axis, fps, frame range). Settings (`inventory_tol` among them) and the
+  is `PASS` or `ALLOWED`. `--floor` replaces the stage files by the source clip alone written onto the rest asset
+  (no preparation), to measure the float floor. Checks so far: C1 (inventory: nodes, hierarchy, meshes,
+  clusters, binds, materials, textures, units, up axis, fps, frame range) and C2a (each stage file's own
+  skin against the reference skin, both driven by that file's joints; `skin_tol`, floor measured beside
+  it; takes no allowances). Settings (`inventory_tol` among them) and the
   smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
 
 ## Tools and probes

@@ -1,6 +1,6 @@
 """Judge the FBX files the pipeline returns against the user's vendor rig.
 
-    build  --data D --rig R [--clip C] [--smoke] [--all-frames] [--out DIR]   write the stage files of a round trip
+    build  --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]   write the stage files of a round trip
     file   FILE --reference REF [--out DIR]                                   one FBX against a vendor reference
     judge  DIR                                                                run the checks, write report.json / report.txt
 
@@ -24,11 +24,13 @@ import numpy as np
 import yaml
 
 from poseydon.build.pipeline import compose_build
-from poseydon.build.sources import REST_CACHE, rig_cache
+from poseydon.build.sources import REST_CACHE, SOURCES, rig_cache
+from poseydon.core.skeleton import SkeletonManifest
+from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, commit, load_case, sample_frames, sha256
-from tools.verify.checks import c1_inventory
+from tools.verify.checks import c1_inventory, c2a_skin
 from tools.verify.report import Report, apply_allowances
 
 CONFIG = Path("configs/verify")
@@ -47,8 +49,11 @@ def _write_case(run: Path, case: Case, extra: dict) -> None:
     }, indent=2))
 
 
-def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: bool = False) -> Path:
-    """Write the stage files of one clip and ``case.json``; returns the run directory."""
+def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: bool = False,
+          floor: bool = False) -> Path:
+    """Write the stage files of one clip and ``case.json``; returns the run directory.
+    ``floor`` swaps the stages for the source clip alone, written onto the rest asset with no
+    preparation: what the writer and reader cost with nothing of the pipeline in between."""
     data = compose_build([f"data={data_name}"]).data
     rest = rig_cache(data.paths.root, rig) / REST_CACHE
     with np.load(rest) as z:
@@ -62,17 +67,29 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
     shutil.rmtree(run, ignore_errors=True)
     shutil.move(stage / rig, run)
     stage.rmdir()
-    scene = FBX.read(run / "4_roundtrip.fbx")
+    record = RigRecord.load(Path(data.paths.root), rig)
+    if floor:
+        manifest = SkeletonManifest.load(Path(data.paths.root) / "rigs" / rig / "manifest.yaml")
+        anim = SOURCES.build(data.source).clip(data, manifest, action).anim
+        for stale in (*(run / f"{s}.fbx" for s in STAGES), *run.glob("*.bvh")):
+            stale.unlink()
+        FBX.from_animation(anim, record.asset, fixed=record.fixed).write(run / "floor.fbx", embed_textures=True)
+    stages = ("floor",) if floor else STAGES
+    scene = FBX.read(run / f"{stages[-1]}.fbx")
     world = scene.world()
     scene.close()
     frames = np.arange(len(world)) if all_frames else sample_frames(world, load_config()["n_frames"])
     source = FBX.read(run / "1_source.fbx")
-    n_source = len(source.frames())
+    first, last = source.key_range()  # not `frames()`: a vendor file's time span can end one key early
+    numbers = np.arange(round(first), round(last) + 1)
     source.close()
-    # Same fraction of the clip in the source file, whose length may differ from the round trip's.
-    source_frames = np.round(frames * (n_source - 1) / max(len(world) - 1, 1)).astype(int)
-    case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in STAGES}, run / "1_source.fbx", skin,
-                frames, source_frames)
+    # The clip's recorded window, in the vendor file's frames; the floor file keeps every frame.
+    window = None if floor else record.clip_params.get(action, {}).get("frames", {}).get("window")
+    numbers = numbers[slice(*(int(x) for x in window))] if window is not None else numbers
+    if len(numbers) != len(world):
+        raise ValueError(f"{rig} {action}: the clip's window holds {len(numbers)} frames, the file {len(world)}")
+    case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in stages}, run / "1_source.fbx", skin,
+                frames, np.array(numbers)[frames])
     _write_case(run, case, {})
     return run
 
@@ -95,7 +112,9 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     report = Report({"data": case.data_name, "rig": case.rig, "action": case.action, "sha256": now,
                      "changed_since_build": changed, "built_by": meta["commit"], "verifier": commit(),
                      "container": os.environ.get("HOSTNAME", "unknown")})
-    report.checks += c1_inventory(case, load_config()["inventory_tol"])
+    cfg = load_config()
+    report.checks += c1_inventory(case, cfg["inventory_tol"])
+    report.checks += c2a_skin(case, cfg)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report
@@ -118,6 +137,7 @@ def main() -> None:
     b.add_argument("--clip")
     b.add_argument("--smoke", action="store_true", help="the rigs of configs/verify/verify.yaml")
     b.add_argument("--all-frames", action="store_true")
+    b.add_argument("--floor", action="store_true", help="the source clip alone on the rest asset, to measure the float floor")
     b.add_argument("--out", type=Path, default=Path("tmp/verify"))
     f = sub.add_parser("file")
     f.add_argument("file", type=Path)
@@ -134,7 +154,7 @@ def main() -> None:
         failed = []
         for data, rig, clip in jobs:
             try:
-                print(build(data, rig, clip, args.out, args.all_frames), flush=True)
+                print(build(data, rig, clip, args.out, args.all_frames, args.floor), flush=True)
             except Exception as error:  # noqa: BLE001 - one rig must not cost the others
                 failed.append(rig)
                 print(f"{rig}: FAILED {type(error).__name__}: {error}", flush=True)
