@@ -88,8 +88,11 @@ joint into it. A leaf's rotation is unobservable, so it isn't compared either.
 
 On the 2026-10-21 corpus, read from FBX, all 1135 Truebones clips pass the BVH
 test, as do all 1135 of `truebones_bone` and all 1023 `data=unimate` training
-clips (`--dataset unimate`). All 1135 Truebones clips pass the FBX test
-(5 h 39 min), and so does one clip per rig of `data=unimate` (74 of 74).
+clips (`--dataset unimate`). The FBX test takes about 5 h 40 min on Truebones:
+its last full run passed 1132 of 1135, the other 3 failing on the test's own
+checks, since corrected, which were then run on 41 clips (those 3, Anaconda, Crow,
+Goat), not on all 1135. On `data=unimate` it passed one clip per rig (74 of 74)
+before that correction and every clip of Bear, Crow and FireAnt (92) after it.
 
 ## Not covered
 

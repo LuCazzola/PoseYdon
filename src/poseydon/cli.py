@@ -58,9 +58,12 @@ def _train(args: argparse.Namespace) -> int:
 
     # `--out` is a directory OF runs; this run gets its own inside it, holding
     # its recipe, its checkpoints and its logs together. Named from the config
-    # rather than from the clock so that re-running the same configuration --
-    # or resuming it -- lands back in the same place.
+    # rather than from the clock so that resuming a configuration lands back in
+    # the same place. A new run of it does not: it would overwrite the recipe
+    # and the retargets of the finished one, whatever `max_steps` it runs for.
     run_dir = Path(args.out) / run_name(config)
+    if args.resume is None and any((run_dir / "checkpoints").glob("*.ckpt")):
+        raise SystemExit(f"{run_dir} holds a trained run: pass --resume, or another --out")
 
     L.seed_everything(config.seed, workers=True)
     data = build_datamodule(config)

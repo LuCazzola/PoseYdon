@@ -36,9 +36,10 @@ the two steps in [Building the dataset](../../how-to/tutorials/build-a-corpus.md
 
 The Truebones vendor ships each motion twice: as a `.bvh` (the motion alone)
 and as an `.fbx` (the motion on the skinned character). Preparation reads
-only the BVH. The FBX is used at the very end, when generated motion is
-written back onto the vendor's character, mesh and all. The raw files never
-mix with the prepared ones.
+the FBX: its nodes are what export writes back onto, mesh and all, so a clip and
+its character share one space. The BVHs are read only to carry a `rest_pose:`
+onto the FBX nodes (`tools/build_rest_fbx.py`). The raw files never mix with the
+prepared ones.
 
 ## The manifest
 
@@ -58,8 +59,8 @@ facing:                      # left/right pairs used to find which way it faces
 foot_joints: [Bip01_R_Foot, Bip01_R_Toe0, ...]   # for foot contact
 tags: [quadruped, mammal]
 authority:                   # which file is trusted for what
-  skeleton: bvh
-  motion: bvh
+  skeleton: fbx
+  motion: fbx
   surface: fbx
 ```
 
