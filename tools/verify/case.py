@@ -99,6 +99,41 @@ def recorded_space(case: Case, stage: str) -> np.ndarray:
     return record.placement(anim, facing_from=case.action)[1]
 
 
+@dataclass
+class ZeroRecord:
+    """What the pipeline declares about a rig's zero: the preparation stages, the rig's `rest.npz`, the
+    prepared joints, and the manifest's definition of the rest pose's frame (``ground`` is the mode of
+    the rig's `ground` stage, None where the chain has none)."""
+
+    stages: tuple[str, ...]
+    rest: Path
+    joints: tuple[str, ...]
+    facing: tuple[tuple[str, str], ...]  # (right, left) pairs
+    extra_yaw_deg: float
+    up_axis: str
+    ground: str | None
+    fixed: tuple[str, ...]  # joints a file holds by structure (`RigRecord.fixed`)
+
+
+def zero_record(case: Case) -> ZeroRecord:
+    from poseydon.build.pipeline import compose_build  # noqa: PLC0415
+    from poseydon.build.sources import REST_CACHE, rig_cache  # noqa: PLC0415
+    from poseydon.core.skeleton import SkeletonManifest  # noqa: PLC0415
+    from poseydon.export import RigRecord  # noqa: PLC0415
+
+    data = compose_build([f"data={case.data_name}"]).data
+    root = Path(data.paths.root)
+    manifest = SkeletonManifest.load(root / "rigs" / case.rig / "manifest.yaml")
+    stage = next((s for s in data.prepare if s.type == "ground"), None)
+    with np.load(root / "rigs" / case.rig / "skeleton.npz", allow_pickle=True) as z:
+        joints = tuple(str(n) for n in z["names"])
+    record = RigRecord.load(root, case.rig)
+    return ZeroRecord(tuple(s.name for s in record.chain.stages),
+                      rig_cache(root, case.rig) / REST_CACHE, joints,
+                      tuple((p.right, p.left) for p in manifest.facing), manifest.extra_yaw_deg, manifest.up_axis,
+                      None if stage is None else str(manifest.ground or stage.get("mode", "joints")), record.fixed)
+
+
 def sha256(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 

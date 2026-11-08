@@ -181,7 +181,14 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   source clip with the same laws, the model stage adding the reduction's: ONE similarity is fitted for the whole clip from the
   expected skin vertices to the file's; `C3-shape` is the residual, judged on vertices, joints and rotations with the C2b-untraced
   tolerances; `C3-placement` (`pipeline` evidence) compares the fit with the `space` recomputed from the record by `RigRecord.placement` (it checks that a canonical file sits where the record says; a wrong record moves `4_roundtrip` off the source, which C2b catches): scale ratio
-  `placement_scale_tol`, whole rotation in degrees `placement_rotation_deg`, offset as a fraction of extent `placement_offset_tol`).
+  `placement_scale_tol`, whole rotation in degrees `placement_rotation_deg`, offset as a fraction of extent `placement_offset_tol`)
+  and C4 (the `5_zero` file `build` also writes: identity rotations on `skeleton.npz`'s offsets, placed by `RigRecord.placement`,
+  one pose; C1 and C2a judge it too, C1 without clip timing. `C4-mesh`, `independent`: its skin against the reference skin
+  driven by `rest.npz:rest`, ONE fitted similarity, judged like `C3-shape`; a chain without `rest_relative`, i.e. `data=unimate`,
+  is `NOT RUN`. `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by `C4-mesh`'s fitted rotation) and
+  facing +Z (the manifest's facing pairs, as `FaceRestAxis` defines it) within `zero_facing_deg`, grounded per the rig's ground mode within
+  `zero_ground_tol` of extent; a part the chain does not declare is named and left out. `C4-symmetry` needs owner limits in
+  `limits.yaml`, none today, so it is `NOT RUN` and every run's verdict reads `NOT RUN`).
   A `--floor` run is judged against the source itself, but for the writer's node scale and held joints.
   `file` on a bare FBX has no stages or records, so its C2b is always `NOT RUN`.
   C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the

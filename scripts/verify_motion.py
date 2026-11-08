@@ -25,16 +25,33 @@ import yaml
 
 from poseydon.build.pipeline import compose_build
 from poseydon.build.sources import REST_CACHE, SOURCES, rig_cache
+from poseydon.core.animation import RigidBodyAnimation
+from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, commit, load_case, sample_frames, sha256
-from tools.verify.checks import c1_inventory, c2a_skin, c2b_fidelity, c3_canonical
+from tools.verify.checks import c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero
 from tools.verify.report import Report, apply_allowances
 
 CONFIG = Path("configs/verify")
 STAGES = ("2_prepared", "3_model", "4_roundtrip")
+ZERO = "5_zero"
+
+
+def write_zero(record: RigRecord, path: Path) -> None:
+    """Identity rotations on the rig's `skeleton.npz` offsets, the root where its rest-pose clip (`rest_action`)
+    stands at frame 0, placed in canonical space."""
+    with np.load(record.corpus / "rigs" / record.rig / "skeleton.npz", allow_pickle=True) as z:
+        offsets, parents, names = z["offsets"], z["parents"].astype(np.int32), tuple(str(n) for n in z["names"])
+        clip = record.corpus / "clips" / record.rig / f"{z['rest_action']}.npz"
+    root = RigidBodyAnimation.load(clip).root_pos[:1] if clip.is_file() else offsets[:1]
+    zero = RigidBodyAnimation.from_root_motion(
+        rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)), root_pos=root.copy(),
+        offsets=offsets, parents=parents, names=names, fps=30.0)
+    placed, space = record.placement(zero)
+    FBX.from_animation(placed, record.asset, space, record.fixed).write(path, embed_textures=True)
 
 
 def _write_case(run: Path, case: Case, extra: dict) -> None:
@@ -76,6 +93,8 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
             stale.unlink()
         FBX.from_animation(anim, record.asset, fixed=record.fixed).write(run / "floor.fbx", embed_textures=True)
     stages = ("floor",) if floor else STAGES
+    if not floor:
+        write_zero(record, run / f"{ZERO}.fbx")
     scene = FBX.read(run / f"{stages[-1]}.fbx")
     world = scene.world()
     scene.close()
@@ -90,7 +109,8 @@ def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: boo
     numbers = numbers[slice(*window)] if window is not None else numbers
     if len(numbers) != len(world):
         raise ValueError(f"{rig} {action}: the clip's window holds {len(numbers)} frames, the file {len(world)}")
-    case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in stages}, run / "1_source.fbx", skin,
+    files = stages + (() if floor else (ZERO,))
+    case = Case(data_name, rig, action, {s: run / f"{s}.fbx" for s in files}, run / "1_source.fbx", skin,
                 frames, numbers[frames], window, floor)
     _write_case(run, case, {})
     return run
@@ -114,11 +134,12 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     report = Report({"data": case.data_name, "rig": case.rig, "action": case.action, "sha256": now,
                      "changed_since_build": changed, "built_by": meta["commit"], "verifier": commit(),
                      "container": os.environ.get("HOSTNAME", "unknown")})
-    cfg = load_config()
+    cfg = load_config() | {"limits": yaml.safe_load((CONFIG / "limits.yaml").read_text()) or {}}
     report.checks += c1_inventory(case, cfg["inventory_tol"])
     report.checks += c2a_skin(case, cfg)
     report.checks += c2b_fidelity(case, cfg)
     report.checks += c3_canonical(case, cfg)
+    report.checks += c4_zero(case, cfg)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report

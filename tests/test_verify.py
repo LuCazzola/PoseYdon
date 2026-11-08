@@ -264,6 +264,16 @@ def write_placement(path: Path, edit: np.ndarray) -> None:
         fbx.FBX.from_animation(placed, record.asset, edit @ space, record.fixed).write(path.parent / f"{name}.fbx", embed_textures=True)
 
 
+def shift_zero_joint(path: Path) -> None:
+    """The zero file with the joint weighing most vertices moved by 5% of the mesh extent."""
+    def edit(scene):
+        world, j = scene.world(), _largest_cluster_joint(scene)
+        world[:, j, 0, 3] += 0.05 * extent(scene.skin_data()[0].points)
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path.parent / "5_zero.fbx", edit)
+
+
 def drop_enforce_rigid_law(path: Path) -> None:
     """The stage stays in the file's record, its law leaves the verifier (restored by the `laws` fixture)."""
     laws.LAWS.pop("enforce_rigid")
@@ -335,8 +345,15 @@ MUTATIONS = [
     Mutation("wrong_yaw", "Goat", None, write_placement_yawed_20deg, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
     Mutation("wrong_facing", "Goat", None, turn_roundtrip_20deg, {"C2b-untraced": "FAIL"}),
     Mutation("drifting_yaw", "Goat", None, drift_yaw_over_the_clip, {"C3-shape": "FAIL"}),
+    Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
+
+
+def assert_green(report):
+    """Every line PASS but `C4-symmetry`, which is NOT RUN until the owner sets limits (`configs/verify/limits.yaml`)."""
+    left = [c for c in report.checks if c.status is not Status.PASS]
+    assert [(c.id, c.status) for c in left] == [("C4-symmetry", Status.NOT_RUN)], left
 
 
 def _status(report, check):
@@ -367,7 +384,7 @@ def test_verifier_goes_red(m, tmp_path):
     run = build("truebones", m.rig, m.clip, tmp_path)
     base = judge(run)
     if not m.base_red:
-        assert base.verdict is Status.PASS, [c for c in base.checks if c.status is not Status.PASS]
+        assert_green(base)
     before = _world(run / "4_roundtrip.fbx") if m.keeps_joints else None
     if m.control:
         m.control(run / "4_roundtrip.fbx")
@@ -439,7 +456,7 @@ def test_laws_hold_on_a_folded_and_a_still_rig(data, rig, tmp_path):
     params = laws_params(load_case(run))
     assert params["fold_into_root"]["names"] if rig == "Goat" else params["drop_still"]["names"]
     report = judge(run)
-    assert report.verdict is Status.PASS, [c for c in report.checks if c.status is not Status.PASS]
+    assert_green(report)
     where = _status(report, "C2b-untraced").where
     assert {"vertex", "joint", "rotation"} <= where.keys()
     assert {c.status for c in report.checks if c.id.startswith("C3")} == {Status.PASS}
