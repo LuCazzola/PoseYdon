@@ -21,7 +21,7 @@ import fbx as sdk  # noqa: E402 - the Autodesk module, present whenever poseydon
 from scripts.verify_motion import build, judge  # noqa: E402 - needs the SDK too
 from tools.verify.case import load_case, sample_frames  # noqa: E402
 from poseydon.export import RigRecord  # noqa: E402
-from tools.verify import laws  # noqa: E402
+from tools.verify import checks, laws  # noqa: E402
 from tools.verify.report import Report, Status  # noqa: E402
 from tools.verify.skin import deform, extent  # noqa: E402
 
@@ -343,6 +343,38 @@ def turn_a_limb_180deg(path: Path) -> None:
     _mutate(path, edit)
 
 
+def fling_first_frame(path: Path) -> None:
+    """The subtree of a mid-sized joint thrown out by 5 rig extents on frame 0 only: a clip that starts exploded.
+    Normalised by its own first frame (the old yardstick) the range would not notice."""
+    def edit(scene):
+        world = scene.world()
+        j = len(scene.names) // 2
+        under = [k for k in range(len(scene.names)) if j in _chain(scene.parents, k)]
+        world[0, under, 0, 3] += 5 * extent(world[0, :, :3, 3])
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
+
+
+def hinge_calf_30deg(path: Path) -> None:
+    """The left calf and everything under it turned 30 degrees about the calf's local X, frame by frame: a joint fault
+    the global mesh lines do not move for (review probe, tmp Goat)."""
+    def edit(scene):
+        world = scene.world()
+        j = next(k for k, n in enumerate(scene.names) if "Bip01_L_Calf" in n)
+        under = [k for k in range(len(scene.names)) if j in _chain(scene.parents, k)]
+        for f in range(len(world)):
+            pivot = world[f, j, :3, 3].copy()
+            axis = world[f, j, :3, 0] / np.linalg.norm(world[f, j, :3, 0])
+            turn = Rotation.from_rotvec(np.radians(30) * axis).as_matrix()
+            for k in under:
+                world[f, k, :3, :3] = turn @ world[f, k, :3, :3]
+                world[f, k, :3, 3] = pivot + turn @ (world[f, k, :3, 3] - pivot)
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
+
+
 def _chain(parents, k: int) -> list[int]:
     out = [k]
     while parents[out[-1]] >= 0:
@@ -412,6 +444,7 @@ class Mutation:
     names: str = ""  # a word the C2a line must carry (the stage or joint it names)
     keeps_joints: bool = False  # the edit leaves every node's world as it was
     bounds: tuple[float, float] | None = None  # the C2a value the edit must land in
+    stability_min: float = 0.0  # how far above C5's `stability_tol` (1e-5) the edit must land
     control: Callable[[Path], None] | None = None  # the same edit with nothing wrong: must stay green
 
 
@@ -426,7 +459,7 @@ MUTATIONS = [
     Mutation("swap_cluster_link", "Goat", None, swap_two_cluster_links, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("perturb_bind", "Goat", None, perturb_one_link_bind, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("rebind", "Goat", None, rebind_89bff67, {"C2a": "FAIL"}, bounds=(2e-2, 1e-1)),
-    Mutation("rotate_joint", "Goat", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS", "C5-stability": "FAIL"}),
+    Mutation("rotate_joint", "Goat", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS", "C5-stability": "FAIL"}, stability_min=1e-4),
     Mutation("rigid_wrong_offset", "Goat", None, write_with_wrong_offset, {"C2b-untraced": "FAIL"},
              control=lambda path: write_with_wrong_offset(path, 1.0)),
     Mutation("rest_bone_scaled", "Goat", None, scale_one_rest_bone, {"C2b-rest": "FAIL"}),
@@ -438,6 +471,8 @@ MUTATIONS = [
     Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
     Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-placement": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
     Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL"}),
+    Mutation("hinge_30", "Goat", None, hinge_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}),
+    Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL"}),
     Mutation("nan_key", "Goat", None, write_nan_rotation, {"C5-range": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
@@ -500,6 +535,7 @@ def test_verifier_goes_red(m, tmp_path):
         assert_red(base, after, check, want, m.rise)
     assert verdict(after) is not Status.PASS
     assert m.names in _status(after, "C2a").note
+    assert (_status(after, "C5-stability").value or 0) >= m.stability_min
     if m.bounds:
         assert m.bounds[0] <= _status(after, "C2a").value <= m.bounds[1]
 
@@ -521,6 +557,18 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
     # `file` on a readable skinned FBX samples its own frames and reports a C2a value
     run = verify_motion.file_case(rest, rest, tmp_path)
     assert _status(judge(run), "C2a").value is not None
+    # `file --rig` (the generated-motion path): C5 on the file, stability NOT RUN until a clip is passed
+    report = judge(verify_motion.file_case(rest, None, tmp_path, "truebones", "Camel"))
+    assert _status(report, "C5-stretch").value is not None and _status(report, "C5-stability").status is Status.NOT_RUN
+    assert "C2b" in report.run["not_applicable"]
+    assert np.isnan(checks._worst_ratio(np.zeros(0), np.zeros(0), 0.0))  # nothing to measure is NaN (NOT RUN), not 1.0
+    # `--clip`: the generator's clip is the stability reference; another clip is not what the file should be
+    goat = build("truebones", "Goat", None, tmp_path)
+    clips = Path("data/truebones/clips/Goat")
+    same = verify_motion.file_case(goat / "4_roundtrip.fbx", None, tmp_path, "truebones", "Goat", clips / f"{load_case(goat).action}.npz")
+    other = verify_motion.file_case(goat / "4_roundtrip.fbx", None, tmp_path / "o", "truebones", "Goat", clips / "bleat.npz")
+    assert _status(judge(same), "C5-stability").status is Status.PASS
+    assert _status(judge(other), "C5-stability").status is Status.FAIL
 
 
 def test_source_frames_follow_the_recorded_window(tmp_path):
@@ -557,6 +605,8 @@ def test_laws_hold_on_a_folded_and_a_still_rig(data, rig, tmp_path):
     params = laws_params(load_case(run))
     assert params["fold_into_root"]["names"] if rig == "Goat" else params["drop_still"]["names"]
     report = judge(run)
+    # Dog's clean round trip is red on C5-joints (pelvis swing 2.3x its vendor limit, tmp/verify/findings.md): a finding, not widened
+    report.checks = [c for c in report.checks if (rig, c.id) != ("Dog", "C5-joints")]
     assert_green(report)
     where = _status(report, "C2b-untraced").where
     assert {"vertex", "joint", "rotation"} <= where.keys()

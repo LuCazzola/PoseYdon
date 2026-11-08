@@ -163,7 +163,7 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   `rest.npz`; a rig without it must be rebuilt with `tools/build_rest_fbx.py`).
   `build --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]` writes
   `<out>/<Rig>__<clip>/` (the `build_stage_samples.py` files plus `case.json`: paths,
-  sampled frames, the vendor file's frame for each (through the clip's recorded window), SHA-256 of each file, git commit, container); `file FILE (--reference REF | --rig R --data D)`
+  sampled frames, the vendor file's frame for each (through the clip's recorded window), SHA-256 of each file, git commit, container); `file FILE (--reference REF | --rig R --data D [--clip C.npz])`
   judges one FBX with no source: C1 and C2a against the reference (the rig's reference skin where `--rig` is given), and with `--rig` C5; `judge DIR` runs the checks and writes `report.json` and
   `report.txt` beside the stage files (default `--out` is `tmp/verify/`). `judge`
   refuses a file whose hash changed since `build`. Exit status is non-zero unless every check
@@ -196,16 +196,25 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   not implemented: it needs a limit format the owner sets in `limits.yaml` (empty today; a rig that gains an entry is still `NOT RUN`, with that
   note), so every run's verdict reads `NOT RUN`).
   A `--floor` run is judged against the source itself, but for the writer's node scale and held joints.
-  C5 (the `4_roundtrip` file, or the `file` run's, with no reference; `tools/verify/checks.py`): `C5-range` (every key: how far a skeleton
-  joint strays from the skeleton's centroid, as a fraction of the first frame's extent; a key that is not a number is infinite), `C5-stretch`
-  (worst edge length ratio against the file's own bind mesh, `max(x, 1/x)`), `C5-area` (the same for triangle areas) and `C5-bone-distance`
-  (change of a vertex's distance to its dominant bone, fraction of mesh extent), over `n_frames` sampled frames. The limits are the largest value
-  seen across the rig's vendor clips (`fbx_clips.csv`) times `stretch_margin`, evidence `derived`, cached at `tmp/verify/limits/<data>/<rig>.json` and
-  re-measured when the clip list, `n_frames` or the margin change. A clip with no usable mesh gives no mesh limit; a rig with none is `NOT RUN`
-  on those lines, naming why (nothing is invented). The edges are the mesh's own, so a short edge that a vendor clip stretches 47 times
-  (Camel) sets a wide limit: the check catches a tear or a flip beyond what the vendor ever did, not subtle damage. `C5-stability`
-  (`pipeline`, `build` runs only): the round trip read back like a vendor clip and prepared again with the rig's recorded chain, against
-  the clip's model view after ONE fitted similarity, within `stability_tol` of extent; `file` has no prepared clip, so `NOT RUN`.
+  C5 (the `4_roundtrip` file, or the `file` run's, with no reference; `tools/verify/checks.py`): the rig's REFERENCE skin driven by the file's
+  joints, as C2a does, so the limits and the file share one bind. `C5-range` (every key: how far a skeleton joint strays from the skeleton's
+  centroid, as a fraction of the reference's rest extent; a key that is not a number is infinite), `C5-stretch` (worst edge length ratio against
+  the reference's bind mesh, `max(x, 1/x)`), `C5-area` (the same for triangle areas) and `C5-bone-distance` (change of a vertex's distance to its
+  dominant bone, fraction of mesh extent), over `n_frames` sampled frames (always sampled, `--all-frames` does not reach C5; range reads every key).
+  The limits are the largest value seen across the rig's vendor clips (`fbx_clips.csv`) times `stretch_margin`, evidence `derived`, cached at
+  `tmp/verify/limits/<data>/<rig>.json` under a stamp (measuring-code version, `n_frames`, margin, the reference file and each clip's name, size and
+  mtime; a short hash of it is in each line's `where`), re-measured when any changes. A clip that cannot drive the reference skin is named in the
+  cache; a quantity with nothing to measure (no mesh, no edge, no weighted vertex) is `NOT RUN`, never invented. These global worst values catch gross
+  faults only: on Goat a flipped calf (180 degrees) takes stretch from 13 to 86 against a limit of 25, but a 30 degree knee fault or a 90 degree twist
+  leaves all four lines unchanged (task 7 review probe), and a short edge that a vendor clip stretches 47 times (Camel) widens the limit. `C5-joints` (joint space, `derived`): per joint, the swing (bend off the reference's rest rotation) and |twist| (about the bone axis, the mean direction to the
+  children; a leaf's whole turn is swing) in degrees, and the angular speed in degrees per frame at 30 fps, over every key; the limit is the largest the rig's
+  vendor clips reach times `stretch_margin`, at least `joint_floor_deg` (1e-3: vendor joints that never move measure 0 to 2.4e-6, so a joint no clip moves cannot
+  fail on float noise but any real motion does). The value is the worst quantity over its limit, FAIL above 1, the joint and part are named. It sees what the mesh lines
+  miss: a calf turned 30 degrees about its bone axis (twist 30 against a vendor 0.01) is 2950 times its limit; it cannot see a bend that stays inside the
+  vendor's range (a 30 degree bend of a calf the vendor bends 95 degrees passes at 0.5). `C5-stability`
+  (`pipeline`): the file read back like a vendor clip and prepared again with the rig's recorded chain, against the generator's clip
+  (`build`: the corpus clip; `file`: `--clip C.npz`, without it `NOT RUN`) after ONE fitted similarity, within `stability_tol` of extent. It compares
+  joint positions only, and bone lengths come back from the rest asset on reading, so a rotation that keeps positions and a wrong bone length are unseen.
   `file` on a bare FBX has no stages or records, so C2b, C3 and C4 are not run for it.
   C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the
   smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
