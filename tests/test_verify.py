@@ -275,6 +275,42 @@ def shift_zero_joint(path: Path) -> None:
     _mutate(path.parent / "5_zero.fbx", edit)
 
 
+def zero_on_wrong_rest(path: Path) -> None:
+    """A rest cache whose pose is wrong, with the corpus built from it: one bone's subtree turned 5 degrees in a
+    COPY of `rest.npz` (the real cache is untouched; `rig_cache` is pointed at the copy) and the zero file turned
+    the same way. File and reference agree, so C4-mesh stays green; only the rest-pose BVH (C4-joints) can tell."""
+    from poseydon.build.prepare import similarity
+
+    zero = path.parent / "5_zero.fbx"
+    cache = path.parent / "wrong_cache"
+    cache.mkdir(exist_ok=True)
+    with np.load(f"data/truebones/cache/rigs/{path.parent.name.split('__')[0]}/rest.npz", allow_pickle=True) as z:
+        kept = {k: z[k] for k in z.files}
+    scene = fbx.FBX.read(zero)
+    names, world = scene.names, scene.world()[:1]
+    here = [names.index(str(n)) for n in kept["names"]]
+    scale, rotation, shift = similarity(kept["rest"][:, :3, 3], world[0, here, :3, 3])
+    place = np.eye(4)
+    place[:3, :3], place[:3, 3] = scale * rotation, shift
+    j = _largest_cluster_joint(scene)
+    turn, pivot = Rotation.from_euler("z", 5, degrees=True).as_matrix(), world[0, j, :3, 3].copy()
+    move = np.eye(4)
+    move[:3, :3], move[:3, 3] = turn, pivot - turn @ pivot
+    for k in range(len(names)):
+        chain, a = {k}, k
+        while scene.parents[a] >= 0:
+            a = int(scene.parents[a])
+            chain.add(a)
+        if j in chain:
+            world[0, k] = move @ world[0, k]
+    scene.animate({n: world[:, k] for k, n in enumerate(names)}, scene.fps)
+    scene.write(zero)
+    scene.close()
+    kept["rest"] = np.linalg.inv(place) @ world[0, here]
+    np.savez(cache / "rest.npz", **kept)
+    _MP.setattr("poseydon.build.sources.rig_cache", lambda root, rig: cache)
+
+
 def turn_zero_half_degree(path: Path) -> None:
     """The zero file turned 0.5 degrees about +Y: one similarity absorbs it (C4-mesh, C4-joints stay green),
     the frame's definition (facing +Z) does not."""
@@ -359,6 +395,7 @@ MUTATIONS = [
     Mutation("wrong_facing", "Goat", None, turn_roundtrip_20deg, {"C2b-untraced": "FAIL"}),
     Mutation("drifting_yaw", "Goat", None, drift_yaw_over_the_clip, {"C3-shape": "FAIL"}),
     Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL", "C4-joints": "FAIL"}),
+    Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
     Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]

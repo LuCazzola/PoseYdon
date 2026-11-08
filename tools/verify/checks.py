@@ -608,12 +608,14 @@ def _zero_pose(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints, skins: lis
 def _zero_joints(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints) -> Check:
     """C4-joints: the zero file's joint positions against the rig's rest-pose BVH (the manifest's `rest_pose`),
     after ONE fitted similarity, within ``untraced_tol`` of extent. The BVH is the source `rest.npz` was built
-    from, read here on its own: `derived` where the pose was authored (`tools/tpose_author.py`), `independent`
-    where it is the vendor's own T-pose. Joints held by structure are left out."""
+    from, read here on its own: `derived` where this repo wrote the file (`tools/tpose_author.py` names its output
+    `*_authored.bvh`), `independent` where it is a vendor file the raw folder holds unchanged (a `__TPOSE.bvh`, or
+    a vendor clip such as Dog's `__Idle.bvh`, whose first frame is the rest pose). Joints held by structure are left out."""
     where = {"rig": case.rig, "clip": case.action}
     if rec.rest_pose is None:
         return Check("C4-joints", Status.NOT_RUN, Evidence.DERIVED, where=where, note="the manifest declares no rest_pose BVH")
-    evidence = Evidence.DERIVED if "authored" in rec.rest_pose.name else Evidence.INDEPENDENT
+    authored = rec.rest_pose.name.endswith("_authored.bvh")  # `tools/tpose_author.py`'s fixed output name
+    evidence = Evidence.DERIVED if authored else Evidence.INDEPENDENT
     try:
         pose = BVH.read(rec.rest_pose).to_animation().slice(0, 1)
     except Exception as error:  # noqa: BLE001 - a missing raw file is NOT RUN
@@ -631,7 +633,8 @@ def _zero_joints(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints) -> Check
     value = float(error[at] / size)
     return Check("C4-joints", Status.FAIL if not value <= cfg["untraced_tol"] else Status.PASS, evidence, value, cfg["untraced_tol"],
                  where | {"joint": common[at]},
-                 f"{len(common)} joints against {rec.rest_pose.name} after one fitted similarity (worst {common[at]})")
+                 f"{len(common)} joints against {rec.rest_pose.name} ({'authored by tools/tpose_author.py' if authored else 'the vendor file, unchanged'})"
+                 f" after one fitted similarity (worst {common[at]})")
 
 
 def c4_zero(case: Case, cfg: dict) -> list[Check]:

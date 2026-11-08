@@ -189,8 +189,8 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   `C3-shape` (the vendor skin enters through the fit; C2a holds the file's skin to it); a chain without `rest_relative`, i.e. `data=unimate`,
   is `NOT RUN`. `C4-placement` (`pipeline`) compares that fit with the placement recorded for the zero, with C3's `placement_*` bounds.
   `C4-joints` is the independent leg: the zero file's joint positions against the manifest's `rest_pose` BVH read from the raw files,
-  after one fitted similarity, within `untraced_tol` of extent (evidence `derived` for an authored T-pose, `independent` for a vendor
-  one; `NOT RUN` where the manifest has none). `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by
+  after one fitted similarity, within `untraced_tol` of extent (evidence `derived` for a file this repo wrote, `*_authored.bvh` from `tools/tpose_author.py`; `independent` for a vendor file kept
+  unchanged, a `__TPOSE.bvh` or a clip's first frame such as Dog's `__Idle.bvh`; `NOT RUN` where the manifest has none). `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by
   `C4-mesh`'s fitted rotation) and facing +Z (the manifest's facing pairs, as `FaceRestAxis` defines it) within `zero_facing_deg`, grounded
   per the rig's ground mode within `zero_ground_tol` of extent; a part the chain does not declare is named and left out. `C4-symmetry` is
   not implemented: it needs a limit format the owner sets in `limits.yaml` (empty today; a rig that gains an entry is still `NOT RUN`, with that
