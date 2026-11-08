@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
+from poseydon.build.prepare import similarity
 from poseydon.io.fbx import FBX, Inventory, SkinData
 from tools.verify import laws
-from tools.verify.case import Case, loss_record
+from tools.verify.case import Case, LossRecord, loss_record, recorded_space
 from tools.verify.report import Check, Evidence, Status
 from tools.verify.skin import deform, extent
 
@@ -284,6 +286,9 @@ def _rest(case: Case, pose: laws.SourcePose, parents: np.ndarray, size: float, t
     bind = _bind(case.skin_fbx)
     names, rest, asset = pose.names, pose.rest, pose.placed
     known = [j for j, n in enumerate(names) if n in bind.names]
+    if not known:
+        return Check("C2b-rest", Status.NOT_RUN, evidence, where={"rig": case.rig, "clip": case.action},
+                     note="no joint of the file is named in the vendor bind")
     worst, at = -1.0, ""
     for j in known:
         p = int(parents[j])
@@ -301,13 +306,62 @@ def _rest(case: Case, pose: laws.SourcePose, parents: np.ndarray, size: float, t
                  {"rig": case.rig, "clip": case.action}, f"worst {at}")
 
 
+@dataclass
+class _Run:
+    """What a stage file is judged with: the pipeline's record, the file's joints, the source clip as a
+    ``SourcePose`` in the file's joint order, and the reference skins C2b and C3 can model."""
+
+    record: LossRecord
+    file: _Joints
+    pose: laws.SourcePose
+    skins: list
+    skipped: list[str]
+    compare: list[int]
+
+
+def _load(case: Case, path: Path) -> _Run | str:
+    """The inputs of C2b and C3 for the stage file ``path``, or the reason they cannot be had."""
+    try:
+        record = loss_record(case)
+        file = _joints(path, lambda f: f[case.frames])
+        asset = _joints(record.asset, lambda f: f[:1])
+        rest = asset if record.bind_of is None else _bind(record.bind_of)
+        source = _joints(case.clip_fbx, lambda f: case.source_frames)
+        skins, inventory = reference_skin(case), _read(case.skin_fbx).inventory
+    except Exception as error:  # noqa: BLE001 - an unreadable file or record is NOT RUN, not a crash
+        return f"unreadable: {error}"
+    names = file.names
+    missing = sorted({n for other in (asset, rest, source) for n in names if n not in other.names})
+    if missing:
+        return f"the rest asset or the source clip has no node named {missing[:3]}"
+
+    def order(other: _Joints) -> np.ndarray:
+        return other.world[:, [other.names.index(n) for n in names]]
+
+    pose = laws.SourcePose(names, file.parents, order(source), order(rest)[0], asset=order(asset)[0])
+    usable = [s for s in skins if not _skipped(inventory, s.mesh)]
+    skipped = [f"mesh {m} {_skipped(inventory, m)}" for m in {s.mesh for s in skins} if _skipped(inventory, m)]
+    links = {n for s in usable for n in s.links}
+    compare = [j for j, n in enumerate(names) if file.skeleton[j] or n in links]
+    if not compare or links - set(names):
+        return f"no joints to compare, or skin links missing from the file: {sorted(links - set(names))[:3]}"
+    return _Run(record, file, pose, usable, skipped, compare)
+
+
+def _size(run: _Run, world: np.ndarray) -> float:
+    """Largest extent over frames of the skin (else the compared joints) under ``world``."""
+    cloud = [deform(s, {n: world[:, j] for j, n in enumerate(run.file.names)}) for s in run.skins]
+    return max(extent(np.concatenate([m[f] for m in cloud]) if cloud else world[f, run.compare][:, :3, 3])
+               for f in range(len(world)))
+
+
 def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     """The returned file's joints against what the pipeline is defined to produce from the user's
     clip: the source, with each lossy stage's law applied (`tools/verify/laws.py`). Untraced error
     (file vs expected) is the verdict: skin vertices and joint positions within ``untraced_tol`` of rig
     extent, joint world rotations within ``untraced_rot_tol``. Traced loss (source vs expected) is
     reported, never judged. Vertices, joints and rotations are reported apart. A stage with no law makes
-    it NOT RUN, naming it. The laws read bone lengths and node scales from the rig's rest asset, which the
+    it NOT RUN, naming it (``C2b-rest``, which needs no law, still runs). The laws read bone lengths and node scales from the rig's rest asset, which the
     pipeline wrote: ``C2b-rest`` holds those to the vendor file's bind. A floor run (the source clip
     written with no preparation) is expected to equal the source but for the writer's own node scale and
     held joints."""
@@ -321,24 +375,11 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
         return stop(Status.NOT_RUN, "needs a built round trip (its 4_roundtrip file and the rig's records)")
     if not len(case.frames):
         return stop(Status.NOT_RUN, "no frames to compare")
-    try:
-        record = loss_record(case)
-        file = _joints(path, lambda f: f[case.frames])
-        asset = _joints(record.asset, lambda f: f[:1])
-        rest = asset if record.bind_of is None else _bind(record.bind_of)
-        source = _joints(case.clip_fbx, lambda f: case.source_frames)
-        skins, inventory = reference_skin(case), _read(case.skin_fbx).inventory
-    except Exception as error:  # noqa: BLE001 - an unreadable file or record is NOT RUN, not a crash
-        return stop(Status.NOT_RUN, f"unreadable: {error}")
-    names = file.names
-    missing = sorted({n for other in (asset, rest, source) for n in names if n not in other.names})
-    if missing:
-        return stop(Status.NOT_RUN, f"the rest asset or the source clip has no node named {missing[:3]}")
-
-    def order(other: _Joints) -> np.ndarray:
-        return other.world[:, [other.names.index(n) for n in names]]
-
-    pose = laws.SourcePose(names, file.parents, order(source), order(rest)[0], asset=order(asset)[0])
+    run = _load(case, path)
+    if isinstance(run, str):
+        return stop(Status.NOT_RUN, run)
+    file, pose, usable = run.file, run.pose, run.skins
+    names, record = file.names, run.record
     stages, params = record.stages, record.params
     if case.floor:
         stages = [s for s in stages if s in ("promote_root", "prune_unskinned")]
@@ -347,30 +388,22 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
             roots = [(n, k) for n, k in zip(prune["removed"], prune["kind"]) if k == "root"]
             params = params | {"prune_unskinned": {"removed": [n for n, _ in roots], "kind": [k for _, k in roots]}}
     expected = laws.expected_pose(pose, stages, params)
-    if isinstance(expected, laws.MissingLaw):
-        return stop(Status.NOT_RUN, f"no loss law for stage `{expected.stage}`: declare it in tools/verify/laws.py")
-    usable = [s for s in skins if not _skipped(inventory, s.mesh)]
-    skipped = [f"mesh {m} {_skipped(inventory, m)}" for m in {s.mesh for s in skins} if _skipped(inventory, m)]
-    links = {n for s in usable for n in s.links}
-    compare = [j for j, n in enumerate(names) if file.skeleton[j] or n in links]
-    if not compare or links - set(names):
-        return stop(Status.NOT_RUN, f"no joints to compare, or skin links missing from the file: {sorted(links - set(names))[:3]}")
     try:
-        cloud = [deform(s, {n: expected.world[:, j] for j, n in enumerate(names)}) for s in usable]
+        size = _size(run, pose.world if isinstance(expected, laws.MissingLaw) else expected.world)
     except np.linalg.LinAlgError as error:
         return stop(Status.NOT_RUN, f"a bind matrix is singular ({error})")
-    points = [np.concatenate([m[f] for m in cloud]) if cloud else expected.world[f, compare][:, :3, 3]
-              for f in range(len(case.frames))]
-    size = max(extent(p) for p in points)
     if not size > 0:
         return stop(Status.FAIL, "the expected pose has zero extent")
+    rest = _rest(case, pose, file.parents, size, cfg["untraced_tol"], evidence)
+    if isinstance(expected, laws.MissingLaw):
+        return [*stop(Status.NOT_RUN, f"no loss law for stage `{expected.stage}`: declare it in tools/verify/laws.py"), rest]
     inputs = "bone lengths from the " + ("rest asset" if record.bind_of is None else "vendor bind") \
         + " and node scales from the rest asset"
     out = []
     for check, other in (("C2b-untraced", file.world), ("C2b-traced", pose.world)):
-        gap = _gap(other, expected.world, names, compare, usable, size, case.frames)
+        gap = _gap(other, expected.world, names, run.compare, usable, size, case.frames)
         value = (gap["vertex"] or gap["joint"])["value"]
-        note = "; ".join([_summary(gap), inputs, *skipped])
+        note = "; ".join([_summary(gap), inputs, *run.skipped])
         if check == "C2b-traced":
             out.append(Check(check, Status.PASS, evidence, value, where=where | gap,
                              note=f"by laws of {', '.join(s for s in stages if s in laws.LAWS)}; {note}"))
@@ -379,5 +412,84 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
                       or not gap["rotation"]["value"] <= cfg["untraced_rot_tol"])
             out.append(Check(check, Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"],
                              where | gap, note))
-    out.append(_rest(case, pose, file.parents, size, cfg["untraced_tol"], evidence))
+    return [*out, rest]
+
+
+def _skins_of(path: Path) -> dict[str, SkinData]:
+    scene = FBX.read(path)
+    try:
+        return {s.mesh: s for s in scene.skin_data()}
+    finally:
+        scene.close()
+
+
+def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
+    evidence, where = _evidence(case), {"rig": case.rig, "clip": case.action, "file": name}
+
+    def stop(status: Status, note: str) -> list[Check]:
+        return [Check("C3-shape", status, evidence, where=where, note=note)]
+
+    run = _load(case, path)
+    if isinstance(run, str):
+        return stop(Status.NOT_RUN, run)
+    if not run.skins:
+        return stop(Status.NOT_RUN, "no skinned mesh the verifier models: " + "; ".join(run.skipped))
+    names, file, record = run.file.names, run.file, run.record
+    stages = [s for s in record.stages if name == "3_model" or s not in record.reduction]
+    expected = laws.expected_pose(run.pose, stages, record.params)
+    if isinstance(expected, laws.MissingLaw):
+        return stop(Status.NOT_RUN, f"no loss law for stage `{expected.stage}`: declare it in tools/verify/laws.py")
+    try:
+        mine = _skins_of(path)
+        odd = [s.mesh for s in run.skins if s.mesh not in mine or mine[s.mesh].points.shape != s.points.shape
+               or set(mine[s.mesh].links) - set(names)]
+        if odd:
+            return stop(Status.NOT_RUN, f"mesh {odd[:3]} is missing, differs in vertices or links a joint the file lacks (C2a)")
+        mesh = [mine[s.mesh] for s in run.skins]
+        want = np.concatenate([deform(s, {n: expected.world[:, j] for j, n in enumerate(names)}).reshape(-1, 3)
+                               for s in run.skins])
+        got = [deform(s, {n: file.world[:, j] for j, n in enumerate(names)}) for s in mesh]
+    except Exception as error:  # noqa: BLE001 - an unreadable file or a singular bind is NOT RUN
+        return stop(Status.NOT_RUN, f"{type(error).__name__}: {error}")
+    seen = np.concatenate([g.reshape(-1, 3) for g in got])
+    size = max(extent(np.concatenate([g[f] for g in got])) for f in range(len(case.frames)))
+    if not (np.isfinite(want).all() and np.isfinite(seen).all() and size > 0):
+        return stop(Status.FAIL, "non-finite vertices or zero extent")
+    # One similarity for the whole clip: a per-frame fit would hide a placement error.
+    scale, rotation, shift = similarity(want, seen)
+    fit = np.eye(4)
+    fit[:3, :3], fit[:3, 3] = scale * rotation, shift
+    gap = _gap(file.world, fit @ expected.world, names, run.compare, mesh, size, case.frames)
+    value = (gap["vertex"] or gap["joint"])["value"]
+    failed = (not value <= cfg["untraced_tol"] or not gap["joint"]["value"] <= cfg["untraced_tol"]
+              or not gap["rotation"]["value"] <= cfg["untraced_rot_tol"])
+    out = [Check("C3-shape", Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"],
+                 where | gap, "after one fitted similarity; " + "; ".join([_summary(gap), *run.skipped]))]
+    try:
+        space = recorded_space(case, name)
+    except Exception as error:  # noqa: BLE001
+        return [*out, Check("C3-placement", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=f"unreadable record: {error}")]
+    recorded = np.cbrt(abs(np.linalg.det(space[:3, :3])))
+    turned = float(np.degrees(Rotation.from_matrix(rotation @ (space[:3, :3] / recorded).T).magnitude()))
+    found = {"scale": abs(scale / recorded - 1), "yaw_deg": turned,
+             "offset": float(np.linalg.norm(shift - space[:3, 3]) / size)}
+    limit = {"scale": cfg["placement_scale_tol"], "yaw_deg": cfg["placement_yaw_deg"], "offset": cfg["placement_offset_tol"]}
+    bad = [k for k in found if not found[k] <= limit[k]]
+    out.append(Check("C3-placement", Status.FAIL if bad else Status.PASS, Evidence.PIPELINE,
+                     max(found[k] / limit[k] for k in found), 1.0, where | {"found": found, "limit": limit},
+                     "fitted similarity against the recorded `space` (value: worst error over its limit; angle is the whole "
+                     "rotation between them)" + (f"; over: {', '.join(bad)}" if bad else "")))
     return out
+
+
+def c3_canonical(case: Case, cfg: dict) -> list[Check]:
+    """The prepared and model-view exports (written in canonical space) against the source mesh: ONE
+    similarity is fitted for the whole clip from the expected skin vertices (the source clip with the
+    stage's laws, on the reference skin) to the file's. ``C3-shape`` is the residual, judged on vertices,
+    joints and rotations like C2b-untraced; ``C3-placement`` compares the fit with the `space`
+    `RigRecord.placement` recorded: scale ratio, rotation in degrees, offset as a fraction of extent. The
+    model stage adds the reduction's laws."""
+    stages = {n: p for n, p in case.files.items() if n in ("2_prepared", "3_model")}
+    if not stages or not case.data_name or case.floor or not len(case.frames):
+        return [Check("C3-shape", Status.NOT_RUN, _evidence(case), note="needs a built round trip's 2_prepared and 3_model files")]
+    return [c for name, path in stages.items() for c in _c3_stage(case, cfg, name, path)]

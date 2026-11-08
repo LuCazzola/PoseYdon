@@ -212,6 +212,45 @@ def write_with_wrong_offset(path: Path, factor: float = 1.1) -> None:
     fbx.FBX.from_animation(wrong, record.asset, fixed=record.fixed).write(path, embed_textures=True)
 
 
+def write_placement_yawed_20deg(path: Path) -> None:
+    """Stand-in for a wrong recorded facing yaw: the canonical stage files written with their placement turned 20 degrees about +Y."""
+    turn = np.eye(4)
+    turn[:3, :3] = Rotation.from_euler("y", 20, degrees=True).as_matrix()
+    write_placement(path, turn)
+
+
+def write_placement_scaled_5(path: Path) -> None:
+    """Stand-in for a wrong recorded scale (Crow's bug): the canonical stage files written 5% larger."""
+    write_placement(path, np.diag([1.05, 1.05, 1.05, 1.0]))
+
+
+def drift_yaw_over_the_clip(path: Path) -> None:
+    """Turn the canonical stage files about +Y by 0 to 20 degrees across the clip: one similarity cannot absorb it, a per-frame fit would."""
+    def edit(scene):
+        world = scene.world()
+        turn = np.tile(np.eye(4), (len(world), 1, 1))
+        turn[:, :3, :3] = Rotation.from_euler("y", np.linspace(0, 20, len(world))[:, None], degrees=True).as_matrix()
+        scene.animate({n: turn @ world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    for name in ("2_prepared", "3_model"):
+        _mutate(path.parent / f"{name}.fbx", edit)
+
+
+def write_placement(path: Path, edit: np.ndarray) -> None:
+    """Rewrite 2_prepared.fbx and 3_model.fbx as `scripts/build_stage_samples.py` does, with ``edit @ space`` as the placement."""
+    from poseydon.build.pipeline import compose_build
+    from poseydon.core.animation import RigidBodyAnimation
+    from poseydon.features.reduce import apply_reduction
+
+    meta = json.loads((path.parent / "case.json").read_text())
+    root = Path(compose_build([f"data={meta['data']}"]).data.paths.root)
+    record = RigRecord.load(root, meta["rig"])
+    prepared = RigidBodyAnimation.load(root / "clips" / meta["rig"] / f"{meta['action']}.npz").as_rigid_body(joint_translation="drop")
+    for name, anim in (("2_prepared", prepared), ("3_model", apply_reduction(prepared, record.reduction))):
+        placed, space = record.placement(anim, facing_from=meta["action"])
+        fbx.FBX.from_animation(placed, record.asset, edit @ space, record.fixed).write(path.parent / f"{name}.fbx", embed_textures=True)
+
+
 def drop_enforce_rigid_law(path: Path) -> None:
     """The stage stays in the file's record, its law leaves the verifier (restored by the `laws` fixture)."""
     laws.LAWS.pop("enforce_rigid")
@@ -221,8 +260,11 @@ def drop_enforce_rigid_law(path: Path) -> None:
 def scale_one_rest_bone(path: Path) -> None:
     """The rest input the laws read (`RigRecord.asset`) with its longest bone 50% longer, the file under test
     untouched but for a rewrite."""
-    rig = path.parent.name.split("__")[0]
-    scene = fbx.FBX.read(RigRecord.load(Path("data/truebones"), rig).asset)
+    from poseydon.build.pipeline import compose_build
+
+    meta = json.loads((path.parent / "case.json").read_text())
+    root = Path(compose_build([f"data={meta['data']}"]).data.paths.root)
+    scene = fbx.FBX.read(RigRecord.load(root, meta["rig"]).asset)
     world = scene.world(scene.frames()[:1])
     reach = np.linalg.norm(world[0, 1:, :3, 3] - world[0, scene.parents[1:], :3, 3], axis=-1)
     j = 1 + int(reach.argmax())
@@ -276,7 +318,10 @@ MUTATIONS = [
     Mutation("rigid_wrong_offset", "Goat", None, write_with_wrong_offset, {"C2b-untraced": "FAIL"},
              control=lambda path: write_with_wrong_offset(path, 1.0)),
     Mutation("rest_bone_scaled", "Goat", None, scale_one_rest_bone, {"C2b-rest": "FAIL"}),
-    Mutation("missing_law", "Goat", None, drop_enforce_rigid_law, {"C2b-untraced": "NOT RUN"}),
+    Mutation("missing_law", "Goat", None, drop_enforce_rigid_law, {"C2b-untraced": "NOT RUN", "C2b-rest": "PASS"}),
+    Mutation("wrong_yaw", "Goat", None, write_placement_yawed_20deg, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
+    Mutation("drifting_yaw", "Goat", None, drift_yaw_over_the_clip, {"C3-shape": "FAIL"}),
+    Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
 
 
@@ -382,6 +427,7 @@ def test_laws_hold_on_a_folded_and_a_still_rig(data, rig, tmp_path):
     assert report.verdict is Status.PASS, [c for c in report.checks if c.status is not Status.PASS]
     where = _status(report, "C2b-untraced").where
     assert {"vertex", "joint", "rotation"} <= where.keys()
+    assert {c.status for c in report.checks if c.id.startswith("C3")} == {Status.PASS}
 
 
 def laws_params(case):

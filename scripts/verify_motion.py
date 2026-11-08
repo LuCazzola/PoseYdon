@@ -30,7 +30,7 @@ from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, commit, load_case, sample_frames, sha256
-from tools.verify.checks import c1_inventory, c2a_skin, c2b_fidelity
+from tools.verify.checks import c1_inventory, c2a_skin, c2b_fidelity, c3_canonical
 from tools.verify.report import Report, apply_allowances
 
 CONFIG = Path("configs/verify")
@@ -118,6 +118,7 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     report.checks += c1_inventory(case, cfg["inventory_tol"])
     report.checks += c2a_skin(case, cfg)
     report.checks += c2b_fidelity(case, cfg)
+    report.checks += c3_canonical(case, cfg)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report

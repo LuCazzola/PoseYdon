@@ -39,6 +39,7 @@ class LossRecord:
     params: dict[str, dict]
     asset: Path  # the FBX the returned file is written onto
     bind_of: Path | None  # the file whose bind is the dataset's rest pose; None where the asset's pose is it
+    reduction: tuple[str, ...] = ()  # the stages that are the reduction's rules: the model view, not the prepared clip
 
 
 def loss_record(case: Case) -> LossRecord:
@@ -80,7 +81,22 @@ def loss_record(case: Case) -> LossRecord:
             if stage in record.params:
                 turn = Rotation.from_quat(np.asarray(record.params[stage]["rotation"])) * turn
         params["drop_still"]["turn"] = turn.as_matrix().tolist()
-    return LossRecord(stages, params, record.asset, None if data.source.get("rest_asset", False) else case.skin_fbx)
+    return LossRecord(stages, params, record.asset, None if data.source.get("rest_asset", False) else case.skin_fbx,
+                      tuple(rule.name for rule in record.reduction_rules))
+
+
+def recorded_space(case: Case, stage: str) -> np.ndarray:
+    """The 4x4 similarity `RigRecord.placement` puts a stage file's scene in (``2_prepared`` or ``3_model``)."""
+    from poseydon.build.pipeline import compose_build  # noqa: PLC0415
+    from poseydon.core.animation import RigidBodyAnimation  # noqa: PLC0415
+    from poseydon.export import RigRecord  # noqa: PLC0415
+    from poseydon.features.reduce import apply_reduction  # noqa: PLC0415
+
+    root = Path(compose_build([f"data={case.data_name}"]).data.paths.root)
+    record = RigRecord.load(root, case.rig)
+    prepared = RigidBodyAnimation.load(root / "clips" / case.rig / f"{case.action}.npz").as_rigid_body(joint_translation="drop")
+    anim = prepared if stage == "2_prepared" else apply_reduction(prepared, record.reduction)
+    return record.placement(anim, facing_from=case.action)[1]
 
 
 def sha256(path: str | Path) -> str:
