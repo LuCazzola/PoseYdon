@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple
+import json
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +15,7 @@ from poseydon.build.prepare import similarity
 from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX, Inventory, SkinData
 from tools.verify import laws
-from tools.verify.case import Case, LossRecord, ZeroRecord, loss_record, recorded_space, zero_record
+from tools.verify.case import Case, LossRecord, sample_frames, ZeroRecord, loss_record, recorded_space, zero_record
 from tools.verify.report import Check, Evidence, Status
 from tools.verify.skin import deform, extent
 
@@ -100,7 +102,8 @@ def c1_inventory(case: Case, tol: float) -> list[Check]:
     for name, path in case.files.items():
         try:
             got = _read(path)
-            found = _differences(reference, got, clip.inventory, tol, case.window, name != ZERO)
+            timing = replace(clip.inventory, frames=got.inventory.frames) if name == "file" else clip.inventory  # a `file` run has no clip to count against
+            found = _differences(reference, got, timing, tol, case.window, name != ZERO)
             unsupported += got.inventory.unsupported
         except Exception as error:  # noqa: BLE001
             found = [f"unreadable: {error}"]
@@ -610,10 +613,11 @@ def _zero_joints(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints) -> Check
     after ONE fitted similarity, within ``untraced_tol`` of extent. The BVH is the source `rest.npz` was built
     from, read here on its own: `derived` where this repo wrote the file (`tools/tpose_author.py` names its output
     `*_authored.bvh`), `independent` where it is a vendor file the raw folder holds unchanged (a `__TPOSE.bvh`, or
-    a vendor clip such as Dog's `__Idle.bvh`, whose first frame is the rest pose). Joints held by structure are left out."""
+    a vendor clip such as Dog's `__Idle.bvh`, whose first frame is the rest pose). Joints held by structure are left out.
+    Blind spot: it compares positions only, so a rotation error that leaves every joint where it is goes unseen."""
     where = {"rig": case.rig, "clip": case.action}
     if rec.rest_pose is None:
-        return Check("C4-joints", Status.NOT_RUN, Evidence.DERIVED, where=where, note="the manifest declares no rest_pose BVH")
+        return Check("C4-joints", Status.NOT_RUN, None, where=where, note="the manifest declares no rest_pose BVH")
     authored = rec.rest_pose.name.endswith("_authored.bvh")  # `tools/tpose_author.py`'s fixed output name
     evidence = Evidence.DERIVED if authored else Evidence.INDEPENDENT
     try:
@@ -693,3 +697,201 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
             placement = _placement(rec.space, scale, rotation, shift, size, cfg, where, "C4-placement")
     placement = placement or stop("C4-placement", Status.NOT_RUN, "C4-mesh did not complete")
     return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation), symmetry]
+
+
+# C5: sanity of a file that has no reference ---------------------------------------------------
+
+C5 = ("range", "stretch", "area", "bone-distance")
+LIMITS = Path("tmp/verify/limits")
+
+
+def _frame_numbers(scene: FBX) -> np.ndarray:
+    first, last = scene.key_range()  # not `frames()`: a vendor file's time span can end a key early
+    return np.arange(round(first), round(last) + 1)
+
+
+def _worst_ratio(a: np.ndarray, b: np.ndarray, floor: float) -> float:
+    """Largest ``max(a/b, b/a)`` over entries whose ``b`` exceeds ``floor``; non-finite counts as infinite."""
+    keep = b > floor
+    if not keep.any():
+        return 1.0
+    r = np.nan_to_num(a[..., keep] / b[keep], nan=np.inf, posinf=np.inf)
+    return float(np.maximum(r, 1 / np.maximum(r, 1e-300)).max())
+
+
+def _mesh_ratios(skin: SkinData, world: dict[str, np.ndarray]) -> tuple[float, float, float]:
+    """Worst edge stretch, triangle area ratio (both ``max(x, 1/x)``) and change of the vertex-to-dominant-bone
+    distance (fraction of the rest mesh's extent) of ``skin`` under ``world`` against its own bind."""
+    rest = deform(skin, {n: m[None] for n, m in zip(skin.links, skin.link_bind)})[0]
+    moved = deform(skin, world)
+    size, tri = extent(rest), skin.faces
+    edges = np.unique(np.sort(np.concatenate([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]), axis=1), axis=0)
+
+    def length(p, e):
+        return np.linalg.norm(p[..., e[:, 0], :] - p[..., e[:, 1], :], axis=-1)
+
+    def area(p):
+        return 0.5 * np.linalg.norm(np.cross(p[..., tri[:, 1], :] - p[..., tri[:, 0], :], p[..., tri[:, 2], :] - p[..., tri[:, 0], :]), axis=-1)
+
+    best, dominant = np.zeros(len(rest)), np.full(len(rest), -1)
+    for c, (index, weight) in enumerate(zip(skin.indices, skin.weights)):
+        win = weight > best[index]
+        best[index[win]], dominant[index[win]] = weight[win], c
+    held = dominant >= 0
+    bone = np.stack([world[n][:, :3, 3] for n in skin.links], axis=1)  # (F, C, 3)
+    away = np.linalg.norm(moved[:, held] - bone[:, dominant[held]], axis=-1)
+    away0 = np.linalg.norm(rest[held] - skin.link_bind[dominant[held], :3, 3], axis=-1)
+    change = np.nan_to_num(np.abs(away - away0) / size, nan=np.inf, posinf=np.inf).max() if held.any() else 0.0
+    return (_worst_ratio(length(moved, edges), length(rest, edges), 1e-9 * size),
+            _worst_ratio(area(moved), area(rest), 1e-8 * size**2), float(change))
+
+
+def _measure(path: Path, n_frames: int) -> dict:
+    """``range`` (every key: how far a skeleton joint strays from the skeleton's centroid, as a fraction of the
+    rig's size; infinite if any is not a number) and, where the file holds a skin the verifier models, the worst
+    ``stretch``, ``area`` and ``bone-distance`` over ``n_frames`` sampled frames. ``why`` says what is missing."""
+    scene = FBX.read(path)
+    try:
+        world, names, inventory, skins = scene.world(_frame_numbers(scene)), scene.names, scene.inventory(), scene.skin_data()
+        skeleton = [i for i in range(len(names)) if scene.is_skeleton(i)] or list(range(len(names)))
+    finally:
+        scene.close()
+    usable = [s for s in skins if not _skipped(inventory, s.mesh)]
+    joints = {n: world[:, j] for j, n in enumerate(names)}
+    pos = world[:, skeleton][..., :3, 3]
+    first = pos[0]  # the rig's size, from its first frame
+    reach = np.linalg.norm(pos - pos.mean(axis=1, keepdims=True), axis=-1)
+    reach = np.nan_to_num(reach, nan=np.inf, posinf=np.inf)
+    out = {"range": float(reach.max() / max(extent(first), 1e-12)) if np.isfinite(first).all() else float("inf")}
+    pick = sample_frames(world, n_frames)
+    sampled = {n: m[pick] for n, m in joints.items()}
+    why = [f"mesh {m} {_skipped(inventory, m)}" for m in {s.mesh for s in skins} if _skipped(inventory, m)]
+    rows = []
+    for skin in usable:
+        if set(skin.links) - joints.keys():
+            why.append(f"mesh {skin.mesh}: skin links missing from the file")
+            continue
+        try:
+            rows.append(_mesh_ratios(skin, sampled))
+        except np.linalg.LinAlgError as error:
+            why.append(f"mesh {skin.mesh}: a bind matrix is singular ({error})")
+    if rows:
+        out |= dict(zip(C5[1:], np.max(rows, axis=0).tolist()))
+    elif not why:
+        why.append("the file holds no skinned mesh")
+    return out | {"why": why}
+
+
+def rig_limits(data_name: str, rig: str, cfg: dict) -> dict:
+    """The largest ``range``, edge stretch, triangle area ratio and vertex-to-dominant-bone distance change seen
+    across the rig's vendor clips (``n_frames`` sampled per clip), times ``stretch_margin``: ``derived`` evidence.
+    Cached at ``tmp/verify/limits/<data>/<rig>.json`` and re-measured when the clips, ``n_frames`` or the margin differ.
+    A quantity no clip could measure (no usable mesh) is absent, and so is ``limit`` when no clip was readable."""
+    from poseydon.build.pipeline import compose_build  # noqa: PLC0415
+    from poseydon.build.sources import fbx_index  # noqa: PLC0415
+
+    data = compose_build([f"data={data_name}"]).data
+    clips = [(a, Path(data.paths.raw) / "source" / f) for r, a, f in fbx_index(data.source.index) if r == rig]
+    stamp = {"n_frames": cfg["n_frames"], "margin": cfg["stretch_margin"], "clips": sorted(a for a, _ in clips)}
+    cache = LIMITS / data_name / f"{rig}.json"
+    if cache.is_file() and {k: json.loads(cache.read_text()).get(k) for k in stamp} == stamp:
+        return json.loads(cache.read_text())
+    seen: dict[str, float] = {}
+    skipped: dict[str, str] = {}
+    used = 0
+    for action, path in clips:
+        try:
+            got = _measure(path, cfg["n_frames"])
+        except Exception as error:  # noqa: BLE001 - a clip that cannot be read gives no limit
+            skipped[action] = f"unreadable: {error}"
+            continue
+        if not np.isfinite(got["range"]):
+            skipped[action] = "has keys that are not numbers"
+            continue
+        used += 1
+        if got["why"]:
+            skipped[action] = "; ".join(got["why"])
+        for k in C5:
+            if k in got and np.isfinite(got[k]):
+                seen[k] = max(seen.get(k, 0.0), got[k])
+    out = stamp | {"used": used, "seen": seen, "limit": {k: v * cfg["stretch_margin"] for k, v in seen.items()}, "skipped": skipped}
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(out, indent=2))
+    return out
+
+
+def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
+    """``C5-range``, ``-stretch``, ``-area`` and ``-bone-distance`` of one FBX against ``rig_limits`` (`derived`:
+    the rig's own vendor clips, with a margin). A quantity with no limit, or that the file's mesh cannot give, is
+    NOT RUN, named; a value that is not a finite number within its limit is FAIL."""
+    where = {"rig": rig, "file": file.name}
+
+    def line(k: str, status: Status, note: str, value=None, limit=None, evidence=None) -> Check:
+        return Check(f"C5-{k}", status, evidence, value, limit, where, note)
+
+    try:
+        got = _measure(file, limits.get("n_frames", 8))
+    except Exception as error:  # noqa: BLE001 - an unreadable file is NOT RUN
+        return [line(k, Status.NOT_RUN, f"unreadable: {error}") for k in C5]
+    out = []
+    for k in C5:
+        limit = limits.get("limit", {}).get(k)
+        if limit is None or not limit > 0:
+            clips = f"{limits.get('used', 0)} usable vendor clips"
+            note = f"no limit: {clips}" + (f" ({'; '.join(sorted(set(limits['skipped'].values()))[:2])})" if limits.get("skipped") else "")
+            out.append(line(k, Status.NOT_RUN, note))
+        elif k not in got:
+            out.append(line(k, Status.NOT_RUN, "the file has no mesh to measure: " + "; ".join(got["why"])))
+        else:
+            ok = got[k] <= limit
+            out.append(line(k, Status.PASS if ok else Status.FAIL,
+                            f"limit: the largest of {limits['used']} vendor clips x margin" + ("" if np.isfinite(got[k]) else "; not a finite number"),
+                            got[k], limit, Evidence.DERIVED))
+    return out
+
+
+def c5_stability(file: Path, record, prepared, data, cfg: dict) -> Check:
+    """Read ``file`` (the clip on the user's rig) back as the pipeline reads a vendor clip, prepare it again with the
+    rig's recorded chain, and compare with ``prepared`` (the clip in the model's view, expanded) after ONE fitted
+    similarity, as a fraction of extent against ``stability_tol``: `face_axis` re-turns each clip to +Z, so the two
+    agree only up to a similarity. `pipeline` evidence: the reference itself went through the pipeline."""
+    from poseydon.build.prepare import similarity  # noqa: PLC0415
+    from poseydon.build.sources import SOURCES  # noqa: PLC0415
+    from poseydon.core.skeleton import SkeletonManifest, resolve  # noqa: PLC0415
+    from poseydon.features.reduce import apply_reduction  # noqa: PLC0415
+    from scripts.build_fbx_cache import read  # noqa: PLC0415
+
+    where = {"rig": record.rig, "file": file.name}
+
+    def line(status: Status, note: str, value=None) -> Check:
+        return Check("C5-stability", status, Evidence.PIPELINE, value, cfg["stability_tol"], where, note)
+
+    try:
+        manifest = SkeletonManifest.load(Path(record.corpus) / "rigs" / record.rig / "manifest.yaml")
+        source = SOURCES.build(data.source)
+        source._rest_offsets(data, manifest)  # reads the rig from the real cache (and keeps its offsets) before it is pointed at the file
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / record.rig).mkdir()
+            np.savez(Path(tmp) / record.rig / "stable.npz", **(read(file) | {"source": np.array("")}))
+            source.cache = Path(tmp)
+            clip = source.clip(data, manifest, "stable").anim
+        again, _ = record.chain.apply(clip, resolve(manifest, clip.names), record.params)
+        want = record.expand(apply_reduction(prepared, record.reduction))
+    except Exception as error:  # noqa: BLE001
+        return line(Status.NOT_RUN, f"could not prepare the file again: {type(error).__name__}: {error}")
+    if again.n_frames != want.n_frames:
+        return line(Status.FAIL, f"{again.n_frames} frames after preparing again, {want.n_frames} expected")
+    common = [n for n in want.names if n in again.names]
+    if len(common) < 4:
+        return line(Status.NOT_RUN, f"{len(common)} joints in common")
+    a = again.global_positions()[:, [again.names.index(n) for n in common]]
+    b = want.global_positions()[:, [want.names.index(n) for n in common]]
+    scale, rotation, shift = similarity(a.reshape(-1, 3), b.reshape(-1, 3))
+    error = np.nan_to_num(np.linalg.norm(a * scale @ rotation.T + shift - b, axis=-1), nan=np.inf, posinf=np.inf)
+    size = extent(b.reshape(-1, 3))
+    if not size > 0:
+        return line(Status.FAIL, "the expected clip has zero extent")
+    value = float(error.max() / size)
+    at = np.unravel_index(error.argmax(), error.shape)
+    return line(Status.PASS if value <= cfg["stability_tol"] else Status.FAIL,
+                f"{len(common)} joints after one fitted similarity (worst {common[at[1]]}, frame {at[0]})", value)

@@ -323,6 +323,46 @@ def turn_zero_half_degree(path: Path) -> None:
     _mutate(path.parent / "5_zero.fbx", edit)
 
 
+def turn_a_limb_180deg(path: Path) -> None:
+    """The subtree of the biggest-weighing joint that is less than half the rig turned 180 degrees about
+    its own origin, as if a generated clip had flipped a limb: the mesh tears at the joint."""
+    def edit(scene):
+        world, skin = scene.world(), scene._skins()[0]
+        order = sorted(range(skin.GetClusterCount()), key=lambda c: -skin.GetCluster(c).GetControlPointIndicesCount())
+        for c in order:
+            j = scene.names.index(skin.GetCluster(c).GetLink().GetName())
+            under = [k for k in range(len(scene.names)) if j in _chain(scene.parents, k)]
+            if scene.parents[j] >= 0 and len(under) <= len(scene.names) // 2:
+                break
+        turn, pivot = Rotation.from_euler("x", 180, degrees=True).as_matrix(), world[:, j, :3, 3].copy()
+        for k in under:
+            world[:, k, :3, :3] = turn @ world[:, k, :3, :3]
+            world[:, k, :3, 3] = pivot + (turn @ (world[:, k, :3, 3] - pivot).T).T
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
+
+
+def _chain(parents, k: int) -> list[int]:
+    out = [k]
+    while parents[out[-1]] >= 0:
+        out.append(int(parents[out[-1]]))
+    return out
+
+
+def write_nan_rotation(path: Path) -> None:
+    """One rotation key of the first animated joint is NaN, as a diverged sampler would leave it
+    (`FBX.animate` cannot write one, so the curve is edited)."""
+    def edit(scene):
+        layer = scene._stack().GetMember(sdk.FbxCriteria.ObjectType(sdk.FbxAnimLayer.ClassId), 0)
+        curve = next(c for n in scene.nodes if (c := n.LclRotation.GetCurve(layer, "X")) is not None)
+        curve.KeyModifyBegin()
+        curve.KeySetValue(curve.KeyGetCount() // 2, float("nan"))
+        curve.KeyModifyEnd()
+
+    _mutate(path, edit)
+
+
 def drop_enforce_rigid_law(path: Path) -> None:
     """The stage stays in the file's record, its law leaves the verifier (restored by the `laws` fixture)."""
     laws.LAWS.pop("enforce_rigid")
@@ -386,7 +426,7 @@ MUTATIONS = [
     Mutation("swap_cluster_link", "Goat", None, swap_two_cluster_links, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("perturb_bind", "Goat", None, perturb_one_link_bind, {"C2a": "FAIL"}, keeps_joints=True),
     Mutation("rebind", "Goat", None, rebind_89bff67, {"C2a": "FAIL"}, bounds=(2e-2, 1e-1)),
-    Mutation("rotate_joint", "Goat", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS"}),
+    Mutation("rotate_joint", "Goat", None, offset_one_joint_rotation, {"C2b-untraced": "FAIL", "C2a": "PASS", "C5-stability": "FAIL"}),
     Mutation("rigid_wrong_offset", "Goat", None, write_with_wrong_offset, {"C2b-untraced": "FAIL"},
              control=lambda path: write_with_wrong_offset(path, 1.0)),
     Mutation("rest_bone_scaled", "Goat", None, scale_one_rest_bone, {"C2b-rest": "FAIL"}),
@@ -396,7 +436,9 @@ MUTATIONS = [
     Mutation("drifting_yaw", "Goat", None, drift_yaw_over_the_clip, {"C3-shape": "FAIL"}),
     Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL", "C4-joints": "FAIL"}),
     Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
-    Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
+    Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-placement": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
+    Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL"}),
+    Mutation("nan_key", "Goat", None, write_nan_rotation, {"C5-range": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
 

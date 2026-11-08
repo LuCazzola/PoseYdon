@@ -28,7 +28,7 @@ class Evidence(Enum):
 class Check:
     id: str
     status: Status
-    evidence: Evidence
+    evidence: Evidence | None  # None on a NOT RUN line that compared nothing: no evidence to label
     value: float | None = None
     limit: float | None = None
     where: dict = field(default_factory=dict)
@@ -58,14 +58,15 @@ class Report:
         lines = [f"verdict: {self.verdict.value}", *(f"{k}: {v}" for k, v in self.run.items() if k != "sha256")]
         for c in self.checks:
             measured = "" if c.value is None else f" value={c.value:.4g} limit={c.limit}"
-            lines.append(f"{c.status.value:8} {c.id} [{c.evidence.value}]{measured} {c.where or ''} {c.note}".rstrip())
+            label = "" if c.evidence is None else f" [{c.evidence.value}]"
+            lines.append(f"{c.status.value:8} {c.id}{label}{measured} {c.where or ''} {c.note}".rstrip())
         return "\n".join(lines) + "\n"
 
     def write(self, directory: str | Path) -> None:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         body = {"verdict": self.verdict.value, "run": self.run,
-                "checks": [{**asdict(c), "status": c.status.value, "evidence": c.evidence.value} for c in self.checks]}
+                "checks": [{**asdict(c), "status": c.status.value, "evidence": c.evidence and c.evidence.value} for c in self.checks]}
         (directory / "report.json").write_text(json.dumps(body, indent=2, default=str))
         (directory / "report.txt").write_text(self.text())
 

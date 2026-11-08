@@ -1,7 +1,8 @@
 """Judge the FBX files the pipeline returns against the user's vendor rig.
 
     build  --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]   write the stage files of a round trip
-    file   FILE --reference REF [--out DIR]                                   one FBX against a vendor reference
+    file   FILE (--reference REF | --rig R --data D) [--out DIR]              one FBX with no source: C1, C2a (against REF, or the
+                                                                              rig's reference skin) and, with --rig, C5 sanity limits
     judge  DIR                                                                run the checks, write report.json / report.txt
 
 Runs in the `fbxsdk` container; the run directory is `<out>/<Rig>__<clip>/`, `--out` defaults to
@@ -26,12 +27,14 @@ import yaml
 from poseydon.build.pipeline import compose_build
 from poseydon.build.sources import REST_CACHE, SOURCES, rig_cache
 from poseydon.core.skeleton import SkeletonManifest
+from poseydon.core.animation import RigidBodyAnimation
 from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, commit, load_case, sample_frames, sha256, zero_clip
-from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero
-from tools.verify.report import Report, apply_allowances
+from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero, c5_sanity, c5_stability, rig_limits
+from tools.verify.checks import C5
+from tools.verify.report import Check, Report, Status, apply_allowances
 
 CONFIG = Path("configs/verify")
 STAGES = ("2_prepared", "3_model", "4_roundtrip")
@@ -56,17 +59,22 @@ def _write_case(run: Path, case: Case, extra: dict) -> None:
     }, indent=2))
 
 
+def rig_skin(data, rig: str) -> Path:
+    """The vendor file the rig's rest asset was built from: its reference skin."""
+    rest = rig_cache(data.paths.root, rig) / REST_CACHE
+    with np.load(rest) as z:
+        if "source_fbx" not in z.files:
+            raise LookupError(f"{rest} records no source_fbx: rebuild it with tools/build_rest_fbx.py")
+        return Path(str(z["source_fbx"]))
+
+
 def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: bool = False,
           floor: bool = False) -> Path:
     """Write the stage files of one clip and ``case.json``; returns the run directory.
     ``floor`` swaps the stages for the source clip alone, written onto the rest asset with no
     preparation: what the writer and reader cost with nothing of the pipeline in between."""
     data = compose_build([f"data={data_name}"]).data
-    rest = rig_cache(data.paths.root, rig) / REST_CACHE
-    with np.load(rest) as z:
-        if "source_fbx" not in z.files:
-            raise LookupError(f"{rest} records no source_fbx: rebuild it with tools/build_rest_fbx.py")
-        skin = Path(str(z["source_fbx"]))
+    skin = rig_skin(data, rig)
     stage = out / f".stage_{rig}"
     shutil.rmtree(stage, ignore_errors=True)  # a failed earlier build leaves one
     action = build_stages(data, rig, stage, clip)
@@ -126,15 +134,39 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     cfg = load_config() | {"limits": yaml.safe_load((CONFIG / "limits.yaml").read_text()) or {}}
     report.checks += c1_inventory(case, cfg["inventory_tol"])
     report.checks += c2a_skin(case, cfg)
+    if "file" in case.files:  # a file with no source: what needs the source or the stages is not claimed
+        report.checks += _c5(case, cfg)
+        apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
+        report.write(run)
+        return report
     report.checks += c2b_fidelity(case, cfg)
     report.checks += c3_canonical(case, cfg)
     report.checks += c4_zero(case, cfg)
+    report.checks += _c5(case, cfg)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report
 
 
-def file_case(file: Path, reference: Path, out: Path) -> Path:
+def _c5(case: Case, cfg: dict) -> list[Check]:
+    """C5 on the round trip (a built run) or the file (`file`); stability needs the source's prepared clip."""
+    path = case.files.get("4_roundtrip") or case.files.get("file")
+    if case.floor or path is None:
+        return [Check(f"C5-{k}", Status.NOT_RUN, None, note="needs a file under test") for k in (*C5, "stability")]
+    if not (case.data_name and case.rig):
+        return [Check(f"C5-{k}", Status.NOT_RUN, None, note="needs --rig and --data for the rig's vendor limits") for k in (*C5, "stability")]
+    out = c5_sanity(path, case.rig, rig_limits(case.data_name, case.rig, cfg))
+    if "file" in case.files:
+        return out + [Check("C5-stability", Status.NOT_RUN, None, note="no prepared clip of the file's own to compare with")]
+    data = compose_build([f"data={case.data_name}"]).data
+    root = Path(data.paths.root)
+    prepared = RigidBodyAnimation.load(root / "clips" / case.rig / f"{case.action}.npz").as_rigid_body(joint_translation="drop")
+    return out + [c5_stability(path, RigRecord.load(root, case.rig), prepared, data, cfg)]
+
+
+def file_case(file: Path, reference: Path | None, out: Path, data_name: str = "", rig: str = "") -> Path:
+    if reference is None:
+        reference = rig_skin(compose_build([f"data={data_name}"]).data, rig)
     run = out / f"{file.stem}_{hashlib.sha256(str(file.resolve()).encode()).hexdigest()[:8]}"
     run.mkdir(parents=True, exist_ok=True)
     try:
@@ -145,7 +177,7 @@ def file_case(file: Path, reference: Path, out: Path) -> Path:
             scene.close()
     except Exception:  # noqa: BLE001 - judge reports an unreadable file
         frames = np.zeros(0, dtype=int)
-    _write_case(run, Case("", "", file.stem, {"file": file}, reference, reference, frames, frames), {})
+    _write_case(run, Case(data_name, rig, file.stem, {"file": file}, reference, reference, frames, frames), {})
     return run
 
 
@@ -162,7 +194,9 @@ def main() -> None:
     b.add_argument("--out", type=Path, default=Path("tmp/verify"))
     f = sub.add_parser("file")
     f.add_argument("file", type=Path)
-    f.add_argument("--reference", type=Path, required=True)
+    f.add_argument("--reference", type=Path)
+    f.add_argument("--rig")
+    f.add_argument("--data")
     f.add_argument("--out", type=Path, default=Path("tmp/verify"))
     j = sub.add_parser("judge")
     j.add_argument("dir", type=Path)
@@ -180,7 +214,9 @@ def main() -> None:
                 failed.append(rig)
                 print(f"{rig}: FAILED {type(error).__name__}: {error}", flush=True)
         raise SystemExit(f"failed: {', '.join(failed)}" if failed else 0)
-    run = file_case(args.file, args.reference, args.out) if args.command == "file" else args.dir
+    if args.command == "file" and not (args.reference or (args.rig and args.data)):
+        parser.error("file needs --reference, or --rig and --data")
+    run = file_case(args.file, args.reference, args.out, args.data or "", args.rig or "") if args.command == "file" else args.dir
     runs = [run] if (run / "case.json").is_file() else sorted(p.parent for p in run.glob("*/case.json"))
     if not runs:
         raise SystemExit(f"{run}: no case.json here or in a subdirectory")

@@ -163,8 +163,8 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   `rest.npz`; a rig without it must be rebuilt with `tools/build_rest_fbx.py`).
   `build --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]` writes
   `<out>/<Rig>__<clip>/` (the `build_stage_samples.py` files plus `case.json`: paths,
-  sampled frames, the vendor file's frame for each (through the clip's recorded window), SHA-256 of each file, git commit, container); `file FILE --reference REF`
-  judges one FBX; `judge DIR` runs the checks and writes `report.json` and
+  sampled frames, the vendor file's frame for each (through the clip's recorded window), SHA-256 of each file, git commit, container); `file FILE (--reference REF | --rig R --data D)`
+  judges one FBX with no source: C1 and C2a against the reference (the rig's reference skin where `--rig` is given), and with `--rig` C5; `judge DIR` runs the checks and writes `report.json` and
   `report.txt` beside the stage files (default `--out` is `tmp/verify/`). `judge`
   refuses a file whose hash changed since `build`. Exit status is non-zero unless every check
   is `PASS` or `ALLOWED`. `--floor` replaces the stage files by the source clip alone written onto the rest asset
@@ -190,13 +190,23 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   is `NOT RUN`. `C4-placement` (`pipeline`) compares that fit with the placement recorded for the zero, with C3's `placement_*` bounds.
   `C4-joints` is the independent leg: the zero file's joint positions against the manifest's `rest_pose` BVH read from the raw files,
   after one fitted similarity, within `untraced_tol` of extent (evidence `derived` for a file this repo wrote, `*_authored.bvh` from `tools/tpose_author.py`; `independent` for a vendor file kept
-  unchanged, a `__TPOSE.bvh` or a clip's first frame such as Dog's `__Idle.bvh`; `NOT RUN` where the manifest has none). `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by
+  unchanged, a `__TPOSE.bvh` or a clip's first frame such as Dog's `__Idle.bvh`; `NOT RUN`, with no evidence label since nothing is compared, where the manifest has none). It compares positions only, so a rotation error that leaves every joint in place is unseen. `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by
   `C4-mesh`'s fitted rotation) and facing +Z (the manifest's facing pairs, as `FaceRestAxis` defines it) within `zero_facing_deg`, grounded
   per the rig's ground mode within `zero_ground_tol` of extent; a part the chain does not declare is named and left out. `C4-symmetry` is
   not implemented: it needs a limit format the owner sets in `limits.yaml` (empty today; a rig that gains an entry is still `NOT RUN`, with that
   note), so every run's verdict reads `NOT RUN`).
   A `--floor` run is judged against the source itself, but for the writer's node scale and held joints.
-  `file` on a bare FBX has no stages or records, so its C2b is always `NOT RUN`.
+  C5 (the `4_roundtrip` file, or the `file` run's, with no reference; `tools/verify/checks.py`): `C5-range` (every key: how far a skeleton
+  joint strays from the skeleton's centroid, as a fraction of the first frame's extent; a key that is not a number is infinite), `C5-stretch`
+  (worst edge length ratio against the file's own bind mesh, `max(x, 1/x)`), `C5-area` (the same for triangle areas) and `C5-bone-distance`
+  (change of a vertex's distance to its dominant bone, fraction of mesh extent), over `n_frames` sampled frames. The limits are the largest value
+  seen across the rig's vendor clips (`fbx_clips.csv`) times `stretch_margin`, evidence `derived`, cached at `tmp/verify/limits/<data>/<rig>.json` and
+  re-measured when the clip list, `n_frames` or the margin change. A clip with no usable mesh gives no mesh limit; a rig with none is `NOT RUN`
+  on those lines, naming why (nothing is invented). The edges are the mesh's own, so a short edge that a vendor clip stretches 47 times
+  (Camel) sets a wide limit: the check catches a tear or a flip beyond what the vendor ever did, not subtle damage. `C5-stability`
+  (`pipeline`, `build` runs only): the round trip read back like a vendor clip and prepared again with the rig's recorded chain, against
+  the clip's model view after ONE fitted similarity, within `stability_tol` of extent; `file` has no prepared clip, so `NOT RUN`.
+  `file` on a bare FBX has no stages or records, so C2b, C3 and C4 are not run for it.
   C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the
   smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's.
 
