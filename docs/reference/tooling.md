@@ -180,8 +180,8 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   declaration makes `C2b-untraced` `NOT RUN`) and C3 (the `2_prepared` and `3_model` files, written in canonical space, against the
   source clip with the same laws, the model stage adding the reduction's: ONE similarity is fitted for the whole clip from the
   expected skin vertices to the file's; `C3-shape` is the residual, judged on vertices, joints and rotations with the C2b-untraced
-  tolerances; `C3-placement` (`pipeline` evidence) compares the fit with the `space` `RigRecord.placement` records: scale ratio
-  `placement_scale_tol`, rotation in degrees `placement_yaw_deg`, offset as a fraction of extent `placement_offset_tol`).
+  tolerances; `C3-placement` (`pipeline` evidence) compares the fit with the `space` recomputed from the record by `RigRecord.placement` (it checks that a canonical file sits where the record says; a wrong record moves `4_roundtrip` off the source, which C2b catches): scale ratio
+  `placement_scale_tol`, whole rotation in degrees `placement_rotation_deg`, offset as a fraction of extent `placement_offset_tol`).
   A `--floor` run is judged against the source itself, but for the writer's node scale and held joints.
   `file` on a bare FBX has no stages or records, so its C2b is always `NOT RUN`.
   C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the

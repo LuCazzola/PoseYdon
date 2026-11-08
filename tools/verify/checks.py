@@ -355,6 +355,15 @@ def _size(run: _Run, world: np.ndarray) -> float:
                for f in range(len(world)))
 
 
+def _judged(gap: dict, cfg: dict) -> tuple[float, bool]:
+    """The value and the verdict of a file-against-expected gap: vertices (else joints) and joint positions
+    within ``untraced_tol`` of extent, rotations within ``untraced_rot_tol``."""
+    value = (gap["vertex"] or gap["joint"])["value"]
+    failed = (not value <= cfg["untraced_tol"] or not gap["joint"]["value"] <= cfg["untraced_tol"]
+              or not gap["rotation"]["value"] <= cfg["untraced_rot_tol"])
+    return value, failed
+
+
 def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     """The returned file's joints against what the pipeline is defined to produce from the user's
     clip: the source, with each lossy stage's law applied (`tools/verify/laws.py`). Untraced error
@@ -402,14 +411,12 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     out = []
     for check, other in (("C2b-untraced", file.world), ("C2b-traced", pose.world)):
         gap = _gap(other, expected.world, names, run.compare, usable, size, case.frames)
-        value = (gap["vertex"] or gap["joint"])["value"]
+        value, failed = _judged(gap, cfg)
         note = "; ".join([_summary(gap), inputs, *run.skipped])
         if check == "C2b-traced":
             out.append(Check(check, Status.PASS, evidence, value, where=where | gap,
                              note=f"by laws of {', '.join(s for s in stages if s in laws.LAWS)}; {note}"))
         else:
-            failed = (not value <= cfg["untraced_tol"] or not gap["joint"]["value"] <= cfg["untraced_tol"]
-                      or not gap["rotation"]["value"] <= cfg["untraced_rot_tol"])
             out.append(Check(check, Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"],
                              where | gap, note))
     return [*out, rest]
@@ -427,7 +434,8 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
     evidence, where = _evidence(case), {"rig": case.rig, "clip": case.action, "file": name}
 
     def stop(status: Status, note: str) -> list[Check]:
-        return [Check("C3-shape", status, evidence, where=where, note=note)]
+        return [Check("C3-shape", status, evidence, where=where, note=note),
+                Check("C3-placement", Status.NOT_RUN, Evidence.PIPELINE, where=where, note="C3-shape did not complete")]
 
     run = _load(case, path)
     if isinstance(run, str):
@@ -446,23 +454,22 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
         if odd:
             return stop(Status.NOT_RUN, f"mesh {odd[:3]} is missing, differs in vertices or links a joint the file lacks (C2a)")
         mesh = [mine[s.mesh] for s in run.skins]
-        want = np.concatenate([deform(s, {n: expected.world[:, j] for j, n in enumerate(names)}).reshape(-1, 3)
-                               for s in run.skins])
+        wants = [deform(s, {n: expected.world[:, j] for j, n in enumerate(names)}) for s in run.skins]
         got = [deform(s, {n: file.world[:, j] for j, n in enumerate(names)}) for s in mesh]
     except Exception as error:  # noqa: BLE001 - an unreadable file or a singular bind is NOT RUN
         return stop(Status.NOT_RUN, f"{type(error).__name__}: {error}")
-    seen = np.concatenate([g.reshape(-1, 3) for g in got])
-    size = max(extent(np.concatenate([g[f] for g in got])) for f in range(len(case.frames)))
-    if not (np.isfinite(want).all() and np.isfinite(seen).all() and size > 0):
-        return stop(Status.FAIL, "non-finite vertices or zero extent")
+    want, seen = (np.concatenate([a.reshape(-1, 3) for a in x]) for x in (wants, got))
+    if not (np.isfinite(want).all() and np.isfinite(seen).all()):
+        return stop(Status.FAIL, "non-finite vertices")
     # One similarity for the whole clip: a per-frame fit would hide a placement error.
     scale, rotation, shift = similarity(want, seen)
     fit = np.eye(4)
     fit[:3, :3], fit[:3, 3] = scale * rotation, shift
+    size = max(extent(np.concatenate([w[f] for w in wants]) @ fit[:3, :3].T + shift) for f in range(len(case.frames)))
+    if not size > 0:
+        return stop(Status.FAIL, "the expected pose has zero extent")
     gap = _gap(file.world, fit @ expected.world, names, run.compare, mesh, size, case.frames)
-    value = (gap["vertex"] or gap["joint"])["value"]
-    failed = (not value <= cfg["untraced_tol"] or not gap["joint"]["value"] <= cfg["untraced_tol"]
-              or not gap["rotation"]["value"] <= cfg["untraced_rot_tol"])
+    value, failed = _judged(gap, cfg)
     out = [Check("C3-shape", Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"],
                  where | gap, "after one fitted similarity; " + "; ".join([_summary(gap), *run.skipped]))]
     try:
@@ -471,9 +478,9 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
         return [*out, Check("C3-placement", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=f"unreadable record: {error}")]
     recorded = np.cbrt(abs(np.linalg.det(space[:3, :3])))
     turned = float(np.degrees(Rotation.from_matrix(rotation @ (space[:3, :3] / recorded).T).magnitude()))
-    found = {"scale": abs(scale / recorded - 1), "yaw_deg": turned,
+    found = {"scale": abs(scale / recorded - 1), "rotation_deg": turned,
              "offset": float(np.linalg.norm(shift - space[:3, 3]) / size)}
-    limit = {"scale": cfg["placement_scale_tol"], "yaw_deg": cfg["placement_yaw_deg"], "offset": cfg["placement_offset_tol"]}
+    limit = {"scale": cfg["placement_scale_tol"], "rotation_deg": cfg["placement_rotation_deg"], "offset": cfg["placement_offset_tol"]}
     bad = [k for k in found if not found[k] <= limit[k]]
     out.append(Check("C3-placement", Status.FAIL if bad else Status.PASS, Evidence.PIPELINE,
                      max(found[k] / limit[k] for k in found), 1.0, where | {"found": found, "limit": limit},
@@ -488,8 +495,17 @@ def c3_canonical(case: Case, cfg: dict) -> list[Check]:
     stage's laws, on the reference skin) to the file's. ``C3-shape`` is the residual, judged on vertices,
     joints and rotations like C2b-untraced; ``C3-placement`` compares the fit with the `space`
     `RigRecord.placement` recorded: scale ratio, rotation in degrees, offset as a fraction of extent. The
-    model stage adds the reduction's laws."""
-    stages = {n: p for n, p in case.files.items() if n in ("2_prepared", "3_model")}
-    if not stages or not case.data_name or case.floor or not len(case.frames):
+    model stage adds the reduction's laws. ``C3-placement`` checks a canonical file against the placement
+    recomputed from the record; a wrong record moves 4_roundtrip off the source, which is C2b's catch."""
+    wanted = ("2_prepared", "3_model")
+    if not any(n in case.files for n in wanted) or not case.data_name or case.floor or not len(case.frames):
         return [Check("C3-shape", Status.NOT_RUN, _evidence(case), note="needs a built round trip's 2_prepared and 3_model files")]
-    return [c for name, path in stages.items() for c in _c3_stage(case, cfg, name, path)]
+    out = []
+    for name in wanted:
+        if name in case.files:
+            out += _c3_stage(case, cfg, name, case.files[name])
+        else:
+            out += [Check(c, Status.NOT_RUN, _evidence(case) if c == "C3-shape" else Evidence.PIPELINE,
+                          where={"rig": case.rig, "clip": case.action, "file": name}, note=f"the case has no {name} file")
+                    for c in ("C3-shape", "C3-placement")]
+    return out

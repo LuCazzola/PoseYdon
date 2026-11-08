@@ -4,9 +4,13 @@ inventory_tol: 1.0e-6    # C1, bind matrices
 skin_tol: 1.0e-3        # C2a, fraction of rig extent; floor 7.4e-16 on the smoke set (build --floor, 2026-11-07)
 untraced_tol: 1.0e-3    # C2b, fraction of rig extent; float32 key floor through judge on `build --smoke --floor`, 2026-11-07: vertices 8.8e-8 to 6.9e-6 (Camel), joints 4.6e-8 to 6.9e-6, rotations 2.4e-13 to 9.2e-7
 untraced_rot_tol: 1.0e-4 # C2b, joint world rotation, largest matrix element difference (test_round_trip_fbx's FBX_TOL); floor above
-placement_scale_tol: 1.0e-4  # C3-placement, fitted scale against the recorded one, as a ratio
-placement_yaw_deg: 0.01      # C3-placement, rotation between the fitted and the recorded, degrees
-placement_offset_tol: 1.0e-4 # C3-placement, offset difference as a fraction of rig extent
+# C3-placement bounds. Measured on `build --smoke` + `judge`, 2026-11-08 (tmp/verify/t5), all 20 canonical files:
+# scale ratio 1.3e-8 to 3.9e-5, rotation 5e-6 to 5.2e-3 deg, offset 4e-8 to 2.0e-5 of extent.
+# Bear angeryswat 3_model sits at 0.51 of the rotation bound: the recorded `space` is solved on joints, the fit on
+# vertices, and the two differ once the twist joints drop. The bounds were set before the run and not widened.
+placement_scale_tol: 1.0e-4    # fitted scale against the recorded one, as a ratio
+placement_rotation_deg: 0.01   # the whole rotation between the fitted and the recorded, degrees
+placement_offset_tol: 1.0e-4   # offset difference as a fraction of rig extent
 stretch_margin: 1.1
 # Rigs that each broke something (Tukan and Crow are the promoted-root rigs), each at
 # the rig's default clip, plus the extra clips listed under `extra`.

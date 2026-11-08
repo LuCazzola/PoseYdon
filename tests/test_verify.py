@@ -213,15 +213,28 @@ def write_with_wrong_offset(path: Path, factor: float = 1.1) -> None:
 
 
 def write_placement_yawed_20deg(path: Path) -> None:
-    """Stand-in for a wrong recorded facing yaw: the canonical stage files written with their placement turned 20 degrees about +Y."""
+    """The canonical stage files written 20 degrees off the placement the record gives (a wrong record is C2b's catch, see `wrong_facing`)."""
     turn = np.eye(4)
     turn[:3, :3] = Rotation.from_euler("y", 20, degrees=True).as_matrix()
     write_placement(path, turn)
 
 
 def write_placement_scaled_5(path: Path) -> None:
-    """Stand-in for a wrong recorded scale (Crow's bug): the canonical stage files written 5% larger."""
+    """The canonical stage files written 5% larger than the placement the record gives."""
     write_placement(path, np.diag([1.05, 1.05, 1.05, 1.0]))
+
+
+def turn_roundtrip_20deg(path: Path) -> None:
+    """Stand-in for a wrong recorded facing: the restored clip turned 20 degrees about the vertical through its root at frame 0."""
+    def edit(scene):
+        world = scene.world()
+        pivot = world[0, 0, :3, 3].copy()
+        turn = np.eye(4)
+        turn[:3, :3] = Rotation.from_euler("y", 20, degrees=True).as_matrix()
+        turn[:3, 3] = pivot - turn[:3, :3] @ pivot
+        scene.animate({n: turn @ world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
 
 
 def drift_yaw_over_the_clip(path: Path) -> None:
@@ -320,6 +333,7 @@ MUTATIONS = [
     Mutation("rest_bone_scaled", "Goat", None, scale_one_rest_bone, {"C2b-rest": "FAIL"}),
     Mutation("missing_law", "Goat", None, drop_enforce_rigid_law, {"C2b-untraced": "NOT RUN", "C2b-rest": "PASS"}),
     Mutation("wrong_yaw", "Goat", None, write_placement_yawed_20deg, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
+    Mutation("wrong_facing", "Goat", None, turn_roundtrip_20deg, {"C2b-untraced": "FAIL"}),
     Mutation("drifting_yaw", "Goat", None, drift_yaw_over_the_clip, {"C3-shape": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
@@ -328,6 +342,7 @@ MUTATIONS = [
 def _status(report, check):
     """The worst line of ``check`` (one per stage file for C2a)."""
     order = [Status.PASS, Status.ALLOWED, Status.NOT_RUN, Status.FAIL]
+    assert any(c.id == check for c in report.checks), f"no check line `{check}` in the report"
     return max((c for c in report.checks if c.id == check), key=lambda c: (order.index(c.status), c.value or 0))
 
 
