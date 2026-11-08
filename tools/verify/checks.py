@@ -10,6 +10,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from poseydon.build.prepare import similarity
+from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX, Inventory, SkinData
 from tools.verify import laws
 from tools.verify.case import Case, LossRecord, ZeroRecord, loss_record, recorded_space, zero_record
@@ -453,6 +454,8 @@ def _fitted(path: Path, file: _Joints, skins: list[SkinData], compare: list[int]
     similarity fitted from the expected skin vertices to the file's: ``(gap, value, failed, scale,
     rotation, shift, size)``, or a `_Cannot` where the file cannot be judged."""
     names = file.names
+    if not compare:
+        return _Cannot(Status.NOT_RUN, "no joints to compare")
     try:
         mine = _skins_of(path)
         odd = [s.mesh for s in skins if s.mesh not in mine or mine[s.mesh].points.shape != s.points.shape
@@ -476,6 +479,22 @@ def _fitted(path: Path, file: _Joints, skins: list[SkinData], compare: list[int]
         return _Cannot(Status.FAIL, "the expected pose has zero extent")
     gap = _gap(file.world, fit @ expected, names, compare, mesh, size, frames)
     return (gap, *_judged(gap, cfg), scale, rotation, shift, size)
+
+
+def _placement(space: np.ndarray, scale: float, rotation: np.ndarray, shift: np.ndarray, size: float, cfg: dict,
+               where: dict, check: str = "C3-placement") -> Check:
+    """The fitted similarity against the recorded ``space``: scale ratio, whole rotation in degrees, offset
+    as a fraction of extent, each within its `placement_*` bound."""
+    recorded = np.cbrt(abs(np.linalg.det(space[:3, :3])))
+    turned = float(np.degrees(Rotation.from_matrix(rotation @ (space[:3, :3] / recorded).T).magnitude()))
+    found = {"scale": abs(scale / recorded - 1), "rotation_deg": turned,
+             "offset": float(np.linalg.norm(shift - space[:3, 3]) / size)}
+    limit = {"scale": cfg["placement_scale_tol"], "rotation_deg": cfg["placement_rotation_deg"], "offset": cfg["placement_offset_tol"]}
+    bad = [k for k in found if not found[k] <= limit[k]]
+    return Check(check, Status.FAIL if bad else Status.PASS, Evidence.PIPELINE,
+                 max(found[k] / limit[k] for k in found), 1.0, where | {"found": found, "limit": limit},
+                 "fitted similarity against the recorded `space` (value: worst error over its limit; angle is the whole "
+                 "rotation between them)" + (f"; over: {', '.join(bad)}" if bad else ""))
 
 
 def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
@@ -505,17 +524,7 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
         space = recorded_space(case, name)
     except Exception as error:  # noqa: BLE001
         return [*out, Check("C3-placement", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=f"unreadable record: {error}")]
-    recorded = np.cbrt(abs(np.linalg.det(space[:3, :3])))
-    turned = float(np.degrees(Rotation.from_matrix(rotation @ (space[:3, :3] / recorded).T).magnitude()))
-    found = {"scale": abs(scale / recorded - 1), "rotation_deg": turned,
-             "offset": float(np.linalg.norm(shift - space[:3, 3]) / size)}
-    limit = {"scale": cfg["placement_scale_tol"], "rotation_deg": cfg["placement_rotation_deg"], "offset": cfg["placement_offset_tol"]}
-    bad = [k for k in found if not found[k] <= limit[k]]
-    out.append(Check("C3-placement", Status.FAIL if bad else Status.PASS, Evidence.PIPELINE,
-                     max(found[k] / limit[k] for k in found), 1.0, where | {"found": found, "limit": limit},
-                     "fitted similarity against the recorded `space` (value: worst error over its limit; angle is the whole "
-                     "rotation between them)" + (f"; over: {', '.join(bad)}" if bad else "")))
-    return out
+    return [*out, _placement(space, scale, rotation, shift, size, cfg, where)]
 
 
 def c3_canonical(case: Case, cfg: dict) -> list[Check]:
@@ -556,6 +565,10 @@ def _zero_pose(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints, skins: lis
     where, world = {"rig": case.rig, "clip": case.action}, file.world[0]
     found, limit, notes = {}, {"up_deg": cfg["zero_facing_deg"], "facing_deg": cfg["zero_facing_deg"],
                                "ground": cfg["zero_ground_tol"]}, []
+
+    def stop(note: str) -> Check:
+        return Check("C4-pose", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=note)
+
     if "up_axis" in rec.stages and rotation is not None:
         up = np.zeros(3)
         up[_AXIS[rec.up_axis[1]]] = 1.0 if rec.up_axis[0] == "+" else -1.0
@@ -566,25 +579,25 @@ def _zero_pose(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints, skins: lis
         try:
             across = sum(world[file.names.index(r), :3, 3] - world[file.names.index(l), :3, 3] for r, l in rec.facing)
         except ValueError as error:
-            return Check("C4-pose", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=f"facing joint missing from the file: {error}")
+            return stop(f"facing joint missing from the file: {error}")
         yaw = np.radians(rec.extra_yaw_deg)
         found["facing_deg"] = _angle(np.cross([0.0, 1.0, 0.0], across), np.array([np.sin(yaw), 0.0, np.cos(yaw)]))
     else:
         notes.append("facing not judged: the chain has no face_rest_axis")
     if rec.ground:
-        names = set(rec.joints) & set(file.names)
         if rec.ground == "mesh":
-            if not skins:
-                return Check("C4-pose", Status.NOT_RUN, Evidence.PIPELINE, where=where, note="ground mode `mesh`, no skin the verifier models")
-            cloud = np.concatenate([deform(s, {n: file.world[:, j] for j, n in enumerate(file.names)})[0] for s in skins])
+            cloud = [deform(s, {n: file.world[:, j] for j, n in enumerate(file.names)})[0] for s in skins]
         else:
-            cloud = np.array([world[j, :3, 3] for j, n in enumerate(file.names) if n in names])
+            cloud = [world[[j for j, n in enumerate(file.names) if n in rec.joints], :3, 3]]
+        cloud = np.concatenate(cloud) if cloud else np.zeros((0, 3))
+        if not len(cloud):
+            return stop(f"ground mode `{rec.ground}`: " + ("no skin the verifier models" if rec.ground == "mesh" else "no prepared joint in the file"))
         found["ground"] = float(abs(cloud[:, 1].min()) / extent(cloud))
         where = where | {"ground_mode": rec.ground}
     else:
         notes.append("ground not judged: the chain has no ground stage")
     if not found:
-        return Check("C4-pose", Status.NOT_RUN, Evidence.PIPELINE, where=where, note="; ".join(notes))
+        return stop("; ".join(notes))
     bad = [k for k in found if not found[k] <= limit[k]]
     return Check("C4-pose", Status.FAIL if bad else Status.PASS, Evidence.PIPELINE, max(found[k] / limit[k] for k in found), 1.0,
                  where | {"found": found, "limit": limit},
@@ -592,21 +605,55 @@ def _zero_pose(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints, skins: lis
                  + (f"; over: {', '.join(bad)}" if bad else "") + ("; " + "; ".join(notes) if notes else ""))
 
 
+def _zero_joints(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints) -> Check:
+    """C4-joints: the zero file's joint positions against the rig's rest-pose BVH (the manifest's `rest_pose`),
+    after ONE fitted similarity, within ``untraced_tol`` of extent. The BVH is the source `rest.npz` was built
+    from, read here on its own: `derived` where the pose was authored (`tools/tpose_author.py`), `independent`
+    where it is the vendor's own T-pose. Joints held by structure are left out."""
+    where = {"rig": case.rig, "clip": case.action}
+    if rec.rest_pose is None:
+        return Check("C4-joints", Status.NOT_RUN, Evidence.DERIVED, where=where, note="the manifest declares no rest_pose BVH")
+    evidence = Evidence.DERIVED if "authored" in rec.rest_pose.name else Evidence.INDEPENDENT
+    try:
+        pose = BVH.read(rec.rest_pose).to_animation().slice(0, 1)
+    except Exception as error:  # noqa: BLE001 - a missing raw file is NOT RUN
+        return Check("C4-joints", Status.NOT_RUN, evidence, where=where, note=f"rest_pose unreadable: {error}")
+    common = [n for n in file.names if n in pose.names and n not in rec.fixed]
+    if len(common) < 4:
+        return Check("C4-joints", Status.NOT_RUN, evidence, where=where, note=f"{len(common)} joints shared with {rec.rest_pose.name}")
+    want = pose.global_positions()[0, [pose.names.index(n) for n in common]]
+    got = file.world[0, [file.names.index(n) for n in common], :3, 3]
+    scale, rotation, shift = similarity(want, got)
+    error = np.linalg.norm(want * scale @ rotation.T + shift - got, axis=-1)
+    size, at = extent(got), int(error.argmax())
+    if not size > 0:
+        return Check("C4-joints", Status.FAIL, evidence, where=where, note="the zero file has zero extent")
+    value = float(error[at] / size)
+    return Check("C4-joints", Status.FAIL if not value <= cfg["untraced_tol"] else Status.PASS, evidence, value, cfg["untraced_tol"],
+                 where | {"joint": common[at]},
+                 f"{len(common)} joints against {rec.rest_pose.name} after one fitted similarity (worst {common[at]})")
+
+
 def c4_zero(case: Case, cfg: dict) -> list[Check]:
     """Identity rotations in PoseYdon's frame (the `5_zero` file) against the rig's reference pose.
-    ``C4-mesh`` (independent): the file's skin against the vendor reference skin driven by `rest.npz:rest`
-    (the authored rest pose in the vendor's space), after ONE fitted similarity, judged like C3-shape; a
-    chain without `rest_relative` (`data=unimate`) has no rest at identity, so it is NOT RUN. ``C4-pose``
-    (`pipeline` evidence only, the manifest's own definition): up +Y, facing +Z, grounded. ``C4-symmetry``
-    needs limits the owner sets in `configs/verify/limits.yaml`, none today: NOT RUN."""
+    ``C4-mesh`` (`pipeline`): the file's skin under its joints against the same skin under `rest.npz:rest`
+    (the rest pose the corpus was built from, in the vendor's space), after ONE fitted similarity, judged like
+    `C3-shape`; the vendor skin enters through the fit and C2a holds the file's skin to it. A chain without
+    `rest_relative` (`data=unimate`) has no rest at identity: NOT RUN. ``C4-placement`` compares that fit
+    with the placement recorded for the zero, like `C3-placement`. ``C4-joints`` is the pose's independent
+    leg (see `_zero_joints`). ``C4-pose`` (`pipeline`, the manifest's own definition): up +Y, facing +Z,
+    grounded. ``C4-symmetry`` needs a limit format the owner has not set (`configs/verify/limits.yaml`,
+    empty): NOT RUN."""
     evidence, where, path = _evidence(case), {"rig": case.rig, "clip": case.action}, case.files.get(ZERO)
+    declared = case.rig in cfg.get("limits", {})
     symmetry = Check("C4-symmetry", Status.NOT_RUN, Evidence.PIPELINE, where=where,
-                     note=f"no symmetry limits declared for {case.rig} (configs/verify/limits.yaml is owner-set)")
+                     note=(f"limits declared for {case.rig}, but symmetry is not implemented: it needs a limit format"
+                           if declared else f"no symmetry limits declared for {case.rig} (configs/verify/limits.yaml is owner-set)"))
     if path is None or not case.data_name or case.floor:
         why = f"needs a built round trip's {ZERO} file"
-        return [Check("C4-mesh", Status.NOT_RUN, evidence, note=why), Check("C4-pose", Status.NOT_RUN, Evidence.PIPELINE, note=why), symmetry]
+        return [Check(c, Status.NOT_RUN, Evidence.PIPELINE, note=why) for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + [symmetry]
 
-    def stop(check: str, status: Status, note: str, ev=evidence) -> Check:
+    def stop(check: str, status: Status, note: str, ev=Evidence.PIPELINE) -> Check:
         return Check(check, status, ev, where=where, note=note)
 
     try:
@@ -614,10 +661,10 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
         file = _joints(path, lambda f: f[:1])
         skins, inventory = reference_skin(case), _read(case.skin_fbx).inventory
     except Exception as error:  # noqa: BLE001 - an unreadable file or record is NOT RUN
-        return [stop("C4-mesh", Status.NOT_RUN, f"unreadable: {error}"), stop("C4-pose", Status.NOT_RUN, f"unreadable: {error}", Evidence.PIPELINE), symmetry]
+        return [stop(c, Status.NOT_RUN, f"unreadable: {error}") for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + [symmetry]
     modelled = _modelled(skins, inventory, file)
     usable = [] if isinstance(modelled, str) else modelled[0]
-    rotation = None
+    rotation, placement = None, None
     rest = {}
     if "rest_relative" in rec.stages:
         with np.load(rec.rest, allow_pickle=True) as z:
@@ -636,8 +683,10 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
         if isinstance(fitted, _Cannot):
             mesh = stop("C4-mesh", *fitted)
         else:
-            gap, value, failed, _, rotation, _, _ = fitted
-            mesh = Check("C4-mesh", Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"], where | gap,
+            gap, value, failed, scale, rotation, shift, size = fitted
+            mesh = Check("C4-mesh", Status.FAIL if failed else Status.PASS, Evidence.PIPELINE, value, cfg["untraced_tol"], where | gap,
                          "after one fitted similarity; " + "; ".join([_summary(gap), *modelled[1]])
                          + (f"; {len(held)} joints held by structure not compared (`RigRecord.fixed`)" if held else ""))
-    return [mesh, _zero_pose(case, cfg, rec, file, usable, rotation), symmetry]
+            placement = _placement(rec.space, scale, rotation, shift, size, cfg, where, "C4-placement")
+    placement = placement or stop("C4-placement", Status.NOT_RUN, "C4-mesh did not complete")
+    return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation), symmetry]

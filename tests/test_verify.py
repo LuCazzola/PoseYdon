@@ -22,7 +22,7 @@ from scripts.verify_motion import build, judge  # noqa: E402 - needs the SDK too
 from tools.verify.case import load_case, sample_frames  # noqa: E402
 from poseydon.export import RigRecord  # noqa: E402
 from tools.verify import laws  # noqa: E402
-from tools.verify.report import Status  # noqa: E402
+from tools.verify.report import Report, Status  # noqa: E402
 from tools.verify.skin import deform, extent  # noqa: E402
 
 
@@ -265,11 +265,24 @@ def write_placement(path: Path, edit: np.ndarray) -> None:
 
 
 def shift_zero_joint(path: Path) -> None:
-    """The zero file with the joint weighing most vertices moved by 5% of the mesh extent."""
+    """The zero file with the joint weighing most vertices moved by 5% of the mesh extent (the output, not
+    `rest.npz`: a wrong rest pose written into the cache is what C4-joints is for)."""
     def edit(scene):
         world, j = scene.world(), _largest_cluster_joint(scene)
         world[:, j, 0, 3] += 0.05 * extent(scene.skin_data()[0].points)
         scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path.parent / "5_zero.fbx", edit)
+
+
+def turn_zero_half_degree(path: Path) -> None:
+    """The zero file turned 0.5 degrees about +Y: one similarity absorbs it (C4-mesh, C4-joints stay green),
+    the frame's definition (facing +Z) does not."""
+    def edit(scene):
+        world = scene.world()
+        turn = np.eye(4)
+        turn[:3, :3] = Rotation.from_euler("y", 0.5, degrees=True).as_matrix()
+        scene.animate({n: turn @ world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
 
     _mutate(path.parent / "5_zero.fbx", edit)
 
@@ -345,15 +358,24 @@ MUTATIONS = [
     Mutation("wrong_yaw", "Goat", None, write_placement_yawed_20deg, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
     Mutation("wrong_facing", "Goat", None, turn_roundtrip_20deg, {"C2b-untraced": "FAIL"}),
     Mutation("drifting_yaw", "Goat", None, drift_yaw_over_the_clip, {"C3-shape": "FAIL"}),
-    Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL"}),
+    Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL", "C4-joints": "FAIL"}),
+    Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
 
 
+def _judged_lines(report):
+    """Every line but `C4-symmetry` NOT RUN, which stays until the owner sets limits (`configs/verify/limits.yaml`)."""
+    return [c for c in report.checks if (c.id, c.status) != ("C4-symmetry", Status.NOT_RUN)]
+
+
 def assert_green(report):
-    """Every line PASS but `C4-symmetry`, which is NOT RUN until the owner sets limits (`configs/verify/limits.yaml`)."""
-    left = [c for c in report.checks if c.status is not Status.PASS]
-    assert [(c.id, c.status) for c in left] == [("C4-symmetry", Status.NOT_RUN)], left
+    left = [c for c in _judged_lines(report) if c.status is not Status.PASS]
+    assert not left, left
+
+
+def verdict(report):
+    return Report(report.run, _judged_lines(report)).verdict
 
 
 def _status(report, check):
@@ -397,7 +419,7 @@ def test_verifier_goes_red(m, tmp_path):
     after = judge(run, accept_changed=True)
     for check, want in m.expected.items():
         assert_red(base, after, check, want, m.rise)
-    assert after.verdict is not Status.PASS
+    assert verdict(after) is not Status.PASS
     assert m.names in _status(after, "C2a").note
     if m.bounds:
         assert m.bounds[0] <= _status(after, "C2a").value <= m.bounds[1]

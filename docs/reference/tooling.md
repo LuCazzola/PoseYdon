@@ -182,13 +182,19 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   expected skin vertices to the file's; `C3-shape` is the residual, judged on vertices, joints and rotations with the C2b-untraced
   tolerances; `C3-placement` (`pipeline` evidence) compares the fit with the `space` recomputed from the record by `RigRecord.placement` (it checks that a canonical file sits where the record says; a wrong record moves `4_roundtrip` off the source, which C2b catches): scale ratio
   `placement_scale_tol`, whole rotation in degrees `placement_rotation_deg`, offset as a fraction of extent `placement_offset_tol`)
-  and C4 (the `5_zero` file `build` also writes: identity rotations on `skeleton.npz`'s offsets, placed by `RigRecord.placement`,
-  one pose; C1 and C2a judge it too, C1 without clip timing. `C4-mesh`, `independent`: its skin against the reference skin
-  driven by `rest.npz:rest`, ONE fitted similarity, judged like `C3-shape`; a chain without `rest_relative`, i.e. `data=unimate`,
-  is `NOT RUN`. `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by `C4-mesh`'s fitted rotation) and
-  facing +Z (the manifest's facing pairs, as `FaceRestAxis` defines it) within `zero_facing_deg`, grounded per the rig's ground mode within
-  `zero_ground_tol` of extent; a part the chain does not declare is named and left out. `C4-symmetry` needs owner limits in
-  `limits.yaml`, none today, so it is `NOT RUN` and every run's verdict reads `NOT RUN`).
+  and C4 (the `5_zero` file `build` also writes: identity rotations on `skeleton.npz`'s offsets, the root where the rig's `rest_action`
+  clip stands at frame 0 (`build` raises if that clip is missing), placed by `RigRecord.placement`; one pose. C1 and C2a judge it too,
+  C1 without clip timing. `C4-mesh` (`pipeline` evidence: its pose reference is `rest.npz:rest`, built by `tools/build_rest_fbx.py` from
+  the manifest's rest pose): the file's skin under its joints against the same skin under that rest pose, ONE fitted similarity, judged like
+  `C3-shape` (the vendor skin enters through the fit; C2a holds the file's skin to it); a chain without `rest_relative`, i.e. `data=unimate`,
+  is `NOT RUN`. `C4-placement` (`pipeline`) compares that fit with the placement recorded for the zero, with C3's `placement_*` bounds.
+  `C4-joints` is the independent leg: the zero file's joint positions against the manifest's `rest_pose` BVH read from the raw files,
+  after one fitted similarity, within `untraced_tol` of extent (evidence `derived` for an authored T-pose, `independent` for a vendor
+  one; `NOT RUN` where the manifest has none). `C4-pose`, `pipeline` evidence only: up +Y (the manifest's `up_axis`, carried by
+  `C4-mesh`'s fitted rotation) and facing +Z (the manifest's facing pairs, as `FaceRestAxis` defines it) within `zero_facing_deg`, grounded
+  per the rig's ground mode within `zero_ground_tol` of extent; a part the chain does not declare is named and left out. `C4-symmetry` is
+  not implemented: it needs a limit format the owner sets in `limits.yaml` (empty today; a rig that gains an entry is still `NOT RUN`, with that
+  note), so every run's verdict reads `NOT RUN`).
   A `--floor` run is judged against the source itself, but for the writer's node scale and held joints.
   `file` on a bare FBX has no stages or records, so its C2b is always `NOT RUN`.
   C1 compares a clip's frame count with its recorded window over the vendor keys. Settings (`inventory_tol` among them) and the

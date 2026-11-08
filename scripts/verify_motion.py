@@ -25,32 +25,21 @@ import yaml
 
 from poseydon.build.pipeline import compose_build
 from poseydon.build.sources import REST_CACHE, SOURCES, rig_cache
-from poseydon.core.animation import RigidBodyAnimation
-from poseydon.core.rotations import QUAT_IDENTITY
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
-from tools.verify.case import Case, commit, load_case, sample_frames, sha256
-from tools.verify.checks import c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero
+from tools.verify.case import Case, commit, load_case, sample_frames, sha256, zero_clip
+from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero
 from tools.verify.report import Report, apply_allowances
 
 CONFIG = Path("configs/verify")
 STAGES = ("2_prepared", "3_model", "4_roundtrip")
-ZERO = "5_zero"
 
 
 def write_zero(record: RigRecord, path: Path) -> None:
-    """Identity rotations on the rig's `skeleton.npz` offsets, the root where its rest-pose clip (`rest_action`)
-    stands at frame 0, placed in canonical space."""
-    with np.load(record.corpus / "rigs" / record.rig / "skeleton.npz", allow_pickle=True) as z:
-        offsets, parents, names = z["offsets"], z["parents"].astype(np.int32), tuple(str(n) for n in z["names"])
-        clip = record.corpus / "clips" / record.rig / f"{z['rest_action']}.npz"
-    root = RigidBodyAnimation.load(clip).root_pos[:1] if clip.is_file() else offsets[:1]
-    zero = RigidBodyAnimation.from_root_motion(
-        rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)), root_pos=root.copy(),
-        offsets=offsets, parents=parents, names=names, fps=30.0)
-    placed, space = record.placement(zero)
+    """The rig's zero pose (`tools/verify/case.py:zero_clip`) placed in canonical space."""
+    placed, space = record.placement(zero_clip(record))
     FBX.from_animation(placed, record.asset, space, record.fixed).write(path, embed_textures=True)
 
 

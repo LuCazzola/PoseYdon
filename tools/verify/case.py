@@ -113,6 +113,24 @@ class ZeroRecord:
     up_axis: str
     ground: str | None
     fixed: tuple[str, ...]  # joints a file holds by structure (`RigRecord.fixed`)
+    space: np.ndarray  # the 4x4 similarity `RigRecord.placement` puts the zero in
+    rest_pose: Path | None  # the manifest's authored or vendor rest-pose BVH
+
+
+def zero_clip(record):
+    """The zero pose: identity rotations on the rig's `skeleton.npz` offsets, the root where its rest-pose clip
+    (`rest_action`) stands at frame 0."""
+    from poseydon.core.animation import RigidBodyAnimation  # noqa: PLC0415
+    from poseydon.core.rotations import QUAT_IDENTITY  # noqa: PLC0415
+
+    with np.load(record.corpus / "rigs" / record.rig / "skeleton.npz", allow_pickle=True) as z:
+        offsets, parents, names = z["offsets"], z["parents"].astype(np.int32), tuple(str(n) for n in z["names"])
+        clip = record.corpus / "clips" / record.rig / f"{z['rest_action']}.npz"
+    if not clip.is_file():
+        raise FileNotFoundError(f"{record.rig}: the rest clip {clip} is missing, so the zero has no root")
+    return RigidBodyAnimation.from_root_motion(
+        rotations=np.tile(QUAT_IDENTITY, (1, len(names), 1)), root_pos=RigidBodyAnimation.load(clip).root_pos[:1].copy(),
+        offsets=offsets, parents=parents, names=names, fps=30.0)
 
 
 def zero_record(case: Case) -> ZeroRecord:
@@ -128,10 +146,12 @@ def zero_record(case: Case) -> ZeroRecord:
     with np.load(root / "rigs" / case.rig / "skeleton.npz", allow_pickle=True) as z:
         joints = tuple(str(n) for n in z["names"])
     record = RigRecord.load(root, case.rig)
+    pose = None if manifest.rest_pose is None else Path(data.paths.raw) / "source" / case.rig / manifest.rest_pose
     return ZeroRecord(tuple(s.name for s in record.chain.stages),
                       rig_cache(root, case.rig) / REST_CACHE, joints,
                       tuple((p.right, p.left) for p in manifest.facing), manifest.extra_yaw_deg, manifest.up_axis,
-                      None if stage is None else str(manifest.ground or stage.get("mode", "joints")), record.fixed)
+                      None if stage is None else str(manifest.ground or stage.get("mode", "joints")), record.fixed,
+                      record.placement(zero_clip(record))[1], pose)
 
 
 def sha256(path: str | Path) -> str:

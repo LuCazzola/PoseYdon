@@ -20,5 +20,5 @@ smoke:
   extra: {Bear: [feast]}
 # C4-pose bounds, set before the run; measured on `build --smoke` + `judge`, 2026-11-08 (tmp/verify/t6s), 10 runs: up and facing
 # at most 1.0e-4 deg, ground at most 7.6e-7 of extent (mesh mode; Tukan, joints mode, 2.0e-9). C4-mesh vertices 2.3e-7 to 2.0e-6.
-zero_facing_deg: 1.0     # up and facing of the zero file against +Y and +Z, degrees
+zero_facing_deg: 0.01    # up and facing of the zero file against +Y and +Z, degrees
 zero_ground_tol: 1.0e-4  # the lowest vertex (mesh mode) or joint at y = 0, fraction of extent
