@@ -481,8 +481,9 @@ MUTATIONS = [
 
 
 def _judged_lines(report):
-    """Every line but `C4-symmetry` NOT RUN, which stays until the owner sets limits (`configs/verify/limits.yaml`)."""
-    return [c for c in report.checks if (c.id, c.status) != ("C4-symmetry", Status.NOT_RUN)]
+    """Every line but `C4-symmetry` NOT RUN, which stays until the owner sets limits (`configs/verify/limits.yaml`),
+    and `C6` NOT RUN: Blender cannot run inside `fbxsdk`, so the real C6 run is `scripts/verify_motion.sh`."""
+    return [c for c in report.checks if (c.id, c.status) not in (("C4-symmetry", Status.NOT_RUN), ("C6", Status.NOT_RUN))]
 
 
 def assert_green(report):
@@ -564,7 +565,7 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
     # `file --rig` (the generated-motion path): C5 on the file, stability NOT RUN until a clip is passed
     report = judge(verify_motion.file_case(rest, None, tmp_path, "truebones", "Camel"))
     assert _status(report, "C5-stretch").value is not None and _status(report, "C5-stability").status is Status.NOT_RUN
-    assert _status(report, "C6").status is Status.NOT_RUN and verdict(report) is not Status.PASS  # no Blender output yet
+    assert _status(report, "C6").status is Status.NOT_RUN and report.verdict is not Status.PASS  # no Blender output yet
     assert "C2b" in report.run["not_applicable"]
     assert np.isnan(checks._worst_ratio(np.zeros(0), np.zeros(0), 0.0))  # nothing to measure is NaN (NOT RUN), not 1.0
     # `--clip`: the generator's clip is the stability reference; another clip is not what the file should be
