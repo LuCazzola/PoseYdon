@@ -68,7 +68,7 @@ unchanged; `NOT RUN` where the manifest has none); positions only, so a rotation
 `C4-pose` (`pipeline`): up +Y, facing +Z (within `zero_facing_deg`) and grounded (within `zero_ground_tol` of extent), per the
 manifest's own definition; a part the chain does not declare is named and left out. A chain without `rest_relative`
 (`data=unimate`) has no rest at identity: C4-mesh, C4-placement and C4-pose are listed under `run.not_applicable`, and
-C4-joints still runs. Symmetry lines are below.
+C4-joints still runs when the manifest declares a `rest_pose` (else it is listed too). Symmetry lines are below.
 
 **C5, sanity without a reference** (the `4_roundtrip` file, or the `file` run's). The rig's reference skin driven by the file's
 joints, so limits and file share one bind. `C5-range` (how far a joint strays from the skeleton's centroid, as a fraction of

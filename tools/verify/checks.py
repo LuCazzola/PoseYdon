@@ -784,6 +784,9 @@ def c4_zero(case: Case, cfg: dict, run: dict | None = None) -> list[Check]:
             _placed_sheet(case, f"{ZERO}-vs-rest", path, file, usable, np.array([[rest[n] for n in file.names]]),
                           np.zeros(1, dtype=int), rec.space)
     if mesh is None:  # by construction: identity is not this chain's rest pose, so no mesh, placement or pose line
+        if rec.rest_pose is None:  # no rest pose at all, authored or vendor: nothing for C4-joints to hold the zero to
+            not_applicable(run if run is not None else {}, "C4-mesh, C4-placement, C4-pose, C4-joints: the chain has no rest_relative and the manifest no rest_pose, identity is not a rest pose")
+            return _symmetry(case, cfg, file, usable)
         not_applicable(run if run is not None else {}, "C4-mesh, C4-placement, C4-pose: the chain has no rest_relative, identity is not a rest pose")
         return [_zero_joints(case, cfg, rec, file)] + _symmetry(case, cfg, file, usable)
     placement = placement or stop("C4-placement", Status.NOT_RUN, "C4-mesh did not complete")
