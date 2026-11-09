@@ -1079,7 +1079,7 @@ def _c6_gap(path: Path, frames: np.ndarray, blender: Path) -> tuple[float, str, 
     error, size = np.linalg.norm(scale * a @ rotation.T + shift - b, axis=-1), max(extent(a.reshape(len(frames), -1, 3)[f]) for f in range(len(frames)))
     if not np.isfinite(error).all() or size <= 0:
         return "non-finite vertices or zero extent"
-    move = float(np.linalg.norm(shift) / size)
+    move = float(np.linalg.norm(shift) / (unit * size))  # shift is in Blender's units, extent in the file's
     return float(error.max() / size), f"fitted scale {scale:.5g} (file's units: {unit:.5g}), shift {move:.3g} of extent", float(scale / unit - 1), move
 
 
