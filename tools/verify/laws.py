@@ -3,7 +3,7 @@
 Written here from each stage's stated definition, on world matrices, and never
 imported from `poseydon.build` or `poseydon.features`: running the pipeline's own code
 would make the reference circular. `expected_pose` is the source clip with every lossy
-stage of a rig applied; the pipeline's file must equal it (docs/reference/tooling.md).
+stage of a rig applied; the pipeline's file must equal it (docs/parallax/pages/user-guide/verification.md).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-name: Docs
+name: docs
 
 on:
   push:
@@ -6,24 +6,32 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - run: uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]' mkdocs build --strict
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 docs/parallax/tools/check_docs.py
+      - run: python3 docs/parallax/tools/serve.py --build -d "$GITHUB_WORKSPACE/site"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
-
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

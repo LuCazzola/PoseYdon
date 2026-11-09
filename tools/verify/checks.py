@@ -936,7 +936,7 @@ def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
     the rig's own vendor clips, with a margin), the rig's reference skin driven by the file's joints. A quantity with
     no limit, or that the reference cannot give (no mesh, nothing to measure), is NOT RUN, named; a value that is
     not a finite number within its limit is FAIL. The global worst values only catch gross faults (a flipped limb), not a
-    30 degree joint error or a twist (docs/reference/tooling.md)."""
+    30 degree joint error or a twist (docs/parallax/pages/user-guide/verification.md)."""
     stamp = hashlib.sha256(json.dumps([limits.get("stamp"), limits.get("joint_params")], sort_keys=True).encode()).hexdigest()[:12]
     where = {"rig": rig, "file": file.name, "limits": stamp}
 

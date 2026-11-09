@@ -7,7 +7,7 @@
 
 Runs in the `fbxsdk` container; the run directory is `<out>/<Rig>__<clip>/`, `--out` defaults to
 `tmp/verify`. Exit status is non-zero unless every check is PASS or ALLOWED
-(docs/reference/tooling.md).
+(docs/parallax/pages/user-guide/verification.md).
 
     docker compose run --rm -T --entrypoint python -e HOME=/tmp fbxsdk scripts/verify_motion.py build --data truebones --rig Camel
 """

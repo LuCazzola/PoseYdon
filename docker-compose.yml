@@ -138,8 +138,8 @@ services:
       - "127.0.0.1:8019:8000"
     restart: unless-stopped
     command: >
-      uvx --from 'mkdocs<2' --with mkdocs-material --with 'mkdocstrings[python]'
-      mkdocs serve -a 0.0.0.0:8000
+      uvx --with-requirements docs/parallax/requirements.txt
+      mkdocs serve -f docs/parallax/mkdocs.yml -a 0.0.0.0:8000
 
 volumes:
   hf-cache:
