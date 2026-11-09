@@ -27,6 +27,7 @@ class Case:
     source_frames: np.ndarray
     window: tuple[int, int, int] | None = None  # the clip's recorded (start, stop, step) over the vendor keys
     floor: bool = False  # the file is the source clip written with no preparation (`build --floor`)
+    run: Path | None = None  # the run directory, where `blender_read.py` leaves its output
 
 
 @dataclass
@@ -201,4 +202,4 @@ def load_case(run_dir: str | Path) -> Case:
     return Case(meta["data"], meta["rig"], meta["action"],
                 {k: Path(v) for k, v in meta["files"].items()}, Path(meta["clip_fbx"]), Path(meta["skin_fbx"]),
                 np.array(meta["frames"], dtype=int), np.array(meta["source_frames"], dtype=int),
-                tuple(meta["window"]) if meta.get("window") else None, bool(meta.get("floor", False)))
+                tuple(meta["window"]) if meta.get("window") else None, bool(meta.get("floor", False)), Path(run_dir))

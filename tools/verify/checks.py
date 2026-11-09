@@ -1048,3 +1048,78 @@ def c5_stability(file: Path, record, prepared, data, cfg: dict) -> Check:
     at = np.unravel_index(error.argmax(), error.shape)
     return line(Status.PASS if value <= cfg["stability_tol"] else Status.FAIL,
                 f"{len(common)} joints after one fitted similarity (worst {common[at[1]]}, frame {at[0]})", value)
+
+
+def _c6_gap(path: Path, frames: np.ndarray, blender: Path) -> tuple[float, str] | str:
+    """The worst vertex gap between the SDK's skin of ``path`` at frame numbers ``frames`` and Blender's
+    evaluated vertices (``blender``: `blender_read.py`'s .npz), as a fraction of extent after one similarity
+    for the whole file; or why they cannot be compared (a failure: a dropped mesh, a lost skin)."""
+    scene = FBX.read(path)
+    try:
+        skins, world, names = scene.skin_data(), scene.world(frames), scene.names
+    finally:
+        scene.close()
+    if not skins:
+        return "the file has no skinned mesh"
+    joints = {n: world[:, j] for j, n in enumerate(names)}
+    with np.load(blender) as z:
+        theirs = {m: z[m] for m in z["names"]}
+    ours = []
+    for skin in skins:
+        got = theirs.get(skin.mesh)
+        if got is None:
+            return f"Blender dropped mesh {skin.mesh}"
+        sdk = deform(skin, joints)
+        if got.shape != sdk.shape:
+            return f"mesh {skin.mesh}: {len(skin.points)} vertices in the SDK, {got.shape[1]} frames x vertices {got.shape[:2]} in Blender"
+        ours.append((skin.mesh, sdk, got))
+    a, b = (np.concatenate([o[i].reshape(-1, 3) for o in ours]) for i in (1, 2))
+    scale, rotation, shift = similarity(a, b)
+    error, size = np.linalg.norm(scale * a @ rotation.T + shift - b, axis=-1), max(extent(a.reshape(len(frames), -1, 3)[f]) for f in range(len(frames)))
+    if not np.isfinite(error).all() or size <= 0:
+        return "non-finite vertices or zero extent"
+    return float(error.max() / size), f"scale {scale:.5g}"
+
+
+def c6_second_reader(case: Case, cfg: dict) -> list[Check]:
+    """Blender's evaluated vertices of each file the pipeline wrote against the SDK's, one similarity per
+    file (units, axes), `independent`. A mesh Blender drops or a skin it loses is FAIL; no Blender output is
+    NOT RUN. The vendor file's gap is in the note only: Blender's importer disagrees with the SDK on it."""
+    out = []
+    for name, path in case.files.items():
+        where = {"rig": case.rig, "clip": case.action, "file": name}
+        blender = None if case.run is None else case.run / "blender"
+        npz = None if blender is None else blender / f"{name}.npz"
+        if npz is None or not npz.is_file():
+            error = None if blender is None else blender / f"{name}.error"
+            failed = error is not None and error.is_file()  # the import raised: not a quiet skip
+            out.append(Check("C6", Status.FAIL if failed else Status.NOT_RUN, Evidence.INDEPENDENT, where=where,
+                             note=f"{name}: " + (f"Blender import failed: {error.read_text()}" if failed else "no Blender output: run tools/verify/blender_read.py")))
+            continue
+        try:
+            scene = FBX.read(path)
+            try:
+                numbers = scene.frames()
+            finally:
+                scene.close()
+            sampled = np.zeros(1, dtype=int) if name == ZERO else case.frames
+            if not len(sampled) or sampled.max() >= len(numbers):
+                out.append(Check("C6", Status.NOT_RUN, Evidence.INDEPENDENT, where=where, note=f"{name}: no frames to compare"))
+                continue
+            got = _c6_gap(path, numbers[sampled], npz)
+        except Exception as error:  # noqa: BLE001 - an unreadable file is not a pass
+            got = f"unreadable: {error}"
+        if isinstance(got, str):
+            out.append(Check("C6", Status.FAIL, Evidence.INDEPENDENT, where=where, note=f"{name}: {got}"))
+        else:
+            out.append(Check("C6", Status.PASS if got[0] <= cfg["blender_tol"] else Status.FAIL, Evidence.INDEPENDENT,
+                             got[0], cfg["blender_tol"], where, f"{name}: {got[1]}"))
+    vendor = None if case.run is None or "file" in case.files else case.run / "blender" / "1_source.npz"
+    if out and vendor is not None and vendor.is_file():
+        try:
+            got = _c6_gap(case.clip_fbx, case.source_frames, vendor)
+            seen = got if isinstance(got, str) else f"{got[0]:.3g}"
+        except Exception as error:  # noqa: BLE001
+            seen = f"unreadable ({error})"
+        out[0].note += f"; vendor file 1_source, information only: {seen}. Blender's importer disagrees with the SDK on vendor files; see findings"
+    return out

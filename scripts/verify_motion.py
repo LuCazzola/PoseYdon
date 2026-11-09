@@ -32,7 +32,7 @@ from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, rig_skin, commit, load_case, sample_frames, sha256, zero_clip
-from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero, c5_sanity, c5_stability, rig_limits
+from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c6_second_reader, c2b_fidelity, c3_canonical, c4_zero, c5_sanity, c5_stability, rig_limits
 from tools.verify.checks import C5
 from tools.verify.report import Check, Report, Status, apply_allowances
 
@@ -133,6 +133,7 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
             if report.run["generated_sha256"] != meta["generated_sha256"]:
                 raise ValueError(f"{run}: {generated} changed since the case was made")
         report.checks += _c5(case, cfg, generated)
+        report.checks += c6_second_reader(case, cfg)
         apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
         report.write(run)
         return report
@@ -140,6 +141,7 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     report.checks += c3_canonical(case, cfg)
     report.checks += c4_zero(case, cfg)
     report.checks += _c5(case, cfg)
+    report.checks += c6_second_reader(case, cfg)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report
