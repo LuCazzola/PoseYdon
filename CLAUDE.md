@@ -20,7 +20,7 @@ and the **tooling** around it (`scripts/`, `tools/`, `configs/`, `tests/`,
 
 - Tickets (bugs left unfixed, ideas worth keeping) are opened, edited and closed
   only with the scripts in `docs/parallax/tools/`; how is in
-  `docs/parallax/pages/agent-guide/ideas.md`.
+  `docs/parallax/pages/tickets/index.md`.
 - Design specs and implementation plans from planning workflows (e.g. the
   superpowers skills) are working notes, not documentation: write them under
   `.superpowers/` (gitignored), never into `docs/`, and never cite them from the

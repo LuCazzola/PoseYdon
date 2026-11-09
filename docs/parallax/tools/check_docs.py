@@ -80,7 +80,7 @@ def packages(root):
 
 
 def check_api_stubs(cfg):
-    api = PAGES / "agent-guide" / "api"
+    api = PAGES / "api"
     if not api.is_dir():
         return []
     problems, found = [], {}

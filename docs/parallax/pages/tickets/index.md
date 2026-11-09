@@ -1,4 +1,4 @@
-# Issues & Ideas
+# Tickets
 
 A ticket is a bug, loose end or idea that was noticed but not acted on. Tickets are
 how a mismatch between the docs, the code and what someone expected gets kept.
@@ -9,7 +9,7 @@ how a mismatch between the docs, the code and what someone expected gets kept.
     - `Prio:WANTED`: relevant features worth doing, but not urgent.
     - `Prio:MINOR`: small, cheap fixes: stale references, noisy logs, cosmetic gaps.
 - **Ideas** (proposed changes and things worth investigating; nothing is broken
-  yet) live in the [table below](#ideas), in the repo, so they are reviewed in the
+  yet) live in the [Ideas](ideas.md) table, in the repo, so they are reviewed in the
   same PR as the code they concern.
 
 Open, edit and close tickets only with these scripts, run where `gh` is logged in:
@@ -22,7 +22,7 @@ python3 docs/parallax/tools/edit_ticket.py <ID|#N> [--tier <tier>] [--issue "<is
 python3 docs/parallax/tools/close_ticket.py <ID|#N> [...] [--reason "not planned"] [--comment "<why>"]  # --comment required for issues
 ```
 
-- An idea gets a 4-character ID (`grep <ID> docs/parallax/pages/agent-guide/ideas.md`), an
+- An idea gets a 4-character ID (`grep <ID> docs/parallax/pages/tickets/ideas.md`), an
   issue a number (`gh issue view <N>`).
 - An issue keeps apart what was **Observed** (`<issue>`: facts only), how to
   **Reproduce** it (`--repro`: a command) and the **Suspected cause** (`--cause`),
@@ -39,13 +39,3 @@ python3 docs/parallax/tools/close_ticket.py <ID|#N> [...] [--reason "not planned
     Each ticket is what was believed when it was written. It may be stale, already
     fixed, or wrong about the cause. Before acting on one, check it against the code,
     and fix the ticket if it disagrees.
-
-## Ideas
-
-Newest first.
-
-| ID | Noticed | Where | Issue |
-|---|---|---|---|
-| `wbjk` | 2026-11-09 | `src/poseydon/core/animation.py`, `src/poseydon/build/pipeline.py` | Every library call of Animation.as_rigid_body passes joint_translation='drop', so the checked rigid conversion never fails; consider failing (or reporting) when a non-rigid source reaches stage 2. |
-| `qwsy` | 2026-11-09 | `tools/verify/report.py` | Let Report.verdict read Evidence: a PIPELINE-evidence check that passes currently counts as PASS, although the Evidence docstring says pipeline evidence is never proof alone. |
-| `s8ia` | 2026-11-09 | `tools/verify/case.py`, `tools/verify/checks.py`, `tools/verify/skin.py` | Make the verifier's references independent of pipeline inputs: laws read RigRecord/skeleton.npz decisions (pruned, reduced, still joints), C3/C4 placement reuses poseydon.build.prepare.similarity, and the reference skin copies FBX.skinned_vertices; a wrongly recorded decision is then exempted by the law too. |

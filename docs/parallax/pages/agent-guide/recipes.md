@@ -67,7 +67,7 @@ stages and reduce rules.
 
 1. Add the code under `src/poseydon/`.
 2. Add or extend its API page:
-   `docs/parallax/pages/agent-guide/api/poseydon/<pkg>/index.md`, with a `::: poseydon.<pkg>`
-   line plus one `:::` line per module, listed in the nav of `docs/parallax/mkdocs.yml`.
+   `docs/parallax/pages/api/poseydon/<pkg>/index.md`, with a `::: poseydon.<pkg>`
+   line plus one `:::` line per module, listed under the `API` section at the end of the nav in `docs/parallax/mkdocs.yml`.
 3. Add a row to the [Map](map.md). `docs/parallax/tools/check_docs.py` fails on a missing
    stub.

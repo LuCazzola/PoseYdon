@@ -19,3 +19,5 @@ prove anything is right.
 |---|---|
 | [User Guide](user-guide/index.md) | supervise the system: understand how it is built and why, and check that against your own picture of it. |
 | [Agent Guide](agent-guide/index.md) | get something done in the repo: find code, run things, add things. |
+| [Tickets](tickets/index.md) | keep a bug or idea for later, or see what was kept. |
+| [API](api/poseydon/index.md) | read a package's docstrings, one page per package. |

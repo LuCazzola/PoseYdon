@@ -15,7 +15,7 @@ from pathlib import Path
 
 PARALLAX = Path(__file__).resolve().parents[1]
 REPO = PARALLAX.parents[1]
-IDEAS = PARALLAX / "pages/agent-guide/ideas.md"
+IDEAS = PARALLAX / "pages/tickets/ideas.md"
 ALPHABET = string.ascii_lowercase + string.digits
 ISSUE_TIERS = ["critical", "wanted", "minor"]
 TIERS = ISSUE_TIERS + ["idea"]
