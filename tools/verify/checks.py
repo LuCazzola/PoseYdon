@@ -17,7 +17,8 @@ from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX, Inventory, SkinData
 from tools.verify import laws
 from tools.verify.case import Case, LossRecord, rig_skin, sample_frames, ZeroRecord, loss_record, recorded_space, zero_record
-from tools.verify.report import Check, Evidence, Status
+from tools.verify.report import Check, Evidence, Status, not_applicable
+from tools.verify.sheet import sheet
 from tools.verify.skin import deform, extent
 
 ZERO = "5_zero"
@@ -90,10 +91,10 @@ def _differences(want: _Read, got: _Read, want_clip: Inventory, tol: float,
     return out
 
 
-def c1_inventory(case: Case, tol: float) -> list[Check]:
+def c1_inventory(case: Case, tol: float, run: dict | None = None) -> list[Check]:
     """Nodes, hierarchy, meshes, skin clusters, binds, materials, textures, units, up axis,
     fps and frame count (against the clip's recorded window) of each file against the rig's reference; the clip's own vendor
-    file is held to the same, and a disagreement stays visible, never dropped."""
+    file is held to the same, and a disagreement with the reference is noted in ``run["vendor_disagreement"]`` (information, not a check)."""
     evidence = _evidence(case)
     try:
         reference, clip = _read(case.skin_fbx), _read(case.clip_fbx)
@@ -116,9 +117,8 @@ def c1_inventory(case: Case, tol: float) -> list[Check]:
         checks.append(Check("C1:unsupported", Status.NOT_RUN, evidence, note="; ".join(dict.fromkeys(unsupported))))
     if case.clip_fbx != case.skin_fbx:
         split = _differences(reference, clip, clip.inventory, tol)
-        if split:
-            checks.append(Check("C1:vendor-disagreement", Status.ALLOWED, evidence,
-                                where={"clip": case.clip_fbx.name}, note="; ".join(split)))
+        if split and run is not None:
+            run["vendor_disagreement"] = f"{case.clip_fbx.name}: " + "; ".join(split)
     return checks
 
 
@@ -169,7 +169,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
     except Exception as error:  # noqa: BLE001 - an unreadable stage is NOT RUN, not a crash
         return [Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name} ({path.name}) unreadable: {error}")]
     joints = {n: world[:, j] for j, n in enumerate(names)}
-    notes, skipped, shown, worst = [], [], [], (-1.0, {})
+    notes, skipped, shown, worst, drawn = [], [], [], (-1.0, {}), []
     for mesh, skin in {s.mesh: s for s in ref[0]}.items():
         why = _skipped(ref[1], mesh) or _skipped(inventory, mesh)
         other = skinned.get(mesh)
@@ -190,6 +190,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
                 continue
             size, frame, vertex = _worst(want, got)
             shown.append(want)
+            drawn.append((skin.faces, want, got))
             if size > worst[0]:
                 worst = (size, {"mesh": mesh, "frame": int(sampled[frame]), "vertex": vertex,
                                 "joint": _dominant(skin, vertex)})
@@ -197,6 +198,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
         if not has_skin:
             skipped.append(f"mesh {mesh} has no skin deformer")
     out = []
+    _sheets(case, name, drawn, sampled)
     if shown or notes:
         size = max(extent(np.concatenate([m[f] for m in shown])) for f in range(len(sampled))) if shown else 1.0
         value = worst[0] / size if shown and size > 0 else None
@@ -208,6 +210,25 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
     if skipped:
         out.append(Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name}: " + "; ".join(skipped)))
     return out
+
+
+def _sheets(case: Case, stage: str, drawn: list, sampled: np.ndarray) -> None:
+    """Sheets of ``stage`` (all its meshes together) at the first sampled frame (standing in for the rest
+    pose) and at the worst one. ``drawn`` is ``(faces, want, got)`` per mesh; faces are passed in because
+    `sheet` takes the triangles with the vertices."""
+    if not drawn or not case.draw_sheets or case.run is None:
+        return
+    base = np.cumsum([0] + [len(want[0]) for _, want, _ in drawn])
+    tris = np.concatenate([faces + b for (faces, _, _), b in zip(drawn, base)])
+    want, got = (np.concatenate(side, axis=1) for side in zip(*[(w, g) for _, w, g in drawn]))
+    error = np.nan_to_num(np.linalg.norm(want - got, axis=-1), nan=np.inf, posinf=np.inf)
+    error /= np.array([extent(f) for f in want])[:, None]
+    worst = int(error.max(axis=1).argmax())
+    for label, i in (("first", 0), ("worst", worst)):
+        if label == "worst" and worst == 0:
+            continue  # the first sheet already shows it
+        case.sheets.append(sheet(case, stage, int(sampled[i]), got[i], want[i], error[i], tris,
+                                 case.run / "sheets" / f"{stage}_{label}.png"))
 
 
 def c2a_skin(case: Case, cfg: dict) -> list[Check]:
@@ -423,6 +444,8 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     rest = _rest(case, pose, file.parents, size, cfg["untraced_tol"], evidence)
     if isinstance(expected, laws.MissingLaw):
         return [*stop(Status.NOT_RUN, f"no loss law for stage `{expected.stage}`: declare it in tools/verify/laws.py"), rest]
+    _sheets(case, f"{path.stem}-vs-expected", [(k.faces, deform(k, {n: expected.world[:, j] for j, n in enumerate(names)}),
+                                              deform(k, {n: file.world[:, j] for j, n in enumerate(names)})) for k in usable], case.frames)
     inputs = "bone lengths from the " + ("rest asset" if record.bind_of is None else "vendor bind") \
         + " and node scales from the rest asset"
     out = []
@@ -432,7 +455,7 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
         note = "; ".join([_summary(gap), inputs, *run.skipped])
         if check == "C2b-traced":
             out.append(Check(check, Status.PASS, evidence, value, where=where | gap,
-                             note=f"by laws of {', '.join(s for s in stages if s in laws.LAWS)}; {note}"))
+                             note=f"not judged; by laws of {', '.join(s for s in stages if s in laws.LAWS)}; {note}"))
         else:
             out.append(Check(check, Status.FAIL if failed else Status.PASS, evidence, value, cfg["untraced_tol"],
                              where | gap, note))
@@ -485,6 +508,16 @@ def _fitted(path: Path, file: _Joints, skins: list[SkinData], compare: list[int]
     return (gap, *_judged(gap, cfg), scale, rotation, shift, size)
 
 
+def _placed_sheet(case: Case, label: str, path: Path, file: _Joints, skins: list, expected: np.ndarray,
+                  frames: np.ndarray, space: np.ndarray) -> None:
+    """Sheets of the file's skin against the reference skin under ``expected`` joints, put in the file's
+    frame by the *recorded* ``space`` (no fit), so a file written in the wrong place shows as error."""
+    mine = _skins_of(path) if case.draw_sheets else {}
+    pose = lambda skin, world: deform(skin, {n: world[:, j] for j, n in enumerate(file.names)})
+    _sheets(case, label, [(s.faces, pose(s, expected) @ space[:3, :3].T + space[:3, 3], pose(mine[s.mesh], file.world))
+                          for s in skins if s.mesh in mine], frames)
+
+
 def _placement(space: np.ndarray, scale: float, rotation: np.ndarray, shift: np.ndarray, size: float, cfg: dict,
                where: dict, check: str = "C3-placement") -> Check:
     """The fitted similarity against the recorded ``space``: scale ratio, whole rotation in degrees, offset
@@ -513,7 +546,7 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
         return stop(Status.NOT_RUN, run)
     if not run.skins:
         return stop(Status.NOT_RUN, "no skinned mesh the verifier models: " + "; ".join(run.skipped))
-    names, file, record = run.file.names, run.file, run.record
+    file, record = run.file, run.record
     stages = [s for s in record.stages if name == "3_model" or s not in record.reduction]
     expected = laws.expected_pose(run.pose, stages, record.params)
     if isinstance(expected, laws.MissingLaw):
@@ -528,6 +561,7 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
         space = recorded_space(case, name)
     except Exception as error:  # noqa: BLE001
         return [*out, Check("C3-placement", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=f"unreadable record: {error}")]
+    _placed_sheet(case, f"{name}-vs-expected", path, file, run.skins, expected.world, case.frames, space)
     return [*out, _placement(space, scale, rotation, shift, size, cfg, where)]
 
 
@@ -642,24 +676,75 @@ def _zero_joints(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints) -> Check
                  f" after one fitted similarity (worst {common[at]})")
 
 
-def c4_zero(case: Case, cfg: dict) -> list[Check]:
+_FLIPS = [np.diag(d) for d in ([1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1])]
+
+
+def _symmetry(case: Case, cfg: dict, file: _Joints | None, skins: list) -> list[Check]:
+    """``C4-symmetry-skeleton`` and ``-mesh`` of the zero file, one line per layer the rig declares in `limits.yaml`
+    (none declared: no line). Mirror across the plane x = the first skeleton joint's x (the character's middle in
+    PoseYdon's frame). Skeleton: each joint against its mirrored partner (`symmetry_sides` names the pairs), position
+    as a fraction of the joints' extent and the mirrored world rotation in degrees. Mesh: each mirrored vertex to
+    the nearest vertex, as a fraction of the mesh extent. The rotation is blind to a half turn about a local bone axis."""
+    from scipy.spatial import cKDTree
+
+    declared, out = cfg.get("limits", {}).get(case.rig, {}), []
+    where = {"rig": case.rig, "clip": case.action}
+    for layer in ("skeleton", "mesh"):
+        if layer not in declared:
+            continue
+        cid, limit = f"C4-symmetry-{layer}", declared[layer]
+        if file is None:
+            out.append(Check(cid, Status.NOT_RUN, Evidence.DERIVED, where=where, note=f"needs a built round trip's {ZERO} file"))
+            continue
+        mirror = np.diag([-1.0, 1.0, 1.0])
+        joints = [j for j in range(len(file.names)) if file.skeleton[j]]
+        world, centre = file.world[0], file.world[0, joints[0], 0, 3]
+        if layer == "skeleton":
+            index = {file.names[j]: j for j in joints}
+            pairs = [(index[n], index[n.replace(a, b, 1)]) for n in index for a, b in cfg["symmetry_sides"]
+                     if a in n and n.replace(a, b, 1) in index]
+            if not pairs:
+                out.append(Check(cid, Status.NOT_RUN, Evidence.DERIVED, where=where, note="no left/right joint pair by name (`symmetry_sides`)"))
+                continue
+            left, right = (np.array(i) for i in zip(*pairs))
+            size = extent(world[joints, :3, 3])
+            moved = world[left, :3, 3] * [-1, 1, 1] + [2 * centre, 0, 0]
+            gap = np.linalg.norm(moved - world[right, :3, 3], axis=-1) / size
+            turn = _rotation(world[right]).transpose(0, 2, 1) @ mirror @ _rotation(world[left]) @ mirror
+            # a Biped's left and right bone frames differ by a half turn about a local axis: the closest of the four counts
+            deg = np.degrees(np.arccos(np.clip((np.max([np.trace(turn @ d, axis1=1, axis2=2) for d in _FLIPS], axis=0) - 1) / 2, -1, 1)))
+            at, ar = int(gap.argmax()), int(deg.argmax())
+            ok = gap[at] <= limit["position"] and deg[ar] <= limit["rotation_deg"]
+            out.append(Check(cid, Status.PASS if ok else Status.FAIL, Evidence.DERIVED, float(gap[at]), limit["position"],
+                             where | {"pair": [file.names[left[at]], file.names[right[at]]], "rotation_deg": float(deg[ar]),
+                                      "rotation_limit_deg": limit["rotation_deg"], "rotation_pair": [file.names[left[ar]], file.names[right[ar]]]},
+                             f"{len(pairs)} pairs; position worst {file.names[left[at]]}, rotation worst {deg[ar]:.3g} deg ({file.names[left[ar]]})"))
+        else:
+            if not skins:
+                out.append(Check(cid, Status.NOT_RUN, Evidence.DERIVED, where=where, note="no skinned mesh the verifier models"))
+                continue
+            cloud = np.concatenate([deform(s, {n: file.world[:, j] for j, n in enumerate(file.names)})[0] for s in skins])
+            dist, _ = cKDTree(cloud).query(cloud * [-1, 1, 1] + [2 * centre, 0, 0])
+            at = int(dist.argmax())
+            out.append(Check(cid, Status.PASS if dist[at] / extent(cloud) <= limit else Status.FAIL, Evidence.DERIVED,
+                             float(dist[at] / extent(cloud)), limit, where | {"vertex": at}, f"{len(cloud)} vertices, worst vertex {at}"))
+    return out
+
+
+def c4_zero(case: Case, cfg: dict, run: dict | None = None) -> list[Check]:
     """Identity rotations in PoseYdon's frame (the `5_zero` file) against the rig's reference pose.
     ``C4-mesh`` (`pipeline`): the file's skin under its joints against the same skin under `rest.npz:rest`
     (the rest pose the corpus was built from, in the vendor's space), after ONE fitted similarity, judged like
     `C3-shape`; the vendor skin enters through the fit and C2a holds the file's skin to it. A chain without
-    `rest_relative` (`data=unimate`) has no rest at identity: NOT RUN. ``C4-placement`` compares that fit
+    `rest_relative` (`data=unimate`) has no rest at identity: C4-mesh, -placement and -pose are listed in ``run["not_applicable"]`` instead. ``C4-placement`` compares that fit
     with the placement recorded for the zero, like `C3-placement`. ``C4-joints`` is the pose's independent
     leg (see `_zero_joints`). ``C4-pose`` (`pipeline`, the manifest's own definition): up +Y, facing +Z,
-    grounded. ``C4-symmetry`` needs a limit format the owner has not set (`configs/verify/limits.yaml`,
-    empty): NOT RUN."""
-    evidence, where, path = _evidence(case), {"rig": case.rig, "clip": case.action}, case.files.get(ZERO)
-    declared = case.rig in cfg.get("limits", {})
-    symmetry = Check("C4-symmetry", Status.NOT_RUN, Evidence.PIPELINE, where=where,
-                     note=(f"limits declared for {case.rig}, but symmetry is not implemented: it needs a limit format"
-                           if declared else f"no symmetry limits declared for {case.rig} (configs/verify/limits.yaml is owner-set)"))
+    grounded. ``C4-symmetry-skeleton`` and ``-mesh`` (`derived`) exist only for a rig and layer declared in
+    `configs/verify/limits.yaml` (`_symmetry`)."""
+    where, path = {"rig": case.rig, "clip": case.action}, case.files.get(ZERO)
     if path is None or not case.data_name or case.floor:
         why = f"needs a built round trip's {ZERO} file"
-        return [Check(c, Status.NOT_RUN, Evidence.PIPELINE, note=why) for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + [symmetry]
+        return [Check(c, Status.NOT_RUN, Evidence.PIPELINE, note=why) for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + _symmetry(case, cfg, None, [])
 
     def stop(check: str, status: Status, note: str, ev=Evidence.PIPELINE) -> Check:
         return Check(check, status, ev, where=where, note=note)
@@ -669,7 +754,7 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
         file = _joints(path, lambda f: f[:1])
         skins, inventory = reference_skin(case), _read(case.skin_fbx).inventory
     except Exception as error:  # noqa: BLE001 - an unreadable file or record is NOT RUN
-        return [stop(c, Status.NOT_RUN, f"unreadable: {error}") for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + [symmetry]
+        return [stop(c, Status.NOT_RUN, f"unreadable: {error}") for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + _symmetry(case, cfg, None, [])
     modelled = _modelled(skins, inventory, file)
     usable = [] if isinstance(modelled, str) else modelled[0]
     rotation, placement = None, None
@@ -678,7 +763,7 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
         with np.load(rec.rest, allow_pickle=True) as z:
             rest = {str(n): m for n, m in zip(z["names"], z["rest"])}
     if "rest_relative" not in rec.stages:
-        mesh = stop("C4-mesh", Status.NOT_RUN, "the chain has no rest_relative, so identity is not the rig's rest pose")
+        mesh = None
     elif isinstance(modelled, str) or not usable:
         mesh = stop("C4-mesh", Status.NOT_RUN, modelled if isinstance(modelled, str) else "no skinned mesh the verifier models: " + "; ".join(modelled[1]))
     elif (lacking := [n for n in file.names if n not in rest]):
@@ -696,8 +781,16 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
                          "after one fitted similarity; " + "; ".join([_summary(gap), *modelled[1]])
                          + (f"; {len(held)} joints held by structure not compared (`RigRecord.fixed`)" if held else ""))
             placement = _placement(rec.space, scale, rotation, shift, size, cfg, where, "C4-placement")
+            _placed_sheet(case, f"{ZERO}-vs-rest", path, file, usable, np.array([[rest[n] for n in file.names]]),
+                          np.zeros(1, dtype=int), rec.space)
+    if mesh is None:  # by construction: identity is not this chain's rest pose, so no mesh, placement or pose line
+        if rec.rest_pose is None:  # no rest pose at all, authored or vendor: nothing for C4-joints to hold the zero to
+            not_applicable(run if run is not None else {}, "C4-mesh, C4-placement, C4-pose, C4-joints: the chain has no rest_relative and the manifest no rest_pose, identity is not a rest pose")
+            return _symmetry(case, cfg, file, usable)
+        not_applicable(run if run is not None else {}, "C4-mesh, C4-placement, C4-pose: the chain has no rest_relative, identity is not a rest pose")
+        return [_zero_joints(case, cfg, rec, file)] + _symmetry(case, cfg, file, usable)
     placement = placement or stop("C4-placement", Status.NOT_RUN, "C4-mesh did not complete")
-    return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation), symmetry]
+    return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation)] + _symmetry(case, cfg, file, usable)
 
 
 # C5: sanity of a file that has no reference ---------------------------------------------------
@@ -931,12 +1024,12 @@ def _with_joints(limits: dict, cfg: dict) -> dict:
     return limits | {"joint_params": [cfg["joint_unused_deg"], cfg["joint_floor_deg"]], "joints": joint_limits(limits["clip_joints"])}
 
 
-def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
+def c5_sanity(file: Path, rig: str, limits: dict, run: dict | None = None) -> list[Check]:
     """``C5-range``, ``-stretch``, ``-area`` and ``-bone-distance`` of one FBX against ``rig_limits`` (`derived`:
     the rig's own vendor clips, with a margin), the rig's reference skin driven by the file's joints. A quantity with
     no limit, or that the reference cannot give (no mesh, nothing to measure), is NOT RUN, named; a value that is
     not a finite number within its limit is FAIL. The global worst values only catch gross faults (a flipped limb), not a
-    30 degree joint error or a twist (docs/parallax/pages/user-guide/verification.md)."""
+    30 degree joint error or a twist; ``C5-bone-distance`` stays quiet on a rigid subtree turn (docs/parallax/pages/user-guide/verification.md)."""
     stamp = hashlib.sha256(json.dumps([limits.get("stamp"), limits.get("joint_params")], sort_keys=True).encode()).hexdigest()[:12]
     where = {"rig": rig, "file": file.name, "limits": stamp}
 
@@ -948,6 +1041,8 @@ def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
     except Exception as error:  # noqa: BLE001 - an unreadable file is NOT RUN
         return [line(k, Status.NOT_RUN, f"unreadable: {error}") for k in (*C5, "joints")]
     out = [_c5_joints(got["joints"], limits, where)]
+    if out[0].status is Status.NOT_RUN and out[0].note.startswith("no degree"):  # nothing to judge by construction
+        not_applicable(run if run is not None else {}, "C5-joints: " + out.pop().note)
     for k in C5:
         limit = limits.get("limit", {}).get(k)
         if limit is None or not limit > 0:
@@ -1050,13 +1145,14 @@ def c5_stability(file: Path, record, prepared, data, cfg: dict) -> Check:
                 f"{len(common)} joints after one fitted similarity (worst {common[at[1]]}, frame {at[0]})", value)
 
 
-def _c6_gap(path: Path, frames: np.ndarray, blender: Path) -> tuple[float, str] | str:
+def _c6_gap(path: Path, frames: np.ndarray, blender: Path) -> tuple[float, str, float, float] | str:
     """The worst vertex gap between the SDK's skin of ``path`` at frame numbers ``frames`` and Blender's
     evaluated vertices (``blender``: `blender_read.py`'s .npz), as a fraction of extent after one similarity
-    for the whole file; or why they cannot be compared (a failure: a dropped mesh, a lost skin)."""
+    for the whole file, with the fit's scale ratio to the file's unit factor and its shift as a fraction of
+    extent; or why they cannot be compared (a failure: a dropped mesh, a lost skin)."""
     scene = FBX.read(path)
     try:
-        skins, world, names = scene.skin_data(), scene.world(frames), scene.names
+        skins, world, names, unit = scene.skin_data(), scene.world(frames), scene.names, scene.inventory().unit_cm / 100
     finally:
         scene.close()
     if not skins:
@@ -1071,20 +1167,22 @@ def _c6_gap(path: Path, frames: np.ndarray, blender: Path) -> tuple[float, str] 
             return f"Blender dropped mesh {skin.mesh}"
         sdk = deform(skin, joints)
         if got.shape != sdk.shape:
-            return f"mesh {skin.mesh}: {len(skin.points)} vertices in the SDK, {got.shape[1]} frames x vertices {got.shape[:2]} in Blender"
+            return f"mesh {skin.mesh}: SDK (F, V) = {sdk.shape[:2]}, Blender (F, V) = {got.shape[:2]}"
         ours.append((skin.mesh, sdk, got))
     a, b = (np.concatenate([o[i].reshape(-1, 3) for o in ours]) for i in (1, 2))
     scale, rotation, shift = similarity(a, b)
     error, size = np.linalg.norm(scale * a @ rotation.T + shift - b, axis=-1), max(extent(a.reshape(len(frames), -1, 3)[f]) for f in range(len(frames)))
     if not np.isfinite(error).all() or size <= 0:
         return "non-finite vertices or zero extent"
-    return float(error.max() / size), f"scale {scale:.5g}"
+    move = float(np.linalg.norm(shift) / (unit * size))  # shift is in Blender's units, extent in the file's
+    return float(error.max() / size), f"fitted scale {scale:.5g} (file's units: {unit:.5g}), shift {move:.3g} of extent", float(scale / unit - 1), move
 
 
 def c6_second_reader(case: Case, cfg: dict) -> list[Check]:
     """Blender's evaluated vertices of each file the pipeline wrote against the SDK's, one similarity per
-    file (units, axes), `independent`. A mesh Blender drops or a skin it loses is FAIL; no Blender output is
-    NOT RUN. The vendor file's gap is in the note only: Blender's importer disagrees with the SDK on it."""
+    file (units, axes), `independent`. The fit is judged too: its scale must match the file's unit factor and its
+    shift stay within `blender_tol` of extent, so it cannot absorb a real resize or move. A mesh Blender drops is
+    FAIL; a skin it loses shows only as a vertex gap; no Blender output is NOT RUN. The vendor file's gap is in the note only: Blender's importer disagrees with the SDK on it."""
     out = []
     for name, path in case.files.items():
         where = {"rig": case.rig, "clip": case.action, "file": name}
@@ -1112,8 +1210,9 @@ def c6_second_reader(case: Case, cfg: dict) -> list[Check]:
         if isinstance(got, str):
             out.append(Check("C6", Status.FAIL, Evidence.INDEPENDENT, where=where, note=f"{name}: {got}"))
         else:
-            out.append(Check("C6", Status.PASS if got[0] <= cfg["blender_tol"] else Status.FAIL, Evidence.INDEPENDENT,
-                             got[0], cfg["blender_tol"], where, f"{name}: {got[1]}"))
+            tol = cfg["blender_tol"]
+            out.append(Check("C6", Status.PASS if got[0] <= tol and abs(got[2]) <= tol and got[3] <= tol else Status.FAIL,
+                             Evidence.INDEPENDENT, got[0], tol, where, f"{name}: {got[1]}"))
     vendor = None if case.run is None or "file" in case.files else case.run / "blender" / "1_source.npz"
     if out and vendor is not None and vendor.is_file():
         try:

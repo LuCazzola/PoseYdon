@@ -8,6 +8,7 @@ the verifier red on the check that owns it. Needs the FBX SDK, so it runs in the
 
 import ast
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -359,7 +360,7 @@ def fling_first_frame(path: Path) -> None:
 def twist_calf_30deg(path: Path) -> None:
     """The left calf and everything under it turned 30 degrees about the calf's local X, which is the bone axis of a
     Biped calf: a TWIST, not a bend, frame by frame. The global mesh lines do not move for it. A bend that stays inside the
-    vendor's range is out of C5-joints' reach (tooling.md)."""
+    vendor's range is out of C5-joints' reach (verification.md)."""
     def edit(scene):
         world = scene.world()
         j = next(k for k, n in enumerate(scene.names) if "Bip01_L_Calf" in n)
@@ -472,17 +473,17 @@ MUTATIONS = [
     Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL", "C4-joints": "FAIL"}),
     Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
     Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-placement": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
-    Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL"}),
+    Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL", "C5-area": "FAIL"}),
     Mutation("twist_30", "Goat", None, twist_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}, judged=("Bip01_L_Calf", "twist")),
-    Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL"}),
+    Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL", "C5-bone-distance": "FAIL"}),
     Mutation("nan_key", "Goat", None, write_nan_rotation, {"C5-range": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
 
 
 def _judged_lines(report):
-    """Every line but `C4-symmetry` NOT RUN, which stays until the owner sets limits (`configs/verify/limits.yaml`)."""
-    return [c for c in report.checks if (c.id, c.status) != ("C4-symmetry", Status.NOT_RUN)]
+    """Every line but `C6` NOT RUN: Blender cannot run inside `fbxsdk`, so the real C6 run is `scripts/verify_motion.sh`."""
+    return [c for c in report.checks if (c.id, c.status) != ("C6", Status.NOT_RUN)]
 
 
 def assert_green(report):
@@ -520,19 +521,29 @@ def _world(path: Path) -> np.ndarray:
 @pytest.mark.parametrize("m", MUTATIONS, ids=lambda m: m.id)
 def test_verifier_goes_red(m, tmp_path):
     run = build("truebones", m.rig, m.clip, tmp_path)
-    base = judge(run)
+    drawn = m.id == "wrong_yaw"  # sheets are slow under QEMU: one row draws them
+    base = judge(run, sheets=drawn)
     if not m.base_red:
         assert_green(base)
+    if drawn:
+        sheets = base.run["sheets"]
+        assert {"3_model-vs-expected_first", "4_roundtrip-vs-expected_first", "5_zero-vs-rest_first"} <= {Path(x).stem for x in sheets}  # placement, not only skin
+        assert len(sheets) >= 8 and not any(c.id == "C7-sheets" for c in base.checks)
+        assert all((run / s).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" for s in sheets)
+        first = [(run / s).read_bytes() for s in sheets]
+        again = judge(run)  # the same files give the same bytes
+        assert first == [(run / s).read_bytes() for s in again.run["sheets"]]
     before = _world(run / "4_roundtrip.fbx") if m.keeps_joints else None
     if m.control:
         m.control(run / "4_roundtrip.fbx")
-        assert _status(judge(run, accept_changed=True), "C2b-untraced").status is Status.PASS
+        assert _status(judge(run, accept_changed=True, sheets=False), "C2b-untraced").status is Status.PASS
     m.mutate(run / "4_roundtrip.fbx")
     if before is not None:
         assert np.abs(before - _world(run / "4_roundtrip.fbx")).max() < 1e-4
     with pytest.raises(ValueError, match="changed"):
         judge(run)
-    after = judge(run, accept_changed=True)
+    after = judge(run, accept_changed=True, sheets=False)
+    assert not after.run["sheets"] and not any(c.id == "C7-sheets" for c in after.checks)
     for check, want in m.expected.items():
         assert_red(base, after, check, want, m.rise)
     assert verdict(after) is not Status.PASS
@@ -552,6 +563,21 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
         with pytest.raises(SystemExit) as stop:
             verify_motion.main()
         assert stop.value.code not in (0, None)
+    # `--smoke --data D` builds only D's smoke rigs; `--smoke` alone builds every dataset
+    built = []
+    monkeypatch.setattr(verify_motion, "build", lambda data, rig, *a: built.append(data) or tmp_path)
+    for argv, want in ((["--data", "unimate"], {"unimate"}), ([], {"truebones", "unimate"})):
+        monkeypatch.setattr("sys.argv", ["verify_motion", "build", "--smoke", *argv])
+        built.clear()
+        with pytest.raises(SystemExit):
+            verify_motion.main()
+        assert set(built) == want
+    # an allowance matches only lines whose `where` carries its joint and file
+    from tools.verify.report import Check, apply_allowances
+    lines = [Check("C6", Status.FAIL, None, 1.0, 0.0, {"joint": j, "file": f}) for j, f in (("a", "x"), ("b", "x"), ("a", "y"))]
+    table = {"R": {"c": [{"check": "C6", "joint": "a", "file": "x", "budget": 2.0, "reason": "t"}]}}
+    done = apply_allowances(Report({"rig": "R", "action": "c"}, lines), table)
+    assert [c.status for c in done.checks] == [Status.ALLOWED, Status.FAIL, Status.FAIL]
     # a truncated file against a truncated reference is two unreadable files, not two equal empty ones
     rest = Path("data/truebones/cache/rigs/Camel/rest.fbx")
     for name in ("a.fbx", "b.fbx"):
@@ -564,7 +590,7 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
     # `file --rig` (the generated-motion path): C5 on the file, stability NOT RUN until a clip is passed
     report = judge(verify_motion.file_case(rest, None, tmp_path, "truebones", "Camel"))
     assert _status(report, "C5-stretch").value is not None and _status(report, "C5-stability").status is Status.NOT_RUN
-    assert _status(report, "C6").status is Status.NOT_RUN and verdict(report) is not Status.PASS  # no Blender output yet
+    assert _status(report, "C6").status is Status.NOT_RUN and report.verdict is not Status.PASS  # no Blender output yet
     assert "C2b" in report.run["not_applicable"]
     assert np.isnan(checks._worst_ratio(np.zeros(0), np.zeros(0), 0.0))  # nothing to measure is NaN (NOT RUN), not 1.0
     # `--clip`: the generator's clip is the stability reference; another clip is not what the file should be
@@ -574,6 +600,27 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
     other = verify_motion.file_case(goat / "4_roundtrip.fbx", None, tmp_path / "o", "truebones", "Goat", clips / "bleat.npz")
     assert _status(judge(same), "C5-stability").status is Status.PASS
     assert _status(judge(other), "C5-stability").status is Status.FAIL
+    # C6 on a stand-in for Blender: the SDK's own deformed vertices in blender_read.py's format, in metres; the unit factor passes, a 2.5x scale fails
+    for scale, want in ((1.0, Status.PASS), (2.5, Status.FAIL)):
+        _fake_blender(goat, scale)
+        c6 = [c for c in judge(goat, sheets=False).checks if c.id == "C6"]
+        assert c6 and {c.status for c in c6} == {want} and all(c.value is not None for c in c6), c6
+
+
+def _fake_blender(run: Path, scale: float) -> None:
+    """`blender_read.py`'s npz per file, from the SDK's deformed vertices times the file's unit factor (cm -> m) times ``scale``."""
+    case = load_case(run)
+    (run / "blender").mkdir(exist_ok=True)
+    for name, path in case.files.items():
+        scene = fbx.FBX.read(path)
+        try:
+            frames = scene.frames()[np.zeros(1, dtype=int) if name == "5_zero" else case.frames]
+            world, unit = scene.world(frames), scene.inventory().unit_cm / 100
+            joints = {n: world[:, j] for j, n in enumerate(scene.names)}
+            meshes = {s.mesh: deform(s, joints) * unit * scale for s in scene.skin_data()}
+        finally:
+            scene.close()
+        np.savez(run / "blender" / f"{name}.npz", names=np.array(list(meshes)), **meshes)
 
 
 def test_source_frames_follow_the_recorded_window(tmp_path):
@@ -626,3 +673,92 @@ def test_a_floor_run_is_judged_against_the_source_itself(tmp_path):
     run = build("truebones", "Camel", None, tmp_path, floor=True)
     line = _status(judge(run), "C2b-untraced")
     assert line.status is Status.PASS and 0 < line.value < 1e-4, line
+
+
+def turn_hind_leg_10deg(path: Path) -> None:
+    """The left thigh and everything under it turned 10 degrees about world X in the zero file."""
+    def edit(scene):
+        world = scene.world()
+        j = next(k for k, n in enumerate(scene.names) if "Bip01_L_Thigh" in n)
+        turn = Rotation.from_rotvec(np.radians(10) * np.array([1.0, 0, 0])).as_matrix()
+        for k in (k for k in range(len(scene.names)) if j in _chain(scene.parents, k)):
+            world[:, k, :3, :3] = turn @ world[:, k, :3, :3]
+            world[:, k, :3, 3] = world[:, j, :3, 3] + (turn @ (world[:, k, :3, 3] - world[:, j, :3, 3]).T).T
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
+
+
+def test_symmetry_lines_exist_only_where_declared(tmp_path, monkeypatch):
+    """No limit, no line; a declared skeleton and mesh each give their own PASS line; a hind leg turned 10 degrees fails the skeleton."""
+    from scripts import verify_motion
+
+    run = build("truebones", "Goat", None, tmp_path)
+    assert not [c for c in judge(run, sheets=False).checks if c.id.startswith("C4-symmetry")]
+    conf = tmp_path / "conf"
+    conf.mkdir()
+    for f in Path("configs/verify").glob("*.yaml"):
+        (conf / f.name).write_text(f.read_text())
+    (conf / "limits.yaml").write_text("Goat: {skeleton: {position: 0.1, rotation_deg: 110.0}, mesh: 0.04}\n")
+    monkeypatch.setattr(verify_motion, "CONFIG", conf)
+    base = judge(run, sheets=False)
+    assert_green(base)
+    lines = {c.id: c for c in base.checks if c.id.startswith("C4-symmetry")}
+    assert lines.keys() == {"C4-symmetry-skeleton", "C4-symmetry-mesh"} and {c.status for c in lines.values()} == {Status.PASS}
+    assert {c.evidence.value for c in lines.values()} == {"derived"} and all(c.value is not None for c in lines.values()), lines
+    turn_hind_leg_10deg(run / "5_zero.fbx")
+    after = judge(run, accept_changed=True, sheets=False)
+    assert _status(after, "C4-symmetry-skeleton").status is Status.FAIL, _status(after, "C4-symmetry-skeleton")
+
+
+def test_bvh_files_with_and_without_a_mesh(tmp_path):
+    """A vendor BVH through `bvh_checks` (directly, against its own source) and through `file` with no mesh anywhere."""
+    from scripts import verify_motion
+    from poseydon.build.pipeline import compose_build
+    from tools.verify.bvh import bvh_checks
+    from tools.verify.case import Case, rig_skin
+
+    cfg = verify_motion.load_config()
+    vendor = Path("data/_raw/truebones/bvh/Camel/__DownLoop.bvh")
+    other = Path("data/_raw/truebones/bvh/Camel/__SlowWalk.bvh")
+    text, channels = vendor.read_text(), "Xposition Yposition Zposition Zrotation Yrotation Xrotation"
+    # a joint with no position channels, so its OFFSET is where it stands
+    offset = next(m.group(1) for m in re.finditer(r"(OFFSET \S+ \S+ \S+)\s+CHANNELS 3", text) if m.group(1).split() != ["OFFSET", *["0.000000"] * 3])
+    head, _, motion = text.partition("MOTION")
+    skin = rig_skin(compose_build(["data=truebones"]).data, "Camel")
+
+    def copy(name, body=text):
+        (tmp_path / name).write_text(body)
+        return tmp_path / name
+
+    def lines(path, source=vendor, kind="bvh", case=None):
+        return {c.id: c for c in bvh_checks(path, source, kind, case, cfg)}
+
+    def seen(path, **kw):
+        return {k: c.status.value for k, c in lines(path, **kw).items()}
+
+    green = {"B1-layout": "PASS", "B2-joints": "PASS", "B4-reader": "NOT RUN"}  # no Blender in `fbxsdk`
+    assert seen(copy("ok.bvh")) == green
+    assert seen(copy("channels.bvh", text.replace(channels, "Xposition Yposition Zposition Xrotation Yrotation Zrotation", 1)))["B1-layout"] == "FAIL"
+    moved = copy("offset.bvh", text.replace(offset, "OFFSET " + " ".join(f"{1.1 * float(v):.6f}" for v in offset.split()[1:]), 1))
+    assert seen(moved) == {**green, "B1-layout": "PASS", "B2-joints": "FAIL"}
+    assert seen(copy("nan.bvh", head + "MOTION" + motion.replace("0.", "nan", 1)))["B2-joints"] != "PASS"
+    assert seen(copy("short.bvh", head + "MOTION\nFrames: 1\n" + motion.split("\n", 3)[2] + "\n" + motion.split("\n", 4)[3]))["B2-joints"] == "FAIL"
+    assert seen(copy("empty.bvh", ""))["B2-joints"] == "FAIL"
+    # source FBX: no layout to match; the joints compare with the clip's own file; another clip's is no source
+    assert seen(vendor, source=skin, kind="fbx") == {k: v for k, v in green.items() if k != "B1-layout"}
+    assert seen(other, source=skin, kind="fbx")["B2-joints"] == "NOT RUN"
+    assert seen(moved, source=skin, kind="fbx")["B2-joints"] == "FAIL"
+    # B3 only with a rig's skin
+    case = Case("truebones", "Camel", "DownLoop", {"file": vendor}, skin, skin, np.zeros(0, dtype=int), np.zeros(0, dtype=int))
+    assert "B3-mesh" in lines(vendor, case=case) and lines(vendor, case=case)["B3-mesh"].evidence.value == "driven"
+    # `file`: no mesh anywhere. The mesh checks are left out and named, the verdict rests on the joints.
+    report = judge(verify_motion.file_case(copy("again.bvh"), vendor, tmp_path))
+    assert "no mesh in this input" in report.run["not_applicable"]
+    assert "B3-mesh: needs a pipeline BVH" in report.run["not_applicable"]
+    assert {c.id for c in report.checks} == set(green) and not any(c.id.startswith(("C", "B3")) for c in report.checks)
+    assert [c.id for c in report.checks if c.status is Status.NOT_RUN] == ["B4-reader"] and report.verdict is Status.NOT_RUN
+    assert judge(verify_motion.file_case(moved, vendor, tmp_path)).verdict is Status.FAIL
+    rig_only = judge(verify_motion.file_case(vendor, None, tmp_path, "truebones", "Camel"))  # the rig's own FBX clip of that name is the source
+    assert {c.id: c.status.value for c in rig_only.checks} == {k: v for k, v in green.items() if k != "B1-layout"}
+    assert "B1-layout" in rig_only.run["not_applicable"]

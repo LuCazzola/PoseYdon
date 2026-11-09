@@ -52,6 +52,8 @@ and the **tooling** around it (`scripts/`, `tools/`, `configs/`, `tests/`,
 
 ## Agent Behavior
 
+- **Motion, meshes, rest poses, reference frames, the round trip**: run the `verify-motion`
+  skill before changing them and before calling the work done.
 - **Verify end-to-end before calling something done**; run it and report what you
   actually observed, not just that it compiles.
 - **Stop and ask when a requirement**, scope or design choice isn't clearly specified.

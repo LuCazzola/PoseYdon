@@ -35,9 +35,16 @@ docker compose run --rm -T fbxsdk python -m pytest -q -k Camel
 scripts/verify_motion.sh --data truebones --rig Camel   # or --smoke
 ```
 
+One FBX or BVH, with no source clip (a BVH has no mesh, so only its joints are judged):
+
+```bash
+scripts/verify_motion.sh file FILE.bvh --reference SOURCE.bvh        # or --rig Camel --data truebones
+```
+
 It runs on the host and calls docker compose for each step. The run directory goes to
 `tmp/verify` by default. Its knobs and smoke set are in `configs/verify/verify.yaml`.
-See [Verification](../user-guide/verification.md).
+See [Verification](../user-guide/verification.md). Agents follow the `verify-motion` skill
+(`.claude/skills/verify-motion/SKILL.md`): baseline first, read the sheets, quote the report.
 
 ## Docs checks
 

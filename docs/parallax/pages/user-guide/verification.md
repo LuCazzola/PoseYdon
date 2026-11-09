@@ -1,6 +1,6 @@
 # Verification
 
-Code: `tests/test_roundtrip.py`, `tests/test_verify.py`, `tools/verify`, `scripts/verify_motion.py`, `configs/verify`
+Code: `tests/test_roundtrip.py`, `tests/test_verify.py`, `tools/verify`, `tools/verify/blender_read.py`, `scripts/verify_motion.py`, `scripts/verify_motion.sh`, `configs/verify`
 
 Both checks below are tooling. They judge the library's output against something the
 library did not produce.
@@ -17,12 +17,137 @@ There is one test per clip, so `-k Rig/action` narrows a run.
 ## The motion verifier judges FBX output against the vendor rig
 
 `scripts/verify_motion.py` builds the stage files of one round trip (`build`), judges them
-(`judge`), or judges a single FBX (`file`). It writes `<run>/report.json` and `<run>/report.txt` and
+(`judge`), or judges a single FBX or BVH (`file`). It writes `<run>/report.json` and `<run>/report.txt` and
 exits non-zero unless every check is `PASS` or `ALLOWED`. A `NOT RUN` line counts against
-that, and `C4-symmetry` is always `NOT RUN` (not implemented), so a built run currently
-always exits 1 (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motion.sh` runs
+that (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motion.sh` runs
 the whole sequence from the host: building in the `fbxsdk` container, reading in Blender
 (`fbx`), then judging.
+
+`build --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]` writes `<out>/<Rig>__<clip>/`: the stage
+files, the `5_zero` file and `case.json` (paths, sampled frames, the vendor file's frame for each through the clip's recorded
+window, SHA-256 of each file, git commit, container). `--smoke` builds the rigs of `configs/verify/verify.yaml` (and its `extra`
+clips) for every dataset it lists, or for `--data D` alone. `--floor` replaces the stages by the source clip written onto the rest
+asset with no preparation, to measure the float floor (judged against the source itself, but for the writer's node scale and
+held joints). `judge` refuses a file whose hash changed since `build`. `file` takes paths inside the checkout, relative to its
+root (`--case-only` writes the case without judging; the shell script uses it so the judge runs after Blender). Settings and the
+smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's. A verdict is `FAIL` over `NOT RUN` over
+`ALLOWED` over `PASS`; a check that cannot apply by construction is listed under `run.not_applicable` with its reason instead of
+`NOT RUN`, and information that is not a judgment (a vendor file disagreeing with the rig's reference, `run.vendor_disagreement`)
+is printed in `report.txt` and never changes the verdict. An allowance (`{check, joint, file, budget, reason}`) turns a `FAIL`
+inside its budget into `ALLOWED`, and only on lines whose `where` carries the same `joint` and `file`; C2a takes none.
+
+**C1, inventory.** Nodes, hierarchy, meshes, skin clusters, binds, materials, textures, units, up axis, fps and frame range of
+each file against the rig's reference skin (`inventory_tol`). A clip's frame count is held to its recorded window over the vendor
+keys. The `5_zero` file is one pose, so C1 reads it without timing. Features the reader does not support are `C1:unsupported`
+(`NOT RUN`). Blind spot: anything outside the inventory (a custom property, an animation curve's interpolation).
+
+**C2a, skin.** Each stage file's own skin against the reference skin, both driven by that file's joints (`skin_tol`, floor
+measured beside it). It takes no allowances. Blind spot: a wrong pose is not seen, both sides move together.
+
+**C2b, fidelity.** The returned `4_roundtrip` file against the source clip with each lossy stage's loss law applied
+(`tools/verify/laws.py`). `C2b-untraced`, file against that expected pose, is the verdict: vertices (else joints) and joint
+positions within `untraced_tol` of rig extent, joint world rotations within `untraced_rot_tol`, each reported apart.
+`C2b-traced`, source against expected, is the loss the laws explain; it is shown and never judged. `C2b-rest` holds the rest
+inputs the laws read (bone lengths, node scales) to the vendor file's bind, and runs even when a law is missing. A lossy stage
+with neither law nor lossless declaration makes `C2b-untraced` `NOT RUN`: the fix is a law, not a tolerance. The expected pose is
+computed from pipeline records (idea `s8ia`), so the evidence is `independent` only up to those inputs.
+
+**C3, canonical files.** The `2_prepared` and `3_model` files (written in canonical space) against the source with the same
+laws, the model stage adding the reduction's. ONE similarity is fitted for the whole clip from the expected skin vertices to the
+file's; `C3-shape` is the residual, judged like C2b-untraced. `C3-placement` (`pipeline`) compares the fit with the `space`
+`RigRecord.placement` recorded: scale ratio (`placement_scale_tol`), rotation in degrees (`placement_rotation_deg`), offset as a
+fraction of extent (`placement_offset_tol`). It checks that a file sits where the record says; a wrong record moves
+`4_roundtrip` off the source, which C2b catches.
+
+**C4, rest pose.** The `5_zero` file (identity rotations on the rig's offsets, placed by `RigRecord.placement`). `C4-mesh`
+(`pipeline`: the reference is `rest.npz:rest`, built from the manifest's rest pose): the file's skin under its joints against
+the same skin under that rest pose, one fitted similarity, judged like `C3-shape`. `C4-placement` (`pipeline`) compares that
+fit with the recorded placement. `C4-joints` is the independent leg: the zero file's joints against the manifest's `rest_pose`
+BVH, after one fitted similarity, within `untraced_tol` (`derived` for an authored BVH, `independent` for a vendor file kept
+unchanged; `NOT RUN` where the manifest has none); positions only, so a rotation that leaves every joint in place is unseen.
+`C4-pose` (`pipeline`): up +Y, facing +Z (within `zero_facing_deg`) and grounded (within `zero_ground_tol` of extent), per the
+manifest's own definition; a part the chain does not declare is named and left out. A chain without `rest_relative`
+(`data=unimate`) has no rest at identity: C4-mesh, C4-placement and C4-pose are listed under `run.not_applicable`, and
+C4-joints still runs when the manifest declares a `rest_pose` (else it is listed too). Symmetry lines are below.
+
+**C5, sanity without a reference** (the `4_roundtrip` file, or the `file` run's). The rig's reference skin driven by the file's
+joints, so limits and file share one bind. `C5-range` (how far a joint strays from the skeleton's centroid, as a fraction of
+rest extent, every key), `C5-stretch` (worst edge length ratio against the bind mesh), `C5-area` (same for triangle areas) and
+`C5-bone-distance` (change of a vertex's distance to its dominant bone, fraction of mesh extent), over `n_frames` sampled
+frames. The limit is the largest value across the rig's vendor clips times `stretch_margin` (`derived`), cached under
+`tmp/verify/limits/<data>/<rig>.json` and re-measured when its stamp changes. Blind spots: only gross faults; a 30 degree knee
+error or a 90 degree twist moves none of the four, a short edge a vendor clip stretches widens the limit, and a rigid subtree
+turned whole keeps `C5-bone-distance` (a flipped limb fails stretch and area, not that line). `C5-joints` (`derived`) judges only
+the degrees of freedom (swing, |twist|, speed) whose vendor maximum is below `joint_unused_deg`: `FAIL` when the file exceeds
+`joint_floor_deg`; the rest are reported in the note, never judged, so a bend on a degree of freedom the rig uses is unseen.
+A rig with no unused degree of freedom lists `C5-joints` under `run.not_applicable`. `C5-stability` (`pipeline`): the file read
+back like a vendor clip and prepared again with the rig's chain, against the generator's clip (`build`: the corpus clip;
+`file`: `--clip C.npz`, else `NOT RUN`) after one fitted similarity, within `stability_tol`. Joint positions only; bone lengths
+come back from the rest asset on reading, so a wrong one is unseen.
+
+**C6** reads each file the pipeline wrote in Blender (`tools/verify/blender_read.py`, `fbx` service, run by
+`scripts/verify_motion.sh`) and compares Blender's evaluated vertices with the SDK's, index to index (the importer keeps
+the control-point order), after one fitted similarity per file, within `blender_tol` of extent (`independent` evidence).
+The fit is judged too, so it can absorb units and axes but not a real resize or move: its scale must match the file's
+unit factor (`UnitScaleFactor`/100, 0.01 for cm) and its shift must stay within `blender_tol` of extent; the note gives the
+fitted scale, the expected one and the shift. A mesh Blender drops or an import that fails is `FAIL`; a skin Blender loses
+is caught only through the vertex gap (nothing checks for it directly). No Blender output is `NOT RUN`, which counts
+against the verdict. `blender_tol` is ten times the worst gap measured on the pipeline's files (1e-5, eight rigs). The
+vendor file is read too but only noted, never judged: the readers differ on it by 7e-4 to 5.8e-3 (Blender's importer).
+`tests/test_verify.py` runs in `fbxsdk`, where Blender cannot, so its mutation rows ignore a `C6` `NOT RUN`; the comparison itself is
+tested on a stand-in (`test_judge_refuses_what_it_cannot_read`): an npz in `blender_read.py`'s format written from the SDK's own
+deformed vertices times the file's unit factor must give a numeric `PASS` on every file, and the same npz scaled 2.5 must `FAIL`.
+That tests the comparison and the judged fit, not Blender's reading.
+
+**C4-symmetry** (`derived`) is declared per rig and per layer in `configs/verify/limits.yaml` (owner-set, empty of rigs until
+the owner sets them; its header shows the shape): `skeleton: {position, rotation_deg}` and/or `mesh`. A layer that is not declared gives
+no line, so it never blocks the verdict; a rig may declare either layer, both or neither. The zero file is mirrored across the
+character's middle plane, the root's YZ plane (x = the first skeleton joint's x, in PoseYdon's frame). `C4-symmetry-skeleton` pairs left and
+right joints by name (the tokens in `symmetry_sides`, `configs/verify/verify.yaml`) and compares the mirrored position as a fraction of the
+joints' extent (the line's value) and the mirrored world rotation in degrees (in `where`), each within its limit. `C4-symmetry-mesh` measures
+the distance from every mirrored vertex of the modelled skins to the nearest vertex (`scipy.spatial.cKDTree`), as a fraction of mesh extent.
+Blind spot: a joint whose name matches no token has no partner and is not judged. The measured values per rig are in the owner's hands
+(the table is kept under `.superpowers/`, which is not published). `tests/test_verify.py` declares a Goat limit in a temporary config: a clean
+run passes both lines, a hind leg turned 10 degrees fails the skeleton line, an undeclared rig has no line.
+
+Known disagreement, Crow (`ascend`): C6 FAILs on `2_prepared`, `3_model` and `4_roundtrip` (4.9e-3 of extent; fitted
+scale 0.0039 against 0.01) while `5_zero` agrees at 3e-8. The fault is Blender's reading, not the pipeline's: the SDK's
+joints on the vendor FBX match the vendor's own `__Ascend.bvh` to 2.2e-6 of extent, Blender's gap on the vendor file is the
+same (5.8e-3), and Blender keeps the mesh rigid, so it poses the joints differently. Crow has a `Null` node scaled 5
+with `eInheritRrSs` on every node; the exact cause is not pinned. No allowance is set: allowances are the owner's.
+Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowances.yaml`, citing the BVH agreement.
+
+**BVH files** (`tools/verify/bvh.py`; `file FILE.bvh`, a BVH being a normal input, mesh or no mesh). A BVH carries no mesh, so
+the mesh checks (`C1`, `C2a`, `C6`, `C7-sheets`, `B3-mesh`) do not apply: they are left out of the report and named under
+`run.not_applicable` ("no mesh in this input"; `B3-mesh` reads "needs a pipeline BVH in the asset's frames"), never `NOT RUN`, and the verdict rests on the joints. `C5` reads FBX files only,
+so it is listed there too. The source is the BVH given with `--reference`, or, with `--rig` and `--data`, the rig's FBX clip of the
+same action name (`__DownLoop.bvh` against `Camel-DownLoop.fbx`; else the rig's reference skin). `B1-layout` compares the HIERARCHY text
+(joints, nesting, channels, End Sites; numbers left out) and the frame rate with a BVH source, and is not applicable with an FBX source:
+there is no user BVH to match, so it is named in `run.not_applicable` and the joints decide. `B2-joints` compares world positions per frame: with a BVH
+source directly, with an FBX source after one fitted similarity (units, axes; the vendor BVH differs from its FBX in per-joint frames,
+so rotations are not compared) and only when the FBX has as many frames as the file, else `NOT RUN` (a bone length is no stand-in:
+vendor rigs animate position channels). Both are within `bvh_tol` of extent (`independent`, `derived` for a repaired reference),
+10x the worst measured (vendor Camel against its FBX, 1e-5). `B3-mesh` runs only when a `Case` names a rig with an FBX skin (no
+`file` run today): the file's joints drive the reference skin through `FBX.from_animation` and C5's mesh limits judge it
+(`driven` evidence); joints with no rotation channels stay at the asset's rest, and a vendor BVH (per-joint frames differ) gives a
+false red, only BVHs in the asset's frames (the pipeline's) are meant. `B4-reader` is Blender's BVH importer
+(`tools/verify/blender_read.py`, run by `scripts/verify_motion.sh file ...`) against our reader, joint positions after one similarity
+within `blender_tol`, the fitted scale held to 1; it agrees with the SDK-side reader on vendor BVHs to 1.1e-5 at worst (39 files, 8 rigs),
+unlike its FBX import (see C6). `tests/test_verify.py` (`test_bvh_files_with_and_without_a_mesh`) runs the lines directly on a vendor
+Camel BVH (offset, channel order, NaN, truncation, empty) and `file` on a meshless one; B4 needs Blender, so it is `NOT RUN` there.
+
+**Sheets** (`tools/verify/sheet.py`, into `<run>/sheets/`, named in `report.json` under `run.sheets`): the reference mesh
+above and the file's below, in front, side, top and 3/4 views, at the first sampled frame (standing in for the rest
+pose) and at the frame of worst error. Four kinds: C2a draws each stage's own skin against the reference under the
+file's joints (`<stage>_*`: skin faults only); C2b draws `4_roundtrip` (the `floor` file on a floor run) against the expected pose, no fit; C3 draws
+`2_prepared` and `3_model` against the expected pose put in place by the *recorded* placement; C4 draws `5_zero`
+against the rig at rest, likewise (`<stage>-vs-expected_*`, `5_zero-vs-rest_*`). So a file written in the wrong place
+looks it. The camera is fixed from the reference's bounds, never the file's. Vertices are coloured by their distance
+from the reference as a fraction of extent on one fixed log scale (1e-6 blue to 1e-1 red, clipped beyond), printed on
+the sheet. Same files give the same bytes. They are for reading and never change a verdict, except that a run which
+should have written some and wrote none gets `C7-sheets: NOT RUN`; a rig with no mesh is listed under
+`run.not_applicable`. `judge(run, sheets=False)` skips them (the mutation rows do).
+`scripts/verify_motion.sh --smoke` carries on past a rig that fails to build.
 
 The pipeline's own code cannot serve as the reference, because that would be circular:
 
