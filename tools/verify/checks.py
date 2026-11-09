@@ -677,6 +677,61 @@ def _zero_joints(case: Case, cfg: dict, rec: ZeroRecord, file: _Joints) -> Check
                  f" after one fitted similarity (worst {common[at]})")
 
 
+_FLIPS = [np.diag(d) for d in ([1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1])]
+
+
+def _symmetry(case: Case, cfg: dict, file: _Joints | None, skins: list) -> list[Check]:
+    """``C4-symmetry-skeleton`` and ``-mesh`` of the zero file, one line per layer the rig declares in `limits.yaml`
+    (none declared: no line). Mirror across the plane x = the first skeleton joint's x (the character's middle in
+    PoseYdon's frame). Skeleton: each joint against its mirrored partner (`symmetry_sides` names the pairs), position
+    as a fraction of the joints' extent and the mirrored world rotation in degrees. Mesh: each mirrored vertex to
+    the nearest vertex, as a fraction of the mesh extent. The rotation is blind to a half turn about a local bone axis."""
+    from scipy.spatial import cKDTree
+
+    declared, out = cfg.get("limits", {}).get(case.rig, {}), []
+    where = {"rig": case.rig, "clip": case.action}
+    for layer in ("skeleton", "mesh"):
+        if layer not in declared:
+            continue
+        cid, limit = f"C4-symmetry-{layer}", declared[layer]
+        if file is None:
+            out.append(Check(cid, Status.NOT_RUN, Evidence.DERIVED, where=where, note=f"needs a built round trip's {ZERO} file"))
+            continue
+        mirror = np.diag([-1.0, 1.0, 1.0])
+        joints = [j for j in range(len(file.names)) if file.skeleton[j]]
+        world, centre = file.world[0], file.world[0, joints[0], 0, 3]
+        if layer == "skeleton":
+            index = {file.names[j]: j for j in joints}
+            pairs = [(index[n], index[n.replace(a, b, 1)]) for n in index for a, b in cfg["symmetry_sides"]
+                     if a in n and n.replace(a, b, 1) in index]
+            if not pairs:
+                out.append(Check(cid, Status.NOT_RUN, Evidence.DERIVED, where=where, note="no left/right joint pair by name (`symmetry_sides`)"))
+                continue
+            left, right = (np.array(i) for i in zip(*pairs))
+            size = extent(world[joints, :3, 3])
+            moved = world[left, :3, 3] * [-1, 1, 1] + [2 * centre, 0, 0]
+            gap = np.linalg.norm(moved - world[right, :3, 3], axis=-1) / size
+            turn = _rotation(world[right]).transpose(0, 2, 1) @ mirror @ _rotation(world[left]) @ mirror
+            # a Biped's left and right bone frames differ by a half turn about a local axis: the closest of the four counts
+            deg = np.degrees(np.arccos(np.clip((np.max([np.trace(turn @ d, axis1=1, axis2=2) for d in _FLIPS], axis=0) - 1) / 2, -1, 1)))
+            at, ar = int(gap.argmax()), int(deg.argmax())
+            ok = gap[at] <= limit["position"] and deg[ar] <= limit["rotation_deg"]
+            out.append(Check(cid, Status.PASS if ok else Status.FAIL, Evidence.DERIVED, float(gap[at]), limit["position"],
+                             where | {"pair": [file.names[left[at]], file.names[right[at]]], "rotation_deg": float(deg[ar]),
+                                      "rotation_limit_deg": limit["rotation_deg"], "rotation_pair": [file.names[left[ar]], file.names[right[ar]]]},
+                             f"{len(pairs)} pairs; position worst {file.names[left[at]]}, rotation worst {deg[ar]:.3g} deg ({file.names[left[ar]]})"))
+        else:
+            if not skins:
+                out.append(Check(cid, Status.NOT_RUN, Evidence.DERIVED, where=where, note="no skinned mesh the verifier models"))
+                continue
+            cloud = np.concatenate([deform(s, {n: file.world[:, j] for j, n in enumerate(file.names)})[0] for s in skins])
+            dist, _ = cKDTree(cloud).query(cloud * [-1, 1, 1] + [2 * centre, 0, 0])
+            at = int(dist.argmax())
+            out.append(Check(cid, Status.PASS if dist[at] / extent(cloud) <= limit else Status.FAIL, Evidence.DERIVED,
+                             float(dist[at] / extent(cloud)), limit, where | {"vertex": at}, f"{len(cloud)} vertices, worst vertex {at}"))
+    return out
+
+
 def c4_zero(case: Case, cfg: dict) -> list[Check]:
     """Identity rotations in PoseYdon's frame (the `5_zero` file) against the rig's reference pose.
     ``C4-mesh`` (`pipeline`): the file's skin under its joints against the same skin under `rest.npz:rest`
@@ -685,16 +740,12 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
     `rest_relative` (`data=unimate`) has no rest at identity: NOT RUN. ``C4-placement`` compares that fit
     with the placement recorded for the zero, like `C3-placement`. ``C4-joints`` is the pose's independent
     leg (see `_zero_joints`). ``C4-pose`` (`pipeline`, the manifest's own definition): up +Y, facing +Z,
-    grounded. ``C4-symmetry`` needs a limit format the owner has not set (`configs/verify/limits.yaml`,
-    empty): NOT RUN."""
+    grounded. ``C4-symmetry-skeleton`` and ``-mesh`` (`derived`) exist only for a rig and layer declared in
+    `configs/verify/limits.yaml` (`_symmetry`)."""
     evidence, where, path = _evidence(case), {"rig": case.rig, "clip": case.action}, case.files.get(ZERO)
-    declared = case.rig in cfg.get("limits", {})
-    symmetry = Check("C4-symmetry", Status.NOT_RUN, Evidence.PIPELINE, where=where,
-                     note=(f"limits declared for {case.rig}, but symmetry is not implemented: it needs a limit format"
-                           if declared else f"no symmetry limits declared for {case.rig} (configs/verify/limits.yaml is owner-set)"))
     if path is None or not case.data_name or case.floor:
         why = f"needs a built round trip's {ZERO} file"
-        return [Check(c, Status.NOT_RUN, Evidence.PIPELINE, note=why) for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + [symmetry]
+        return [Check(c, Status.NOT_RUN, Evidence.PIPELINE, note=why) for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + _symmetry(case, cfg, None, [])
 
     def stop(check: str, status: Status, note: str, ev=Evidence.PIPELINE) -> Check:
         return Check(check, status, ev, where=where, note=note)
@@ -704,7 +755,7 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
         file = _joints(path, lambda f: f[:1])
         skins, inventory = reference_skin(case), _read(case.skin_fbx).inventory
     except Exception as error:  # noqa: BLE001 - an unreadable file or record is NOT RUN
-        return [stop(c, Status.NOT_RUN, f"unreadable: {error}") for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + [symmetry]
+        return [stop(c, Status.NOT_RUN, f"unreadable: {error}") for c in ("C4-mesh", "C4-placement", "C4-joints", "C4-pose")] + _symmetry(case, cfg, None, [])
     modelled = _modelled(skins, inventory, file)
     usable = [] if isinstance(modelled, str) else modelled[0]
     rotation, placement = None, None
@@ -734,7 +785,7 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
             _placed_sheet(case, f"{ZERO}-vs-rest", path, file, usable, np.array([[rest[n] for n in file.names]]),
                           np.zeros(1, dtype=int), rec.space)
     placement = placement or stop("C4-placement", Status.NOT_RUN, "C4-mesh did not complete")
-    return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation), symmetry]
+    return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation)] + _symmetry(case, cfg, file, usable)
 
 
 # C5: sanity of a file that has no reference ---------------------------------------------------

@@ -1,2 +1,7 @@
 # Only the owner edits this file: an agent may propose a limit, never add one.
+# C4-symmetry is judged only for a rig and layer declared here; an undeclared one has no line and blocks nothing.
+# Per rig, either layer or both (zero file mirrored across the root's YZ plane; measured in .superpowers/sdd/.../symmetry-table.md):
+#   Goat:
+#     skeleton: {position: 0.01, rotation_deg: 1.0}   # left/right joint pairs: position as a fraction of extent, mirrored rotation in degrees
+#     mesh: 0.005                                      # each mirrored vertex to the nearest vertex, fraction of extent
 {}

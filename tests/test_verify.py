@@ -481,9 +481,8 @@ MUTATIONS = [
 
 
 def _judged_lines(report):
-    """Every line but `C4-symmetry` NOT RUN, which stays until the owner sets limits (`configs/verify/limits.yaml`),
-    and `C6` NOT RUN: Blender cannot run inside `fbxsdk`, so the real C6 run is `scripts/verify_motion.sh`."""
-    return [c for c in report.checks if (c.id, c.status) not in (("C4-symmetry", Status.NOT_RUN), ("C6", Status.NOT_RUN))]
+    """Every line but `C6` NOT RUN: Blender cannot run inside `fbxsdk`, so the real C6 run is `scripts/verify_motion.sh`."""
+    return [c for c in report.checks if (c.id, c.status) != ("C6", Status.NOT_RUN)]
 
 
 def assert_green(report):
@@ -585,6 +584,27 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
     other = verify_motion.file_case(goat / "4_roundtrip.fbx", None, tmp_path / "o", "truebones", "Goat", clips / "bleat.npz")
     assert _status(judge(same), "C5-stability").status is Status.PASS
     assert _status(judge(other), "C5-stability").status is Status.FAIL
+    # C6 on a stand-in for Blender: the SDK's own deformed vertices in blender_read.py's format, in metres; the unit factor passes, a 2.5x scale fails
+    for scale, want in ((1.0, Status.PASS), (2.5, Status.FAIL)):
+        _fake_blender(goat, scale)
+        c6 = [c for c in judge(goat, sheets=False).checks if c.id == "C6"]
+        assert c6 and {c.status for c in c6} == {want} and all(c.value is not None for c in c6), c6
+
+
+def _fake_blender(run: Path, scale: float) -> None:
+    """`blender_read.py`'s npz per file, from the SDK's deformed vertices times the file's unit factor (cm -> m) times ``scale``."""
+    case = load_case(run)
+    (run / "blender").mkdir(exist_ok=True)
+    for name, path in case.files.items():
+        scene = fbx.FBX.read(path)
+        try:
+            frames = scene.frames()[np.zeros(1, dtype=int) if name == "5_zero" else case.frames]
+            world, unit = scene.world(frames), scene.inventory().unit_cm / 100
+            joints = {n: world[:, j] for j, n in enumerate(scene.names)}
+            meshes = {s.mesh: deform(s, joints) * unit * scale for s in scene.skin_data()}
+        finally:
+            scene.close()
+        np.savez(run / "blender" / f"{name}.npz", names=np.array(list(meshes)), **meshes)
 
 
 def test_source_frames_follow_the_recorded_window(tmp_path):
@@ -637,3 +657,39 @@ def test_a_floor_run_is_judged_against_the_source_itself(tmp_path):
     run = build("truebones", "Camel", None, tmp_path, floor=True)
     line = _status(judge(run), "C2b-untraced")
     assert line.status is Status.PASS and 0 < line.value < 1e-4, line
+
+
+def turn_hind_leg_10deg(path: Path) -> None:
+    """The left thigh and everything under it turned 10 degrees about world X in the zero file."""
+    def edit(scene):
+        world = scene.world()
+        j = next(k for k, n in enumerate(scene.names) if "Bip01_L_Thigh" in n)
+        turn = Rotation.from_rotvec(np.radians(10) * np.array([1.0, 0, 0])).as_matrix()
+        for k in (k for k in range(len(scene.names)) if j in _chain(scene.parents, k)):
+            world[:, k, :3, :3] = turn @ world[:, k, :3, :3]
+            world[:, k, :3, 3] = world[:, j, :3, 3] + (turn @ (world[:, k, :3, 3] - world[:, j, :3, 3]).T).T
+        scene.animate({n: world[:, k] for k, n in enumerate(scene.names)}, scene.fps)
+
+    _mutate(path, edit)
+
+
+def test_symmetry_lines_exist_only_where_declared(tmp_path, monkeypatch):
+    """No limit, no line; a declared skeleton and mesh each give their own PASS line; a hind leg turned 10 degrees fails the skeleton."""
+    from scripts import verify_motion
+
+    run = build("truebones", "Goat", None, tmp_path)
+    assert not [c for c in judge(run, sheets=False).checks if c.id.startswith("C4-symmetry")]
+    conf = tmp_path / "conf"
+    conf.mkdir()
+    for f in Path("configs/verify").glob("*.yaml"):
+        (conf / f.name).write_text(f.read_text())
+    (conf / "limits.yaml").write_text("Goat: {skeleton: {position: 0.1, rotation_deg: 110.0}, mesh: 0.04}\n")
+    monkeypatch.setattr(verify_motion, "CONFIG", conf)
+    base = judge(run, sheets=False)
+    assert_green(base)
+    lines = {c.id: c for c in base.checks if c.id.startswith("C4-symmetry")}
+    assert lines.keys() == {"C4-symmetry-skeleton", "C4-symmetry-mesh"} and {c.status for c in lines.values()} == {Status.PASS}
+    assert {c.evidence.value for c in lines.values()} == {"derived"} and all(c.value is not None for c in lines.values()), lines
+    turn_hind_leg_10deg(run / "5_zero.fbx")
+    after = judge(run, accept_changed=True, sheets=False)
+    assert _status(after, "C4-symmetry-skeleton").status is Status.FAIL, _status(after, "C4-symmetry-skeleton")

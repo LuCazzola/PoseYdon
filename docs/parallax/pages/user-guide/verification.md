@@ -19,8 +19,7 @@ There is one test per clip, so `-k Rig/action` narrows a run.
 `scripts/verify_motion.py` builds the stage files of one round trip (`build`), judges them
 (`judge`), or judges a single FBX (`file`). It writes `<run>/report.json` and `<run>/report.txt` and
 exits non-zero unless every check is `PASS` or `ALLOWED`. A `NOT RUN` line counts against
-that, and `C4-symmetry` is always `NOT RUN` (not implemented), so a built run currently
-always exits 1 (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motion.sh` runs
+that (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motion.sh` runs
 the whole sequence from the host: building in the `fbxsdk` container, reading in Blender
 (`fbx`), then judging.
 
@@ -33,7 +32,21 @@ fitted scale, the expected one and the shift. A mesh Blender drops or an import 
 is caught only through the vertex gap (nothing checks for it directly). No Blender output is `NOT RUN`, which counts
 against the verdict. `blender_tol` is ten times the worst gap measured on the pipeline's files (1e-5, eight rigs). The
 vendor file is read too but only noted, never judged: the readers differ on it by 7e-4 to 5.8e-3 (Blender's importer).
-`tests/test_verify.py` runs in `fbxsdk`, where Blender cannot, so it ignores a `C6` `NOT RUN`.
+`tests/test_verify.py` runs in `fbxsdk`, where Blender cannot, so its mutation rows ignore a `C6` `NOT RUN`; the comparison itself is
+tested on a stand-in (`test_judge_refuses_what_it_cannot_read`): an npz in `blender_read.py`'s format written from the SDK's own
+deformed vertices times the file's unit factor must give a numeric `PASS` on every file, and the same npz scaled 2.5 must `FAIL`.
+That tests the comparison and the judged fit, not Blender's reading.
+
+**C4-symmetry** (`derived`) is declared per rig and per layer in `configs/verify/limits.yaml` (owner-set, empty of rigs until
+the owner sets them; its header shows the shape): `skeleton: {position, rotation_deg}` and/or `mesh`. A layer that is not declared gives
+no line, so it never blocks the verdict; a rig may declare either layer, both or neither. The zero file is mirrored across the
+character's middle plane, the root's YZ plane (x = the first skeleton joint's x, in PoseYdon's frame). `C4-symmetry-skeleton` pairs left and
+right joints by name (the tokens in `symmetry_sides`, `configs/verify/verify.yaml`) and compares the mirrored position as a fraction of the
+joints' extent (the line's value) and the mirrored world rotation in degrees (in `where`), each within its limit. `C4-symmetry-mesh` measures
+the distance from every mirrored vertex of the modelled skins to the nearest vertex (`scipy.spatial.cKDTree`), as a fraction of mesh extent.
+Blind spot: a joint whose name matches no token has no partner and is not judged. The measured values per rig are in the owner's hands
+(the table is kept under `.superpowers/`, which is not published). `tests/test_verify.py` declares a Goat limit in a temporary config: a clean
+run passes both lines, a hind leg turned 10 degrees fails the skeleton line, an undeclared rig has no line.
 
 Known disagreement, Crow (`ascend`): C6 FAILs on `2_prepared`, `3_model` and `4_roundtrip` (4.9e-3 of extent; fitted
 scale 0.0039 against 0.01) while `5_zero` agrees at 3e-8. The fault is Blender's reading, not the pipeline's: the SDK's

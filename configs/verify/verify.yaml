@@ -37,3 +37,5 @@ joint_floor_deg: 5  # a judged degree of freedom FAILs above this
 # The bound is 10x the worst. Crow ascend is not in that range (4.9e-3 on 2_prepared, 3_model, 4_roundtrip): Blender misreads Crow (the SDK matches the vendor BVH), see findings.
 # The vendor files are NOT judged: the two readers differ there by 7e-4 to 5.8e-3 (Blender's importer).
 blender_tol: 1.0e-4
+# C4-symmetry: a joint whose name holds the first token has its mirror partner under the second (first occurrence replaced).
+symmetry_sides: [[Left, Right], [left, right], [_L_, _R_], [_L, _R], [L_, R_], [.L, .R]]
