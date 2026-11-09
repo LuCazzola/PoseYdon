@@ -91,6 +91,53 @@ class Skin:
     weight_sum: np.ndarray
 
 
+@dataclass(frozen=True)
+class SkinData:
+    """One skin deformer read whole: the mesh, and per cluster its link, bind
+    matrices and weights, enough to skin it without the SDK.
+
+    ``points`` keeps every control point (indices match the file's), ``faces``
+    are the polygons fanned into triangles, ``link_bind`` and ``mesh_bind`` are
+    ``(C, 4, 4)`` column-vector matrices, ``indices``/``weights`` one array per cluster.
+    """
+
+    mesh: str
+    points: np.ndarray
+    faces: np.ndarray
+    links: tuple[str, ...]
+    link_bind: np.ndarray
+    mesh_bind: np.ndarray
+    indices: tuple[np.ndarray, ...]
+    weights: tuple[np.ndarray, ...]
+
+
+@dataclass(frozen=True)
+class Inventory:
+    """What a file holds, read without evaluating any animation: enough to tell
+    two files of one rig apart (a lost mesh, cluster, material or texture).
+
+    ``meshes`` maps a mesh node to ``(control points, polygons, skinned)``;
+    ``unweighted`` a skinned mesh to its control points no cluster weighs;
+    ``clusters`` a skinned mesh to its cluster links. ``unsupported`` names what
+    `FBX.skinned_vertices` does not model (one sentence each), so a mesh check
+    can decline rather than compute a wrong number. ``frames`` is the first and last
+    key (`FBX.key_range`), not the time span, which can end a key early on a vendor file.
+    """
+
+    nodes: tuple[str, ...]
+    parents: tuple[int, ...]
+    meshes: dict[str, tuple[int, int, bool]]
+    unweighted: dict[str, int]
+    clusters: dict[str, tuple[str, ...]]
+    materials: tuple[str, ...]
+    textures: tuple[str, ...]
+    unit_cm: float
+    up_axis: str
+    fps: float
+    frames: tuple[int, int]
+    unsupported: tuple[str, ...]
+
+
 @dataclass
 class FBX:
     """One loaded FBX scene, its node hierarchy and its single take."""
@@ -108,7 +155,8 @@ class FBX:
         importer = fbx.FbxImporter.Create(manager, "")
         if not importer.Initialize(str(path), -1, manager.GetIOSettings()):
             raise ValueError(f"{path}: {importer.GetStatus().GetErrorString()}")
-        importer.Import(scene)
+        if not importer.Import(scene):
+            raise ValueError(f"{path}: {importer.GetStatus().GetErrorString()}")
         importer.Destroy()
         return cls._wrap(manager, scene)
 
@@ -309,7 +357,8 @@ class FBX:
     def _skins(self) -> list:
         kind = fbx.FbxCriteria.ObjectType(fbx.FbxSkin.ClassId)
         found = (self.scene.GetSrcObject(kind, s) for s in range(self.scene.GetSrcObjectCount(kind)))
-        return [o for o in found if isinstance(o, fbx.FbxSkin)]  # the criteria is not a strict filter
+        # the criteria is not a strict filter, and a deformer cut off its geometry skins nothing
+        return [o for o in found if isinstance(o, fbx.FbxSkin) and o.GetGeometry() is not None]
 
     def skins(self) -> list[Skin]:
         """Every skin deformer's per-node weight summary (see `Skin`)."""
@@ -328,6 +377,82 @@ class FBX:
             node = geometry.GetNode()
             out.append(Skin(node.GetName() if node else "", geometry.GetControlPointsCount(), top, total))
         return out
+
+    def skin_data(self) -> list[SkinData]:
+        """Every skin deformer read whole (see `SkinData`)."""
+        out = []
+        for skin in self._skins():
+            geometry = skin.GetGeometry()
+            node = geometry.GetNode()
+            points = np.array([[p[0], p[1], p[2]] for p in geometry.GetControlPoints()])
+            faces = []
+            for p in range(geometry.GetPolygonCount()):
+                ring = [geometry.GetPolygonVertex(p, i) for i in range(geometry.GetPolygonSize(p))]
+                faces += [(ring[0], ring[i], ring[i + 1]) for i in range(1, len(ring) - 1)]
+            links, link_bind, mesh_bind, indices, weights = [], [], [], [], []
+            for c in range(skin.GetClusterCount()):
+                cluster = skin.GetCluster(c)
+                a, b = fbx.FbxAMatrix(), fbx.FbxAMatrix()
+                cluster.GetTransformLinkMatrix(a)
+                cluster.GetTransformMatrix(b)
+                links.append(cluster.GetLink().GetName())
+                link_bind.append(_matrix(a))
+                mesh_bind.append(_matrix(b))
+                indices.append(np.array(cluster.GetControlPointIndices(), dtype=int))
+                weights.append(np.array(cluster.GetControlPointWeights(), dtype=float))
+            out.append(SkinData(node.GetName() if node else "", points, np.array(faces, dtype=int).reshape(-1, 3),
+                                tuple(links), np.array(link_bind).reshape(-1, 4, 4),
+                                np.array(mesh_bind).reshape(-1, 4, 4), tuple(indices), tuple(weights)))
+        return out
+
+    def inventory(self) -> Inventory:
+        """What the file holds (see `Inventory`)."""
+        skin_of = {}
+        for skin in self._skins():
+            node = skin.GetGeometry().GetNode()
+            skin_of.setdefault(node.GetName() if node else "", []).append(skin)
+        meshes, unweighted, clusters, unsupported = {}, {}, {}, []
+        for node in self.nodes:
+            mesh, name = node.GetMesh(), node.GetName()
+            if mesh is None:
+                continue
+            skins = skin_of.get(name, [])
+            meshes[name] = (mesh.GetControlPointsCount(), mesh.GetPolygonCount(), bool(skins))
+            if mesh.GetDeformerCount(fbx.FbxDeformer.EDeformerType.eBlendShape):
+                unsupported.append(f"{name}: blend shapes")
+            geometric = [node.GeometricTranslation.Get(), node.GeometricRotation.Get()]
+            if max(np.abs(np.array(list(v))).max() for v in geometric) > 1e-9 or np.abs(
+                np.array(list(node.GeometricScaling.Get())) - 1).max() > 1e-9:
+                unsupported.append(f"{name}: non-zero geometric transform")
+            if skins:
+                weight = np.zeros(mesh.GetControlPointsCount())
+                links = []
+                for skin in skins:
+                    if skin.GetSkinningType() in (fbx.FbxSkin.EType.eDualQuaternion, fbx.FbxSkin.EType.eBlend):
+                        unsupported.append(f"{name}: {skin.GetSkinningType().name[1:]} skinning")
+                    for c in range(skin.GetClusterCount()):
+                        cluster = skin.GetCluster(c)
+                        if cluster.GetLinkMode() != fbx.FbxCluster.ELinkMode.eNormalize:
+                            unsupported.append(f"{name}: cluster link mode {cluster.GetLinkMode().name[1:]}")
+                        links.append(cluster.GetLink().GetName())
+                        np.add.at(weight, np.array(cluster.GetControlPointIndices(), dtype=int),
+                                  np.array(cluster.GetControlPointWeights(), dtype=float))
+                unweighted[name] = int((weight <= 0).sum())
+                clusters[name] = tuple(links)
+        scene = self.scene
+        textures = (scene.GetTexture(i) for i in range(scene.GetTextureCount()))
+        first, last = self.key_range()  # not `frames()`: a vendor file's time span can end one key early
+        try:
+            fps = float(self.fps)
+        except ValueError:
+            fps = float("nan")
+        return Inventory(
+            self.names, tuple(int(p) for p in self.parents), meshes, unweighted, clusters,
+            tuple(scene.GetMaterial(i).GetName() for i in range(scene.GetMaterialCount())),
+            tuple(sorted(Path(t.GetFileName()).name for t in textures)),
+            float(scene.GetGlobalSettings().GetSystemUnit().GetScaleFactor()), self.up_axis(), fps,
+            (round(first), round(last)), tuple(dict.fromkeys(unsupported)),
+        )
 
     def world(self, frames: np.ndarray | None = None) -> np.ndarray:
         """``(F, N, 4, 4)`` world matrices of every node, evaluated by the SDK."""

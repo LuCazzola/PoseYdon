@@ -11,7 +11,7 @@ canonical space (`RigRecord.placement`). The clip is the first of the rig's
 training clips that has a vendor FBX in the dataset's clip index, so 1_source.fbx
 is an independent reference: open it and 4_ side by side and they should agree
 up to the losses the round trip makes by design
-(docs/user-guide/roundtrip.md). Needs the Autodesk FBX SDK:
+(docs/parallax/pages/user-guide/round-trip.md). Needs the Autodesk FBX SDK:
 
     docker compose run --rm -T fbxsdk python scripts/build_stage_samples.py [--data truebones] [--rigs Camel Flamingo]
 """
@@ -33,14 +33,15 @@ from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX
 
 
-def build(data, rig: str, out: Path) -> str:
+def build(data, rig: str, out: Path, action: str | None = None) -> str:
     corpus = Path(data.paths.root)
     record = RigRecord.load(corpus, rig)
     files = {action: file for r, action, file in fbx_index(data.source.index) if r == rig}
     trained = [json.loads(line)["action"] for line in (corpus / "index.jsonl").read_text().splitlines()
                if line and json.loads(line)["skeleton"] == rig]
-    action = next((a for a in sorted(trained) if a in files), None)
     if action is None:
+        action = next((a for a in sorted(trained) if a in files), None)
+    if action is None or action not in files:
         raise LookupError("no training clip has a vendor FBX in the clip index")
     clip = corpus / "clips" / rig / f"{action}.npz"
     prepared = RigidBodyAnimation.load(clip).as_rigid_body(joint_translation="drop")

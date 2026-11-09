@@ -1,0 +1,111 @@
+site_name: PoseYdon
+repo_url: https://github.com/LuCazzola/PoseYdon
+edit_uri: ""
+
+docs_dir: pages
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/weather-night, name: Dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/weather-sunny, name: Light mode}
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid-diagram  # rendered by pages/javascripts/mermaid.js, not Material
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [../../src]
+          options:
+            allow_inspection: false  # static analysis only: never import the code
+            docstring_style: google
+            show_source: false
+            show_if_no_docstring: true
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            show_signature_annotations: true
+            separate_signature: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - path: javascripts/mermaid.js
+    type: module
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - user-guide/index.md
+      - The round trip: user-guide/round-trip.md
+      - Motion representation: user-guide/representation.md
+      - Generation: user-guide/generation.md
+      - Configuration: user-guide/configuration.md
+      - Verification: user-guide/verification.md
+  - Agent Guide:
+      - agent-guide/index.md
+      - Map: agent-guide/map.md
+      - Recipes: agent-guide/recipes.md
+      - Testing: agent-guide/testing.md
+      - Glossary: agent-guide/glossary.md
+  - Tickets:
+      - tickets/index.md
+      - Ideas: tickets/ideas.md
+  - API:
+      - poseydon: api/poseydon/index.md
+      - poseydon.augment: api/poseydon/augment/index.md
+      - poseydon.build: api/poseydon/build/index.md
+      - poseydon.conditioners: api/poseydon/conditioners/index.md
+      - poseydon.core: api/poseydon/core/index.md
+      - poseydon.data: api/poseydon/data/index.md
+      - poseydon.export: api/poseydon/export/index.md
+      - poseydon.features: api/poseydon/features/index.md
+      - poseydon.ingest: api/poseydon/ingest/index.md
+      - poseydon.io: api/poseydon/io/index.md
+      - poseydon.losses: api/poseydon/losses/index.md
+      - poseydon.models: api/poseydon/models/index.md
+      - poseydon.models.modules: api/poseydon/models/modules/index.md
+      - poseydon.ops: api/poseydon/ops/index.md
+      - poseydon.process: api/poseydon/process/index.md
+      - poseydon.sampling: api/poseydon/sampling/index.md
+      - poseydon.sampling.controls: api/poseydon/sampling/controls/index.md
+      - poseydon.solvers: api/poseydon/solvers/index.md
+      - poseydon.training: api/poseydon/training/index.md

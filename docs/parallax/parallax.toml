@@ -1,0 +1,5 @@
+source_roots = ["src"]   # where packages live, for ticket paths and API stubs
+ignore = ["*.log", "*.lock"]         # generated files: these do not count as code for the sync hook
+
+[tickets]
+auto_file_issues = "private"         # "always" | "private" | "never"

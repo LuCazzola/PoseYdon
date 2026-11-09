@@ -1,7 +1,7 @@
 # Ablation: Truebones prepared bone-relative -- identity on every joint is a
 # straight chain (LAFAN1 / 3ds Max Biped), not the rig's rest pose. Everything
 # else is `truebones.yaml`. Its manifests and clip labels are copies of the main
-# corpus's (see docs/reference/tooling.md).
+# corpus's (see docs/parallax/pages/agent-guide/map.md).
 defaults: [truebones, _self_]
 paths:
   raw: data/_raw/truebones

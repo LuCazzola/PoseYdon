@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Idea
-    url: https://lucazzola.github.io/PoseYdon/reference/ideas/
-    about: Proposed changes live in docs/reference/ideas.md (open_ticket.py idea ...), not in issues.
+    url: https://lucazzola.github.io/PoseYdon/tickets/ideas/
+    about: Proposed changes live in docs/parallax/pages/tickets/ideas.md (docs/parallax/tools/open_ticket.py idea ...), not in issues.

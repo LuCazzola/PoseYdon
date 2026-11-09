@@ -75,12 +75,9 @@ emulation registration was lost (it does not survive a reboot): rerun the
 
 | | |
 |---|---|
-| [Tutorials](docs/how-to/tutorials/01-setup.md) | set up, build the dataset, train, generate, export |
-| [Design rationale](docs/user-guide/index.md) | how the pieces fit, and why they are separate |
-| [Glossary](docs/reference/glossary.md) | the words, shapes and axes the code and docs use |
-| [Data round trip](docs/user-guide/roundtrip.md) | a character in, generated motion back out on that same character |
-| [Motion tasks](docs/how-to/tasks/index.md) | generate, in-between, blend and retarget with one trained model |
-| [Testing](docs/how-to/testing.md) | what is covered, and how coverage is checked |
+| [Design rationale](docs/parallax/pages/user-guide/index.md) | how the pieces fit, and why they are separate |
+| [The round trip](docs/parallax/pages/user-guide/round-trip.md) | a character in, generated motion back out on that same character |
+| [Agent Guide](docs/parallax/pages/agent-guide/index.md) | the map of the repo, recipes, testing, glossary |
 | [Documentation](https://lucazzola.github.io/PoseYdon/) | the whole site: guides, the map of the repo, issues & ideas, API |
 
 ## Layout

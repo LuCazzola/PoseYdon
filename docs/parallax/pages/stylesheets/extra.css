@@ -1,0 +1,20 @@
+/* Centre tables, diagrams and images in the content column. */
+.md-typeset__scrollwrap { text-align: center; }
+.md-typeset__table { text-align: left; }
+.md-typeset .mermaid-diagram { text-align: center; }
+.md-typeset img { display: block; margin: 0 auto; }
+
+/* Sidebar group titles (User Guide, Agent Guide, ...) stand out from their pages. */
+.md-nav--primary > .md-nav__title,
+.md-nav--primary .md-nav__item--section > .md-nav__link {
+  color: var(--md-typeset-a-color);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Sidebars: the page you are on is ochre; the link under the cursor is underlined. */
+.md-nav { --md-accent-fg-color: currentColor; }  /* hover keeps each link's own colour */
+.md-nav__link:hover { text-decoration: underline; }
+.md-nav__item .md-nav__link--active,
+.md-nav__item .md-nav__link--active:hover { color: #c8891b; }
