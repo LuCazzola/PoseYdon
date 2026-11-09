@@ -1,7 +1,7 @@
 """Judge the FBX files the pipeline returns against the user's vendor rig.
 
     build  --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]   write the stage files of a round trip
-    file   FILE (--reference REF | --rig R --data D [--clip C.npz]) [--out DIR]          one FBX with no source: C1, C2a (against REF, or the
+    file   FILE.fbx|FILE.bvh (--reference REF | --rig R --data D [--clip C.npz]) [--out DIR]          one FBX with no source: C1, C2a (against REF, or the
                                                                               rig's reference skin) and, with --rig, C5 sanity limits
     judge  DIR                                                                run the checks, write report.json / report.txt
 
@@ -25,13 +25,15 @@ import numpy as np
 import yaml
 
 from poseydon.build.pipeline import compose_build
-from poseydon.build.sources import SOURCES
+from poseydon.build.sources import SOURCES, fbx_index
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.export import RigRecord
+from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
 from tools.verify.case import Case, rig_skin, commit, load_case, sample_frames, sha256, zero_clip
+from tools.verify.bvh import bvh_checks
 from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c6_second_reader, c2b_fidelity, c3_canonical, c4_zero, c5_sanity, c5_stability, rig_limits
 from tools.verify.checks import C5
 from tools.verify.report import Check, Report, Status, apply_allowances
@@ -127,6 +129,15 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
                      "changed_since_build": changed, "built_by": meta["commit"], "verifier": commit(),
                      "container": os.environ.get("HOSTNAME", "unknown")})
     cfg = load_config() | {"limits": yaml.safe_load((CONFIG / "limits.yaml").read_text()) or {}}
+    if case.files.get("file", Path()).suffix == ".bvh":  # a BVH has no mesh: the joints decide
+        report.run["not_applicable"] = ("C1, C2a, C6, C7-sheets, B3-mesh: no mesh in this input; C5: reads FBX files, not BVH; "
+                                        "C2b, C3, C4: a file has no source clip or stages")
+        file = case.files["file"]
+        report.checks += bvh_checks(file, case.skin_fbx, case.skin_fbx.suffix.lstrip(".") or "fbx", None, cfg,
+                                    None if case.run is None else case.run / "blender" / "file.npz")
+        apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
+        report.write(run)
+        return report
     report.checks += c1_inventory(case, cfg["inventory_tol"])
     report.checks += c2a_skin(case, cfg)
     if "file" in case.files:  # a file with no source: what needs the source or the stages is not claimed
@@ -183,17 +194,27 @@ def _c5(case: Case, cfg: dict, generated: str | None = None) -> list[Check]:
     return out + [c5_stability(path, RigRecord.load(root, case.rig), prepared, data, cfg)]
 
 
+def _vendor_clip(file: Path, data, rig: str) -> Path | None:
+    """The rig's FBX clip a vendor BVH was exported with (same action name), the source its joints compare with."""
+    action = file.stem.lstrip("_")
+    return next((Path(data.paths.raw) / "source" / f for r, a, f in fbx_index(data.source.index) if (r, a) == (rig, action)), None)
+
+
 def file_case(file: Path, reference: Path | None, out: Path, data_name: str = "", rig: str = "", clip: Path | None = None) -> Path:
     if reference is None:
-        reference = rig_skin(compose_build([f"data={data_name}"]).data, rig)
+        data = compose_build([f"data={data_name}"]).data
+        reference = (file.suffix == ".bvh" and _vendor_clip(file, data, rig)) or rig_skin(data, rig)
     run = out / f"{file.stem}_{hashlib.sha256(str(file.resolve()).encode()).hexdigest()[:8]}"
     run.mkdir(parents=True, exist_ok=True)
     try:
-        scene = FBX.read(file)
-        try:
-            frames = sample_frames(scene.world(), load_config()["n_frames"])
-        finally:
-            scene.close()
+        if file.suffix == ".bvh":  # B4's frames: evenly spaced, the first and last included
+            frames = np.unique(np.linspace(0, len(BVH.read(file).rotations) - 1, load_config()["n_frames"]).round().astype(int))
+        else:
+            scene = FBX.read(file)
+            try:
+                frames = sample_frames(scene.world(), load_config()["n_frames"])
+            finally:
+                scene.close()
     except Exception:  # noqa: BLE001 - judge reports an unreadable file
         frames = np.zeros(0, dtype=int)
     _write_case(run, Case(data_name, rig, file.stem, {"file": file}, reference, reference, frames, frames),

@@ -17,7 +17,7 @@ There is one test per clip, so `-k Rig/action` narrows a run.
 ## The motion verifier judges FBX output against the vendor rig
 
 `scripts/verify_motion.py` builds the stage files of one round trip (`build`), judges them
-(`judge`), or judges a single FBX (`file`). It writes `<run>/report.json` and `<run>/report.txt` and
+(`judge`), or judges a single FBX or BVH (`file`). It writes `<run>/report.json` and `<run>/report.txt` and
 exits non-zero unless every check is `PASS` or `ALLOWED`. A `NOT RUN` line counts against
 that (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motion.sh` runs
 the whole sequence from the host: building in the `fbxsdk` container, reading in Blender
@@ -54,6 +54,25 @@ joints on the vendor FBX match the vendor's own `__Ascend.bvh` to 2.2e-6 of exte
 same (5.8e-3), and Blender keeps the mesh rigid, so it poses the joints differently. Crow has a `Null` node scaled 5
 with `eInheritRrSs` on every node; the exact cause is not pinned. No allowance is set: allowances are the owner's.
 Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowances.yaml`, citing the BVH agreement.
+
+**BVH files** (`tools/verify/bvh.py`; `file FILE.bvh`, a BVH being a normal input, mesh or no mesh). A BVH carries no mesh, so
+the mesh checks (`C1`, `C2a`, `C6`, `C7-sheets`, `B3-mesh`) do not apply: they are left out of the report and named under
+`run.not_applicable` ("no mesh in this input"), never `NOT RUN`, and the verdict rests on the joints. `C5` reads FBX files only,
+so it is listed there too. The source is the BVH given with `--reference`, or, with `--rig` and `--data`, the rig's FBX clip of the
+same action name (`__DownLoop.bvh` against `Camel-DownLoop.fbx`; else the rig's reference skin). `B1-layout` compares the HIERARCHY text
+(joints, nesting, channels, End Sites; numbers left out) and the frame rate with a BVH source, and is `NOT RUN` with an FBX source:
+there is no user BVH to match, so such a run's verdict stays `NOT RUN`. `B2-joints` compares world positions per frame: with a BVH
+source directly, with an FBX source after one fitted similarity (units, axes; the vendor BVH differs from its FBX in per-joint frames,
+so rotations are not compared) and only when the FBX has as many frames as the file, else `NOT RUN` (a bone length is no stand-in:
+vendor rigs animate position channels). Both are within `bvh_tol` of extent (`independent`, `derived` for a repaired reference),
+10x the worst measured (vendor Camel against its FBX, 1e-5). `B3-mesh` runs only when a `Case` names a rig with an FBX skin (no
+`file` run today): the file's joints drive the reference skin through `FBX.from_animation` and C5's mesh limits judge it
+(`driven` evidence); joints with no rotation channels stay at the asset's rest, and a vendor BVH (per-joint frames differ) gives a
+false red, only BVHs in the asset's frames (the pipeline's) are meant. `B4-reader` is Blender's BVH importer
+(`tools/verify/blender_read.py`, run by `scripts/verify_motion.sh file ...`) against our reader, joint positions after one similarity
+within `blender_tol`, the fitted scale held to 1; it agrees with the SDK-side reader on vendor BVHs to 1.1e-5 at worst (39 files, 8 rigs),
+unlike its FBX import (see C6). `tests/test_verify.py` (`test_bvh_files_with_and_without_a_mesh`) runs the lines directly on a vendor
+Camel BVH (offset, channel order, NaN, truncation, empty) and `file` on a meshless one; B4 needs Blender, so it is `NOT RUN` there.
 
 **Sheets** (`tools/verify/sheet.py`, into `<run>/sheets/`, named in `report.json` under `run.sheets`): the reference mesh
 above and the file's below, in front, side, top and 3/4 views, at the first sampled frame (standing in for the rest

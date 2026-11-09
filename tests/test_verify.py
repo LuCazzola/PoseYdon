@@ -8,6 +8,7 @@ the verifier red on the check that owns it. Needs the FBX SDK, so it runs in the
 
 import ast
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -693,3 +694,54 @@ def test_symmetry_lines_exist_only_where_declared(tmp_path, monkeypatch):
     turn_hind_leg_10deg(run / "5_zero.fbx")
     after = judge(run, accept_changed=True, sheets=False)
     assert _status(after, "C4-symmetry-skeleton").status is Status.FAIL, _status(after, "C4-symmetry-skeleton")
+
+
+def test_bvh_files_with_and_without_a_mesh(tmp_path):
+    """A vendor BVH through `bvh_checks` (directly, against its own source) and through `file` with no mesh anywhere."""
+    from scripts import verify_motion
+    from poseydon.build.pipeline import compose_build
+    from tools.verify.bvh import bvh_checks
+    from tools.verify.case import Case, rig_skin
+
+    cfg = verify_motion.load_config()
+    vendor = Path("data/_raw/truebones/bvh/Camel/__DownLoop.bvh")
+    other = Path("data/_raw/truebones/bvh/Camel/__SlowWalk.bvh")
+    text, channels = vendor.read_text(), "Xposition Yposition Zposition Zrotation Yrotation Xrotation"
+    # a joint with no position channels, so its OFFSET is where it stands
+    offset = next(m.group(1) for m in re.finditer(r"(OFFSET \S+ \S+ \S+)\s+CHANNELS 3", text) if m.group(1).split() != ["OFFSET", *["0.000000"] * 3])
+    head, _, motion = text.partition("MOTION")
+    skin = rig_skin(compose_build(["data=truebones"]).data, "Camel")
+
+    def copy(name, body=text):
+        (tmp_path / name).write_text(body)
+        return tmp_path / name
+
+    def lines(path, source=vendor, kind="bvh", case=None):
+        return {c.id: c for c in bvh_checks(path, source, kind, case, cfg)}
+
+    def seen(path, **kw):
+        return {k: c.status.value for k, c in lines(path, **kw).items()}
+
+    green = {"B1-layout": "PASS", "B2-joints": "PASS", "B4-reader": "NOT RUN"}  # no Blender in `fbxsdk`
+    assert seen(copy("ok.bvh")) == green
+    assert seen(copy("channels.bvh", text.replace(channels, "Xposition Yposition Zposition Xrotation Yrotation Zrotation", 1)))["B1-layout"] == "FAIL"
+    moved = copy("offset.bvh", text.replace(offset, "OFFSET " + " ".join(f"{1.1 * float(v):.6f}" for v in offset.split()[1:]), 1))
+    assert seen(moved) == {**green, "B1-layout": "PASS", "B2-joints": "FAIL"}
+    assert seen(copy("nan.bvh", head + "MOTION" + motion.replace("0.", "nan", 1)))["B2-joints"] != "PASS"
+    assert seen(copy("short.bvh", head + "MOTION\nFrames: 1\n" + motion.split("\n", 3)[2] + "\n" + motion.split("\n", 4)[3]))["B2-joints"] == "FAIL"
+    assert seen(copy("empty.bvh", ""))["B2-joints"] == "FAIL"
+    # source FBX: no layout to match; the joints compare with the clip's own file; another clip's is no source
+    assert seen(vendor, source=skin, kind="fbx") == {**green, "B1-layout": "NOT RUN"}
+    assert seen(other, source=skin, kind="fbx")["B2-joints"] == "NOT RUN"
+    assert seen(moved, source=skin, kind="fbx")["B2-joints"] == "FAIL"
+    # B3 only with a rig's skin
+    case = Case("truebones", "Camel", "DownLoop", {"file": vendor}, skin, skin, np.zeros(0, dtype=int), np.zeros(0, dtype=int))
+    assert "B3-mesh" in lines(vendor, case=case) and lines(vendor, case=case)["B3-mesh"].evidence.value == "driven"
+    # `file`: no mesh anywhere. The mesh checks are left out and named, the verdict rests on the joints.
+    report = judge(verify_motion.file_case(copy("again.bvh"), vendor, tmp_path))
+    assert "no mesh in this input" in report.run["not_applicable"]
+    assert {c.id for c in report.checks} == set(green) and not any(c.id.startswith(("C", "B3")) for c in report.checks)
+    assert [c.id for c in report.checks if c.status is Status.NOT_RUN] == ["B4-reader"] and report.verdict is Status.NOT_RUN
+    assert judge(verify_motion.file_case(moved, vendor, tmp_path)).verdict is Status.FAIL
+    rig_only = judge(verify_motion.file_case(vendor, None, tmp_path, "truebones", "Camel"))  # the rig's own FBX clip of that name is the source
+    assert {c.id: c.status.value for c in rig_only.checks} == {**green, "B1-layout": "NOT RUN"}

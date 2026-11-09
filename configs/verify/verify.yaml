@@ -39,3 +39,6 @@ joint_floor_deg: 5  # a judged degree of freedom FAILs above this
 blender_tol: 1.0e-4
 # C4-symmetry: a joint whose name holds the first token has its mirror partner under the second (first occurrence replaced).
 symmetry_sides: [[Left, Right], [left, right], [_L_, _R_], [_L, _R], [L_, R_], [.L, .R]]
+# B2: a BVH's joint positions against its source, fraction of rig extent. BVH to BVH is exact up to the file's 6 decimals; against the
+# clip's own FBX (one fitted similarity) vendor Camel DownLoop measured 4.8e-6 to 9.9e-6 over every frame (2026-11-09). 10x the worst.
+bvh_tol: 1.0e-4
