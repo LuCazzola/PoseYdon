@@ -822,14 +822,13 @@ def _joint_motion(world: np.ndarray, names, parents, fps: float, ref: _Ref, held
     return out
 
 
-def joint_limits(clip_joints: dict[str, dict[str, list[float]]], margin: float, floor: float) -> dict[str, list[float]]:
-    """Per joint, the largest swing, |twist| and speed over the clips, times ``margin``, at least ``floor`` degrees
-    (a joint no clip moves must not fail on float noise). A joint with a non-finite value has no limit."""
+def joint_limits(clip_joints: dict[str, dict[str, list[float]]]) -> dict[str, list[float]]:
+    """Per joint, the largest swing, |twist| and speed over the vendor clips. A joint with a non-finite value has none."""
     seen: dict[str, np.ndarray] = {}
     for joints in clip_joints.values():
         for n, v in joints.items():
             seen[n] = np.maximum(seen.get(n, 0.0), v)
-    return {n: np.maximum(v * margin, floor).tolist() for n, v in seen.items() if np.isfinite(v).all()}
+    return {n: v.tolist() for n, v in seen.items() if np.isfinite(v).all()}
 
 
 def _measure(path: Path, n_frames: int, ref: _Ref, held=frozenset()) -> dict:
@@ -872,7 +871,7 @@ def _stamp(path: Path) -> list:
 def rig_limits(data_name: str, rig: str, cfg: dict) -> dict:
     """The largest ``range``, edge stretch, triangle area ratio and vertex-to-dominant-bone distance change seen
     across the rig's vendor clips, times ``stretch_margin``: ``derived`` evidence. ``joints`` holds the same per joint for
-    its swing, |twist| (degrees off the rest rotation) and angular speed, with a floor of ``joint_floor_deg``. Each clip's joints drive the rig's
+    its swing, |twist| (degrees off the rest rotation) and angular speed, per clip. Each clip's joints drive the rig's
     REFERENCE skin (as C2a does), so the limits and the file under test share one bind and one rest extent; ``n_frames``
     frames are sampled per clip. Cached at ``tmp/verify/limits/<data>/<rig>.json`` under a stamp of `LIMITS_VERSION`,
     ``n_frames``, the margin, the reference file and every clip's name, size and mtime: any change re-measures.
@@ -927,10 +926,9 @@ def rig_limits(data_name: str, rig: str, cfg: dict) -> dict:
 
 
 def _with_joints(limits: dict, cfg: dict) -> dict:
-    """``limits`` with the joint limits for the current ``joint_margin`` and ``joint_floor_deg``: the cache holds each
-    clip's raw per-joint maxima, so these two can change without re-measuring."""
-    params = [cfg["joint_margin"], cfg["joint_floor_deg"]]
-    return limits | {"joint_params": params, "joints": joint_limits(limits["clip_joints"], *params)}
+    """``limits`` with the vendor maximum per joint and the current ``joint_unused_deg`` and ``joint_floor_deg``: the cache
+    holds each clip's raw per-joint maxima, so these two can change without re-measuring."""
+    return limits | {"joint_params": [cfg["joint_unused_deg"], cfg["joint_floor_deg"]], "joints": joint_limits(limits["clip_joints"])}
 
 
 def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
@@ -968,21 +966,38 @@ def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
 
 
 def _c5_joints(found: dict, limits: dict, where: dict) -> Check:
-    """``C5-joints``: each joint's swing, |twist| and angular speed over its vendor limit; the value is the worst ratio
-    (FAIL above 1), the joint and component are named. Held joints are not measured (`_joint_motion`). A joint with no
-    finite limit is left out and counted, as are the reference's joints missing from the file."""
+    """``C5-joints``: JUDGES only the degrees of freedom (a joint's swing, |twist| or speed) whose vendor maximum is below
+    ``joint_unused_deg``: FAIL when the file exceeds ``joint_floor_deg``; the value is the worst judged value/floor. Every
+    other one is only reported in the note (worst ratio over the vendor maximum). Held joints are not measured (`_joint_motion`).
+    Blind spot: a bend or twist on a degree of freedom the rig uses is unseen."""
     bound = limits.get("joints", {})
-    ratios = {(n, c): v[i] / bound[n][i] for n, v in found.items() if n in bound for i, c in enumerate(("swing", "twist", "speed"))}
-    if not ratios:
+    unused, floor = limits["joint_params"]
+    parts = ("swing", "twist", "speed")
+    judged, reported, n = {}, {}, 0
+    for j, v in found.items():
+        if j not in bound:
+            continue
+        n += 1
+        for i, c in enumerate(parts):
+            if bound[j][i] < unused:
+                judged[(j, c)] = v[i] / floor
+            else:
+                reported[(j, c)] = v[i] / bound[j][i]
+    if not n:
         return Check("C5-joints", Status.NOT_RUN, None, where=where, note="no joint of the file has a vendor limit")
-    (joint, part), worst = max(ratios.items(), key=lambda kv: np.inf if np.isnan(kv[1]) else kv[1])
-    unbounded = len(found) - len({n for n, _ in ratios})
-    missing = len({n for joints in limits["clip_joints"].values() for n in joints} - found.keys())
-    margin, floor = limits["joint_params"]
+    key = lambda kv: np.inf if np.isnan(kv[1]) else kv[1]  # noqa: E731 - NaN counts as the worst
+    missing = len({j for joints in limits["clip_joints"].values() for j in joints} - found.keys())
+    tail = f"; {len(found) - n} joints have no finite vendor maximum" * (len(found) > n) + f"; {missing} reference joints are missing from the file" * bool(missing)
+    seen = ""
+    if reported:
+        (rj, rp), rv = max(reported.items(), key=key)
+        seen = f"; reported, not judged: worst {rv:.3g} x the vendor maximum ({rj} {rp}) over {len(reported)} used quantities"
+    if not judged:
+        return Check("C5-joints", Status.PASS, Evidence.DERIVED, 0.0, 1.0, where,
+                     f"0 judged: no degree of freedom is unused by the {limits['used']} vendor clips, {n} joints" + seen + tail)
+    (joint, part), worst = max(judged.items(), key=key)
     return Check("C5-joints", Status.PASS if worst <= 1 else Status.FAIL, Evidence.DERIVED, float(worst), 1.0, where | {"joint": joint, "part": part},
-                 f"worst of {len(ratios)} joint quantities over the largest of {limits['used']} vendor clips x {margin} (floor {floor} deg)"
-                 + (f"; {unbounded} joints have no finite limit" if unbounded else "")
-                 + (f"; {missing} reference joints are missing from the file" if missing else ""))
+                 f"worst of {len(judged)} judged quantities (vendor maximum below {unused} deg) over {floor} deg, {n} joints" + seen + tail)
 
 
 def c5_stability(file: Path, record, prepared, data, cfg: dict) -> Check:

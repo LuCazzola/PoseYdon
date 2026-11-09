@@ -25,8 +25,8 @@ zero_ground_tol: 1.0e-4  # the lowest vertex (mesh mode) or joint at y = 0, frac
 # C5-stability bound. With no model in phase 1 the smoke round trips ARE the floor: 1.7e-7 to 1.2e-6 of extent on all 10 runs
 # (`build --smoke` + `judge`, 2026-11-08, tmp/verify/t7s; that judge ran at 1e-3, the bound was set after). The bound is 10x the worst.
 stability_tol: 1.0e-5   # C5-stability, fraction of extent after one fitted similarity
-# C5-joints: margin and floor are PLACEHOLDERS, no value is chosen. Leave-one-out over each smoke rig's vendor clips (each clip judged
-# against limits built from the others; tmp/verify/limits, .superpowers/probe/loo.py, 2026-11-08) fails at every cell of floor {1, 2} deg
-# x margin {1.1, 1.5, 2, 3}: 93, 58, 42, 23 clips of 218 at floor 1 and 92, 57, 40, 23 at floor 2. That is an owner decision (docs/reference/tooling.md).
-joint_margin: 1.1
-joint_floor_deg: 1.0e-3  # C5-joints, the smallest limit a joint gets (swing, twist, speed) so one no vendor clip moves cannot fail on noise
+# C5-joints judges only a degree of freedom (a joint's swing, twist or speed) the rig's vendor clips never use: vendor max below
+# joint_unused_deg. It FAILs above joint_floor_deg. Every other one is reported, not judged. Leave-one-out over 218 vendor clips gave
+# 7 FAILs, all rarely used joints (probe .superpowers/probe/loo_unused.py), against 23 at margin 3 (a margin on every degree of freedom).
+joint_unused_deg: 0.5  # vendor max below this (degrees; degrees per frame for speed) = unused
+joint_floor_deg: 5  # a judged degree of freedom FAILs above this
