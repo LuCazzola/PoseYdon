@@ -1,6 +1,6 @@
 # Verification
 
-Code: `tests/test_roundtrip.py`, `tests/test_verify.py`, `tools/verify`, `scripts/verify_motion.py`, `configs/verify`
+Code: `tests/test_roundtrip.py`, `tests/test_verify.py`, `tools/verify`, `tools/verify/blender_read.py`, `scripts/verify_motion.py`, `scripts/verify_motion.sh`, `configs/verify`
 
 Both checks below are tooling. They judge the library's output against something the
 library did not produce.
@@ -26,12 +26,22 @@ the whole sequence from the host: building in the `fbxsdk` container, reading in
 
 **C6** reads each file the pipeline wrote in Blender (`tools/verify/blender_read.py`, `fbx` service, run by
 `scripts/verify_motion.sh`) and compares Blender's evaluated vertices with the SDK's, index to index (the importer keeps
-the control-point order), after one fitted similarity per file for units and axes, within `blender_tol` of extent
-(`independent` evidence). A mesh Blender drops, a skin it loses or an import that fails is `FAIL`; no Blender output is
-`NOT RUN`, which counts against the verdict. `blender_tol` is ten times the worst gap measured on the pipeline's files
-(1e-5, eight rigs). The vendor file is read too but only noted, never judged: the readers differ on it by 7e-4 to 5.8e-3
-(Blender's importer). Crow's pipeline files differ by 4.9e-3, which is a real disagreement, not float noise
-(`tmp/verify/findings.md`). `tests/test_verify.py` runs in `fbxsdk`, where Blender cannot, so it ignores a `C6` `NOT RUN`.
+the control-point order), after one fitted similarity per file, within `blender_tol` of extent (`independent` evidence).
+The fit is judged too, so it can absorb units and axes but not a real resize or move: its scale must match the file's
+unit factor (`UnitScaleFactor`/100, 0.01 for cm) and its shift must stay within `blender_tol` of extent; the note gives the
+fitted scale, the expected one and the shift. A mesh Blender drops or an import that fails is `FAIL`; a skin Blender loses
+is caught only through the vertex gap (nothing checks for it directly). No Blender output is `NOT RUN`, which counts
+against the verdict. `blender_tol` is ten times the worst gap measured on the pipeline's files (1e-5, eight rigs). The
+vendor file is read too but only noted, never judged: the readers differ on it by 7e-4 to 5.8e-3 (Blender's importer).
+`tests/test_verify.py` runs in `fbxsdk`, where Blender cannot, so it ignores a `C6` `NOT RUN`.
+
+Known disagreement, Crow (`ascend`): C6 FAILs on `2_prepared`, `3_model` and `4_roundtrip` (4.9e-3 of extent; fitted
+scale 0.0039 against 0.01) while `5_zero` agrees at 3e-8. The fault is Blender's reading, not the pipeline's: the SDK's
+joints on the vendor FBX match the vendor's own `__Ascend.bvh` to 2.2e-6 of extent, Blender's gap on the vendor file is the
+same (5.8e-3), and Blender keeps the mesh rigid, so it poses the joints differently. Crow has a `Null` node scaled 5
+with `eInheritRrSs` on every node; the exact cause is not pinned. No allowance is set: allowances are the owner's.
+Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowances.yaml`, citing the BVH agreement.
+(`tmp/verify/findings.md`)
 `scripts/verify_motion.sh --smoke` carries on past a rig that fails to build.
 
 The pipeline's own code cannot serve as the reference, because that would be circular:

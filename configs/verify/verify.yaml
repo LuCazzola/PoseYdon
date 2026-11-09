@@ -31,8 +31,9 @@ stability_tol: 1.0e-5   # C5-stability, fraction of extent after one fitted simi
 # Blind spot: a bend or twist on a degree of freedom the rig uses is unseen. A rig with none unused gives NOT RUN.
 joint_unused_deg: 0.5  # vendor max below this (degrees; degrees per frame at 30 fps for speed) = unused
 joint_floor_deg: 5  # a judged degree of freedom FAILs above this
-# C6: Blender's evaluated vertices against the SDK's, one similarity per file (fraction of extent). Floor on the files the pipeline wrote,
+# C6: Blender's evaluated vertices against the SDK's, one similarity per file (fraction of extent); the fit's scale against the file's
+# unit factor (ratio) and its shift (fraction of extent) are held to the same bound. Floor on the files the pipeline wrote,
 # `tools/verify/blender_read.py` on tmp/verify/t7s, 2026-11-09, 8 clean rigs x 4 files: 1.5e-8 to 9.9e-6 (worst Anaconda 2_prepared/3_model).
-# The bound is 10x the worst. Crow ascend is not in that range (4.9e-3 on 2_prepared, 3_model, 4_roundtrip): a genuine disagreement, see findings.
+# The bound is 10x the worst. Crow ascend is not in that range (4.9e-3 on 2_prepared, 3_model, 4_roundtrip): Blender misreads Crow (the SDK matches the vendor BVH), see findings.
 # The vendor files are NOT judged: the two readers differ there by 7e-4 to 5.8e-3 (Blender's importer).
 blender_tol: 1.0e-4

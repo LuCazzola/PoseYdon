@@ -16,8 +16,8 @@ done
 sdk=(docker compose run --rm -T --entrypoint python -e HOME=/tmp fbxsdk scripts/verify_motion.py)
 code=0
 built=$("${sdk[@]}" build "${args[@]}" --out "$out") || code=1
-echo "$built" | grep FAILED >&2
-for run in $built; do
+grep FAILED <<<"$built" >&2
+for run in $(grep -v FAILED <<<"$built"); do
   [ -f "$run/case.json" ] || continue  # build prints a run directory per rig, and `<rig>: FAILED ...` lines
   docker compose run --rm -T fbx blender -b --python tools/verify/blender_read.py -- "$run" >/dev/null || code=1
   "${sdk[@]}" judge "$run" || code=1
