@@ -870,8 +870,8 @@ def _stamp(path: Path) -> list:
 
 def rig_limits(data_name: str, rig: str, cfg: dict) -> dict:
     """The largest ``range``, edge stretch, triangle area ratio and vertex-to-dominant-bone distance change seen
-    across the rig's vendor clips, times ``stretch_margin``: ``derived`` evidence. ``joints`` holds the same per joint for
-    its swing, |twist| (degrees off the rest rotation) and angular speed, per clip. Each clip's joints drive the rig's
+    across the rig's vendor clips, times ``stretch_margin``: ``derived`` evidence. ``clip_joints`` holds, per clip and joint,
+    the swing, |twist| (degrees off the rest rotation) and angular speed (``joints``, added on every return, is their maximum per joint). Each clip's joints drive the rig's
     REFERENCE skin (as C2a does), so the limits and the file under test share one bind and one rest extent; ``n_frames``
     frames are sampled per clip. Cached at ``tmp/verify/limits/<data>/<rig>.json`` under a stamp of `LIMITS_VERSION`,
     ``n_frames``, the margin, the reference file and every clip's name, size and mtime: any change re-measures.
@@ -973,31 +973,29 @@ def _c5_joints(found: dict, limits: dict, where: dict) -> Check:
     bound = limits.get("joints", {})
     unused, floor = limits["joint_params"]
     parts = ("swing", "twist", "speed")
-    judged, reported, n = {}, {}, 0
-    for j, v in found.items():
-        if j not in bound:
-            continue
-        n += 1
-        for i, c in enumerate(parts):
-            if bound[j][i] < unused:
-                judged[(j, c)] = v[i] / floor
-            else:
-                reported[(j, c)] = v[i] / bound[j][i]
-    if not n:
-        return Check("C5-joints", Status.NOT_RUN, None, where=where, note="no joint of the file has a vendor limit")
+    todo = [(j, i) for j, m in bound.items() for i in range(3) if m[i] < unused]  # judged: from the vendor limits, not the file
+    if not todo:
+        return Check("C5-joints", Status.NOT_RUN, None, where=where,
+                     note=f"no degree of freedom is unused by the {limits['used']} vendor clips, so nothing to judge")
+    judged = {(j, parts[i]): found[j][i] / floor for j, i in todo if j in found}
+    absent = [(j, parts[i]) for j, i in todo if j not in found]
+    reported = {(j, c): v[i] / bound[j][i] for j, v in found.items() if j in bound
+                for i, c in enumerate(parts) if bound[j][i] >= unused}
     key = lambda kv: np.inf if np.isnan(kv[1]) else kv[1]  # noqa: E731 - NaN counts as the worst
     missing = len({j for joints in limits["clip_joints"].values() for j in joints} - found.keys())
-    tail = f"; {len(found) - n} joints have no finite vendor maximum" * (len(found) > n) + f"; {missing} reference joints are missing from the file" * bool(missing)
+    unknown = len(found.keys() - bound.keys())
+    tail = f"; {unknown} file joints are in no used vendor clip" * bool(unknown) + f"; {missing} reference joints are missing from the file" * bool(missing)
     seen = ""
     if reported:
         (rj, rp), rv = max(reported.items(), key=key)
         seen = f"; reported, not judged: worst {rv:.3g} x the vendor maximum ({rj} {rp}) over {len(reported)} used quantities"
-    if not judged:
-        return Check("C5-joints", Status.PASS, Evidence.DERIVED, 0.0, 1.0, where,
-                     f"0 judged: no degree of freedom is unused by the {limits['used']} vendor clips, {n} joints" + seen + tail)
+    if absent:
+        joint, part = absent[0]
+        return Check("C5-joints", Status.FAIL, Evidence.DERIVED, None, 1.0, where | {"joint": joint, "part": part},
+                     f"{len(absent)} judged quantities are on joints missing from the file (first: {joint} {part})" + seen + tail)
     (joint, part), worst = max(judged.items(), key=key)
     return Check("C5-joints", Status.PASS if worst <= 1 else Status.FAIL, Evidence.DERIVED, float(worst), 1.0, where | {"joint": joint, "part": part},
-                 f"worst of {len(judged)} judged quantities (vendor maximum below {unused} deg) over {floor} deg, {n} joints" + seen + tail)
+                 f"worst of {len(judged)} judged quantities (vendor maximum below {unused} deg) over {floor} deg" + seen + tail)
 
 
 def c5_stability(file: Path, record, prepared, data, cfg: dict) -> Check:

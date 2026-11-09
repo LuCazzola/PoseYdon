@@ -26,7 +26,8 @@ zero_ground_tol: 1.0e-4  # the lowest vertex (mesh mode) or joint at y = 0, frac
 # (`build --smoke` + `judge`, 2026-11-08, tmp/verify/t7s; that judge ran at 1e-3, the bound was set after). The bound is 10x the worst.
 stability_tol: 1.0e-5   # C5-stability, fraction of extent after one fitted similarity
 # C5-joints judges only a degree of freedom (a joint's swing, twist or speed) the rig's vendor clips never use: vendor max below
-# joint_unused_deg. It FAILs above joint_floor_deg. Every other one is reported, not judged. Leave-one-out over 218 vendor clips gave
+# joint_unused_deg. It FAILs above joint_floor_deg. Every other one is reported, not judged. Leave-one-out over 188 vendor clips gave
 # 7 FAILs, all rarely used joints (probe .superpowers/probe/loo_unused.py), against 23 at margin 3 (a margin on every degree of freedom).
-joint_unused_deg: 0.5  # vendor max below this (degrees; degrees per frame for speed) = unused
+# Blind spot: a bend or twist on a degree of freedom the rig uses is unseen. A rig with none unused gives NOT RUN.
+joint_unused_deg: 0.5  # vendor max below this (degrees; degrees per frame at 30 fps for speed) = unused
 joint_floor_deg: 5  # a judged degree of freedom FAILs above this

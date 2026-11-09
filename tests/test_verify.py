@@ -445,6 +445,7 @@ class Mutation:
     names: str = ""  # a word the C2a line must carry (the stage or joint it names)
     keeps_joints: bool = False  # the edit leaves every node's world as it was
     bounds: tuple[float, float] | None = None  # the C2a value the edit must land in
+    judged: tuple[str, str] | None = None  # the (joint, part) the C5-joints line must name
     stability_min: float = 0.0  # how far above C5's `stability_tol` (1e-5) the edit must land
     control: Callable[[Path], None] | None = None  # the same edit with nothing wrong: must stay green
 
@@ -472,7 +473,7 @@ MUTATIONS = [
     Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
     Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-placement": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
     Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL"}),
-    Mutation("twist_30", "Goat", None, twist_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}),
+    Mutation("twist_30", "Goat", None, twist_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}, judged=("Bip01_L_Calf", "twist")),
     Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL"}),
     Mutation("nan_key", "Goat", None, write_nan_rotation, {"C5-range": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
@@ -537,6 +538,8 @@ def test_verifier_goes_red(m, tmp_path):
     assert verdict(after) is not Status.PASS
     assert m.names in _status(after, "C2a").note
     assert (_status(after, "C5-stability").value or 0) >= m.stability_min
+    if m.judged:
+        assert (_status(after, "C5-joints").where["joint"], _status(after, "C5-joints").where["part"]) == m.judged
     if m.bounds:
         assert m.bounds[0] <= _status(after, "C2a").value <= m.bounds[1]
 
