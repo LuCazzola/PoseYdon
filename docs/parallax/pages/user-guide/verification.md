@@ -41,11 +41,11 @@ joints on the vendor FBX match the vendor's own `__Ascend.bvh` to 2.2e-6 of exte
 same (5.8e-3), and Blender keeps the mesh rigid, so it poses the joints differently. Crow has a `Null` node scaled 5
 with `eInheritRrSs` on every node; the exact cause is not pinned. No allowance is set: allowances are the owner's.
 Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowances.yaml`, citing the BVH agreement.
-(`tmp/verify/findings.md`)
+
 **Sheets** (`tools/verify/sheet.py`, into `<run>/sheets/`, named in `report.json` under `run.sheets`): the reference mesh
 above and the file's below, in front, side, top and 3/4 views, at the first sampled frame (standing in for the rest
 pose) and at the frame of worst error. Four kinds: C2a draws each stage's own skin against the reference under the
-file's joints (`<stage>_*`: skin faults only); C2b draws `4_roundtrip` against the expected pose, no fit; C3 draws
+file's joints (`<stage>_*`: skin faults only); C2b draws `4_roundtrip` (the `floor` file on a floor run) against the expected pose, no fit; C3 draws
 `2_prepared` and `3_model` against the expected pose put in place by the *recorded* placement; C4 draws `5_zero`
 against the rig at rest, likewise (`<stage>-vs-expected_*`, `5_zero-vs-rest_*`). So a file written in the wrong place
 looks it. The camera is fixed from the reference's bounds, never the file's. Vertices are coloured by their distance

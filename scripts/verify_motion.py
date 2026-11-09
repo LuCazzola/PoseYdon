@@ -113,6 +113,9 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
     `build` raises unless ``accept_changed``: a report must not outlive the file it describes."""
     case = load_case(run)
     case.draw_sheets = sheets
+    if sheets:
+        for old in (run / "sheets").glob("*.png"):  # a sheet from an earlier judge must not pass for this one
+            old.unlink()
     recorded = json.loads((run / "case.json").read_text())["sha256"]
     named = {"clip_fbx": case.clip_fbx, "skin_fbx": case.skin_fbx, **case.files}
     now = {k: sha256(v) for k, v in named.items()}
