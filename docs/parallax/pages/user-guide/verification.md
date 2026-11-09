@@ -24,7 +24,7 @@ the whole sequence from the host: building in the `fbxsdk` container, reading in
 (`fbx`), then judging.
 
 `build --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]` writes `<out>/<Rig>__<clip>/`: the stage
-files, the `5_zero` file and `case.json` (paths, sampled frames, the vendor file's frame for each through the clip's recorded
+files, the `5_zero` file and `<run>/case.json` (paths, sampled frames, the vendor file's frame for each through the clip's recorded
 window, SHA-256 of each file, git commit, container). `--smoke` builds the rigs of `configs/verify/verify.yaml` (and its `extra`
 clips) for every dataset it lists, or for `--data D` alone. `--floor` replaces the stages by the source clip written onto the rest
 asset with no preparation, to measure the float floor (judged against the source itself, but for the writer's node scale and
@@ -33,7 +33,7 @@ root (`--case-only` writes the case without judging; the shell script uses it so
 smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's. A verdict is `FAIL` over `NOT RUN` over
 `ALLOWED` over `PASS`; a check that cannot apply by construction is listed under `run.not_applicable` with its reason instead of
 `NOT RUN`, and information that is not a judgment (a vendor file disagreeing with the rig's reference, `run.vendor_disagreement`)
-is printed in `report.txt` and never changes the verdict. An allowance (`{check, joint, file, budget, reason}`) turns a `FAIL`
+is printed in `<run>/report.txt` and never changes the verdict. An allowance (`{check, joint, file, budget, reason}`) turns a `FAIL`
 inside its budget into `ALLOWED`, and only on lines whose `where` carries the same `joint` and `file`; C2a takes none.
 
 **C1, inventory.** Nodes, hierarchy, meshes, skin clusters, binds, materials, textures, units, up axis, fps and frame range of
@@ -136,7 +136,7 @@ within `blender_tol`, the fitted scale held to 1; it agrees with the SDK-side re
 unlike its FBX import (see C6). `tests/test_verify.py` (`test_bvh_files_with_and_without_a_mesh`) runs the lines directly on a vendor
 Camel BVH (offset, channel order, NaN, truncation, empty) and `file` on a meshless one; B4 needs Blender, so it is `NOT RUN` there.
 
-**Sheets** (`tools/verify/sheet.py`, into `<run>/sheets/`, named in `report.json` under `run.sheets`): the reference mesh
+**Sheets** (`tools/verify/sheet.py`, into `<run>/sheets/`, named in `<run>/report.json` under `run.sheets`): the reference mesh
 above and the file's below, in front, side, top and 3/4 views, at the first sampled frame (standing in for the rest
 pose) and at the frame of worst error. Four kinds: C2a draws each stage's own skin against the reference under the
 file's joints (`<stage>_*`: skin faults only); C2b draws `4_roundtrip` (the `floor` file on a floor run) against the expected pose, no fit; C3 draws
