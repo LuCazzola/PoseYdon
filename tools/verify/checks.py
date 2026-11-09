@@ -18,6 +18,7 @@ from poseydon.io.fbx import FBX, Inventory, SkinData
 from tools.verify import laws
 from tools.verify.case import Case, LossRecord, rig_skin, sample_frames, ZeroRecord, loss_record, recorded_space, zero_record
 from tools.verify.report import Check, Evidence, Status
+from tools.verify.sheet import sheet
 from tools.verify.skin import deform, extent
 
 ZERO = "5_zero"
@@ -169,7 +170,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
     except Exception as error:  # noqa: BLE001 - an unreadable stage is NOT RUN, not a crash
         return [Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name} ({path.name}) unreadable: {error}")]
     joints = {n: world[:, j] for j, n in enumerate(names)}
-    notes, skipped, shown, worst = [], [], [], (-1.0, {})
+    notes, skipped, shown, worst, drawn = [], [], [], (-1.0, {}), []
     for mesh, skin in {s.mesh: s for s in ref[0]}.items():
         why = _skipped(ref[1], mesh) or _skipped(inventory, mesh)
         other = skinned.get(mesh)
@@ -190,6 +191,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
                 continue
             size, frame, vertex = _worst(want, got)
             shown.append(want)
+            drawn.append((skin.faces, want, got))
             if size > worst[0]:
                 worst = (size, {"mesh": mesh, "frame": int(sampled[frame]), "vertex": vertex,
                                 "joint": _dominant(skin, vertex)})
@@ -197,6 +199,8 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
         if not has_skin:
             skipped.append(f"mesh {mesh} has no skin deformer")
     out = []
+    if drawn and case.run is not None:
+        _sheets(case, name, drawn, sampled)
     if shown or notes:
         size = max(extent(np.concatenate([m[f] for m in shown])) for f in range(len(sampled))) if shown else 1.0
         value = worst[0] / size if shown and size > 0 else None
@@ -208,6 +212,21 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
     if skipped:
         out.append(Check("C2a", Status.NOT_RUN, evidence, where=where, note=f"{name}: " + "; ".join(skipped)))
     return out
+
+
+def _sheets(case: Case, stage: str, drawn: list, sampled: np.ndarray) -> None:
+    """Sheets of ``stage`` (all its meshes together) at the first sampled frame and at the worst one."""
+    base = np.cumsum([0] + [len(want[0]) for _, want, _ in drawn])
+    tris = np.concatenate([faces + b for (faces, _, _), b in zip(drawn, base)])
+    want, got = (np.concatenate(side, axis=1) for side in zip(*[(w, g) for _, w, g in drawn]))
+    error = np.nan_to_num(np.linalg.norm(want - got, axis=-1), nan=np.inf, posinf=np.inf)
+    error /= np.array([extent(f) for f in want])[:, None]
+    worst = int(error.max(axis=1).argmax())
+    for label, i in (("first", 0), ("worst", worst)):
+        if label == "worst" and worst == 0:
+            continue  # the first sheet already shows it
+        case.sheets.append(sheet(case, stage, int(sampled[i]), got[i], want[i], error[i], tris,
+                                 case.run / "sheets" / f"{stage}_{label}.png"))
 
 
 def c2a_skin(case: Case, cfg: dict) -> list[Check]:

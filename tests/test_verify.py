@@ -524,6 +524,12 @@ def test_verifier_goes_red(m, tmp_path):
     base = judge(run)
     if not m.base_red:
         assert_green(base)
+    sheets = base.run["sheets"]
+    assert len(sheets) >= 4 and not any(c.id == "C7-sheets" for c in base.checks)
+    assert all((run / s).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" for s in sheets)
+    first = [(run / s).read_bytes() for s in sheets]
+    again = judge(run)  # the same files give the same bytes
+    assert first == [(run / s).read_bytes() for s in again.run["sheets"]]
     before = _world(run / "4_roundtrip.fbx") if m.keeps_joints else None
     if m.control:
         m.control(run / "4_roundtrip.fbx")

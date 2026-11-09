@@ -42,6 +42,12 @@ same (5.8e-3), and Blender keeps the mesh rigid, so it poses the joints differen
 with `eInheritRrSs` on every node; the exact cause is not pinned. No allowance is set: allowances are the owner's.
 Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowances.yaml`, citing the BVH agreement.
 (`tmp/verify/findings.md`)
+**Sheets** (`tools/verify/sheet.py`, written by C2a into `<run>/sheets/`, named in `report.json` under `run.sheets`): for
+each file, the reference mesh above and the file's below, in front, side, top and 3/4 views, at the first sampled frame
+and at the frame of worst error. The camera is fixed from the reference's bounds, never the file's, so a mesh that
+sits in the wrong place looks it. Vertices are coloured by their distance from the reference as a fraction of extent on
+one fixed log scale (1e-6 blue to 1e-1 red, clipped beyond), printed on the sheet. Same files give the same bytes. They
+are for reading and never change a verdict, except that a run which wrote none gets `C7-sheets: NOT RUN`.
 `scripts/verify_motion.sh --smoke` carries on past a rig that fails to build.
 
 The pipeline's own code cannot serve as the reference, because that would be circular:

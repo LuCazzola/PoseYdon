@@ -132,6 +132,7 @@ import numpy as np
 import yaml
 from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation
+from tools.verify.sheet import _plt, draw
 
 PROB = Path("tmp/tposes4")                     # problem + faces files (build output)
 CONFIGS = Path(".superpowers/tpose/manual")    # a <Rig>.yaml here overrides RIGS below
@@ -1163,22 +1164,6 @@ def write(rig, d, W, P, out):
 
 
 # ======================================================================================================== views
-def _plt():
-    import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt; return plt
-
-
-def draw(ax, V, tris, P, parents, h, v, z, floor=True):
-    """Shaded mesh (painter's order along z) with the skeleton in red; the floor line blue."""
-    from matplotlib.collections import PolyCollection
-    plt = _plt(); t = V[tris]; nrm = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]); nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
-    shade = 0.25 + 0.75 * np.abs(nrm[:, z]); order = np.argsort(t[:, :, z].mean(1))
-    ax.add_collection(PolyCollection(t[order][:, :, [h, v]], facecolors=plt.cm.Greys_r(0.15 + 0.7 * shade[order]), edgecolors="none"))
-    for j in range(1, len(parents)): ax.plot(P[[parents[j], j], h], P[[parents[j], j], v], color="tab:red", lw=0.6)
-    if v == 1 and floor: ax.axhline(0, color="tab:blue", lw=0.8)
-    if h == 0: ax.axvline(0, color="tab:blue", lw=0.4, ls=":")
-    ax.autoscale_view(); ax.set_aspect("equal")
-
-
 def sheet(rig, d, P, V, out):
     plt = _plt(); tris = np.load(PROB / f"{rig}_faces.npz")["tris"]; turn = Rotation.from_euler("xy", [20, -40], degrees=True).as_matrix()
     fig, axes = plt.subplots(1, 4, figsize=(26, 6.5), gridspec_kw={"width_ratios": [1, 2, 1, 1.6]})

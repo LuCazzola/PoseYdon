@@ -134,6 +134,7 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
                 raise ValueError(f"{run}: {generated} changed since the case was made")
         report.checks += _c5(case, cfg, generated)
         report.checks += c6_second_reader(case, cfg)
+        _sheets(report, case, run)
         apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
         report.write(run)
         return report
@@ -142,9 +143,17 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
     report.checks += c4_zero(case, cfg)
     report.checks += _c5(case, cfg)
     report.checks += c6_second_reader(case, cfg)
+    _sheets(report, case, run)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
     report.write(run)
     return report
+
+
+def _sheets(report: Report, case: Case, run: Path) -> None:
+    """Name the sheets C2a wrote; they are for reading and never change a verdict, bar their absence."""
+    report.run["sheets"] = [str(p.relative_to(run)) for p in case.sheets]
+    if not case.sheets:
+        report.checks.append(Check("C7-sheets", Status.NOT_RUN, None, note="no sheet written (no skinned mesh compared)"))
 
 
 def _c5(case: Case, cfg: dict, generated: str | None = None) -> list[Check]:
