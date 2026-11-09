@@ -60,8 +60,8 @@ the mesh checks (`C1`, `C2a`, `C6`, `C7-sheets`, `B3-mesh`) do not apply: they a
 `run.not_applicable` ("no mesh in this input"), never `NOT RUN`, and the verdict rests on the joints. `C5` reads FBX files only,
 so it is listed there too. The source is the BVH given with `--reference`, or, with `--rig` and `--data`, the rig's FBX clip of the
 same action name (`__DownLoop.bvh` against `Camel-DownLoop.fbx`; else the rig's reference skin). `B1-layout` compares the HIERARCHY text
-(joints, nesting, channels, End Sites; numbers left out) and the frame rate with a BVH source, and is `NOT RUN` with an FBX source:
-there is no user BVH to match, so such a run's verdict stays `NOT RUN`. `B2-joints` compares world positions per frame: with a BVH
+(joints, nesting, channels, End Sites; numbers left out) and the frame rate with a BVH source, and is not applicable with an FBX source:
+there is no user BVH to match, so it is named in `run.not_applicable` and the joints decide. `B2-joints` compares world positions per frame: with a BVH
 source directly, with an FBX source after one fitted similarity (units, axes; the vendor BVH differs from its FBX in per-joint frames,
 so rotations are not compared) and only when the FBX has as many frames as the file, else `NOT RUN` (a bone length is no stand-in:
 vendor rigs animate position channels). Both are within `bvh_tol` of extent (`independent`, `derived` for a repaired reference),

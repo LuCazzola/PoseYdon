@@ -131,7 +131,8 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
     cfg = load_config() | {"limits": yaml.safe_load((CONFIG / "limits.yaml").read_text()) or {}}
     if case.files.get("file", Path()).suffix == ".bvh":  # a BVH has no mesh: the joints decide
         report.run["not_applicable"] = ("C1, C2a, C6, C7-sheets, B3-mesh: no mesh in this input; C5: reads FBX files, not BVH; "
-                                        "C2b, C3, C4: a file has no source clip or stages")
+                                        "C2b, C3, C4: a file has no source clip or stages"
+                                        + ("; B1-layout: the source is an FBX, no user BVH layout to match" if case.skin_fbx.suffix != ".bvh" else ""))
         file = case.files["file"]
         report.checks += bvh_checks(file, case.skin_fbx, case.skin_fbx.suffix.lstrip(".") or "fbx", None, cfg,
                                     None if case.run is None else case.run / "blender" / "file.npz")

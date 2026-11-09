@@ -731,7 +731,7 @@ def test_bvh_files_with_and_without_a_mesh(tmp_path):
     assert seen(copy("short.bvh", head + "MOTION\nFrames: 1\n" + motion.split("\n", 3)[2] + "\n" + motion.split("\n", 4)[3]))["B2-joints"] == "FAIL"
     assert seen(copy("empty.bvh", ""))["B2-joints"] == "FAIL"
     # source FBX: no layout to match; the joints compare with the clip's own file; another clip's is no source
-    assert seen(vendor, source=skin, kind="fbx") == {**green, "B1-layout": "NOT RUN"}
+    assert seen(vendor, source=skin, kind="fbx") == {k: v for k, v in green.items() if k != "B1-layout"}
     assert seen(other, source=skin, kind="fbx")["B2-joints"] == "NOT RUN"
     assert seen(moved, source=skin, kind="fbx")["B2-joints"] == "FAIL"
     # B3 only with a rig's skin
@@ -744,4 +744,5 @@ def test_bvh_files_with_and_without_a_mesh(tmp_path):
     assert [c.id for c in report.checks if c.status is Status.NOT_RUN] == ["B4-reader"] and report.verdict is Status.NOT_RUN
     assert judge(verify_motion.file_case(moved, vendor, tmp_path)).verdict is Status.FAIL
     rig_only = judge(verify_motion.file_case(vendor, None, tmp_path, "truebones", "Camel"))  # the rig's own FBX clip of that name is the source
-    assert {c.id: c.status.value for c in rig_only.checks} == {**green, "B1-layout": "NOT RUN"}
+    assert {c.id: c.status.value for c in rig_only.checks} == {k: v for k, v in green.items() if k != "B1-layout"}
+    assert "B1-layout" in rig_only.run["not_applicable"]

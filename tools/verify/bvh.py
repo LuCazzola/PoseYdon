@@ -35,9 +35,9 @@ def _line(id: str, ok: bool, evidence: Evidence | None, note: str, value=None, l
     return Check(id, Status.PASS if ok else Status.FAIL, evidence, value, limit, where or {}, note)
 
 
-def _b1(file: Path, source: Path, kind: str) -> Check:
+def _b1(file: Path, source: Path, kind: str) -> Check | None:
     if kind != "bvh":
-        return Check("B1-layout", Status.NOT_RUN, None, note="the source is an FBX: there is no user BVH to match")
+        return None  # no user BVH to match: not applicable, so a meshless BVH can PASS on its joints
     want, got = _layout(source), _layout(file)
     notes = [f"line {i}: {a!r} -> {b!r}" for i, (a, b) in enumerate(zip(want, got)) if a != b][:3]
     if len(want) != len(got):
@@ -133,7 +133,7 @@ def bvh_checks(file: Path, source: Path, kind: Literal["bvh", "fbx"], case: Case
     B3 mesh when ``case`` names a rig with an FBX skin. ``blender`` is `blender_read.py`'s output for the file.
     An unreadable file fails every line it would have judged."""
     try:
-        got = [_b1(file, source, kind), _b2(file, source, kind, cfg["bvh_tol"])]
+        got = [c for c in (_b1(file, source, kind), _b2(file, source, kind, cfg["bvh_tol"])) if c is not None]
         if case is not None:
             got.append(_b3(file, case, cfg))
         return got + [_b4(file, blender, cfg["blender_tol"])]
