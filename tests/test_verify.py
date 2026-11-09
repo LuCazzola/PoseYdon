@@ -360,7 +360,7 @@ def fling_first_frame(path: Path) -> None:
 def twist_calf_30deg(path: Path) -> None:
     """The left calf and everything under it turned 30 degrees about the calf's local X, which is the bone axis of a
     Biped calf: a TWIST, not a bend, frame by frame. The global mesh lines do not move for it. A bend that stays inside the
-    vendor's range is out of C5-joints' reach (tooling.md)."""
+    vendor's range is out of C5-joints' reach (verification.md)."""
     def edit(scene):
         world = scene.world()
         j = next(k for k, n in enumerate(scene.names) if "Bip01_L_Calf" in n)
@@ -473,9 +473,9 @@ MUTATIONS = [
     Mutation("shift_rest", "Goat", None, shift_zero_joint, {"C4-mesh": "FAIL", "C4-joints": "FAIL"}),
     Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
     Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-placement": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
-    Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL"}),
+    Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL", "C5-area": "FAIL"}),
     Mutation("twist_30", "Goat", None, twist_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}, judged=("Bip01_L_Calf", "twist")),
-    Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL"}),
+    Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL", "C5-bone-distance": "FAIL"}),
     Mutation("nan_key", "Goat", None, write_nan_rotation, {"C5-range": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
 ]
@@ -563,6 +563,21 @@ def test_judge_refuses_what_it_cannot_read(tmp_path, monkeypatch):
         with pytest.raises(SystemExit) as stop:
             verify_motion.main()
         assert stop.value.code not in (0, None)
+    # `--smoke --data D` builds only D's smoke rigs; `--smoke` alone builds every dataset
+    built = []
+    monkeypatch.setattr(verify_motion, "build", lambda data, rig, *a: built.append(data) or tmp_path)
+    for argv, want in ((["--data", "unimate"], {"unimate"}), ([], {"truebones", "unimate"})):
+        monkeypatch.setattr("sys.argv", ["verify_motion", "build", "--smoke", *argv])
+        built.clear()
+        with pytest.raises(SystemExit):
+            verify_motion.main()
+        assert set(built) == want
+    # an allowance matches only lines whose `where` carries its joint and file
+    from tools.verify.report import Check, apply_allowances
+    lines = [Check("C6", Status.FAIL, None, 1.0, 0.0, {"joint": j, "file": f}) for j, f in (("a", "x"), ("b", "x"), ("a", "y"))]
+    table = {"R": {"c": [{"check": "C6", "joint": "a", "file": "x", "budget": 2.0, "reason": "t"}]}}
+    done = apply_allowances(Report({"rig": "R", "action": "c"}, lines), table)
+    assert [c.status for c in done.checks] == [Status.ALLOWED, Status.FAIL, Status.FAIL]
     # a truncated file against a truncated reference is two unreadable files, not two equal empty ones
     rest = Path("data/truebones/cache/rigs/Camel/rest.fbx")
     for name in ("a.fbx", "b.fbx"):
@@ -740,6 +755,7 @@ def test_bvh_files_with_and_without_a_mesh(tmp_path):
     # `file`: no mesh anywhere. The mesh checks are left out and named, the verdict rests on the joints.
     report = judge(verify_motion.file_case(copy("again.bvh"), vendor, tmp_path))
     assert "no mesh in this input" in report.run["not_applicable"]
+    assert "B3-mesh: needs a pipeline BVH" in report.run["not_applicable"]
     assert {c.id for c in report.checks} == set(green) and not any(c.id.startswith(("C", "B3")) for c in report.checks)
     assert [c.id for c in report.checks if c.status is Status.NOT_RUN] == ["B4-reader"] and report.verdict is Status.NOT_RUN
     assert judge(verify_motion.file_case(moved, vendor, tmp_path)).verdict is Status.FAIL

@@ -1,8 +1,9 @@
 """Judge the FBX files the pipeline returns against the user's vendor rig.
 
     build  --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]   write the stage files of a round trip
-    file   FILE.fbx|FILE.bvh (--reference REF | --rig R --data D [--clip C.npz]) [--out DIR]          one FBX with no source: C1, C2a (against REF, or the
-                                                                              rig's reference skin) and, with --rig, C5 sanity limits
+    file   FILE.fbx|FILE.bvh (--reference REF | --rig R --data D [--clip C.npz]) [--out DIR]
+                                                                              one file with no source: an FBX gets C1, C2a, C5, C6 (C5 needs --rig);
+                                                                              a BVH gets B1, B2, B4; it also judges (the shell script runs Blender in between)
     judge  DIR                                                                run the checks, write report.json / report.txt
 
 Runs in the `fbxsdk` container; the run directory is `<out>/<Rig>__<clip>/`, `--out` defaults to
@@ -36,7 +37,7 @@ from tools.verify.case import Case, rig_skin, commit, load_case, sample_frames, 
 from tools.verify.bvh import bvh_checks
 from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c6_second_reader, c2b_fidelity, c3_canonical, c4_zero, c5_sanity, c5_stability, rig_limits
 from tools.verify.checks import C5
-from tools.verify.report import Check, Report, Status, apply_allowances
+from tools.verify.report import Check, Report, Status, apply_allowances, not_applicable
 
 CONFIG = Path("configs/verify")
 STAGES = ("2_prepared", "3_model", "4_roundtrip")
@@ -130,7 +131,7 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
                      "container": os.environ.get("HOSTNAME", "unknown")})
     cfg = load_config() | {"limits": yaml.safe_load((CONFIG / "limits.yaml").read_text()) or {}}
     if case.files.get("file", Path()).suffix == ".bvh":  # a BVH has no mesh: the joints decide
-        report.run["not_applicable"] = ("C1, C2a, C6, C7-sheets, B3-mesh: no mesh in this input; C5: reads FBX files, not BVH; "
+        report.run["not_applicable"] = ("C1, C2a, C6, C7-sheets: no mesh in this input; B3-mesh: needs a pipeline BVH in the asset's frames (bvh_checks with a case); C5: reads FBX files, not BVH; "
                                         "C2b, C3, C4: a file has no source clip or stages"
                                         + ("; B1-layout: the source is an FBX, no user BVH layout to match" if case.skin_fbx.suffix != ".bvh" else ""))
         file = case.files["file"]
@@ -139,7 +140,7 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
         apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
         report.write(run)
         return report
-    report.checks += c1_inventory(case, cfg["inventory_tol"])
+    report.checks += c1_inventory(case, cfg["inventory_tol"], report.run)
     report.checks += c2a_skin(case, cfg)
     if "file" in case.files:  # a file with no source: what needs the source or the stages is not claimed
         report.run["not_applicable"] = "C2b, C3, C4: a file has no source clip or stages"
@@ -148,7 +149,7 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
             report.run["generated_sha256"] = sha256(generated)
             if report.run["generated_sha256"] != meta["generated_sha256"]:
                 raise ValueError(f"{run}: {generated} changed since the case was made")
-        report.checks += _c5(case, cfg, generated)
+        report.checks += _c5(case, cfg, report.run, generated)
         report.checks += c6_second_reader(case, cfg)
         _sheets(report, case, run)
         apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
@@ -156,8 +157,8 @@ def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Repor
         return report
     report.checks += c2b_fidelity(case, cfg)
     report.checks += c3_canonical(case, cfg)
-    report.checks += c4_zero(case, cfg)
-    report.checks += _c5(case, cfg)
+    report.checks += c4_zero(case, cfg, report.run)
+    report.checks += _c5(case, cfg, report.run)
     report.checks += c6_second_reader(case, cfg)
     _sheets(report, case, run)
     apply_allowances(report, yaml.safe_load((CONFIG / "allowances.yaml").read_text()) or {})
@@ -174,11 +175,10 @@ def _sheets(report: Report, case: Case, run: Path) -> None:
     if any(c.id == "C2a" for c in report.checks):
         report.checks.append(Check("C7-sheets", Status.NOT_RUN, None, note="no sheet written"))
     else:
-        none = "C7-sheets: no mesh in this input"
-        report.run["not_applicable"] = f"{report.run['not_applicable']}; {none}" if "not_applicable" in report.run else none
+        not_applicable(report.run, "C7-sheets: no mesh in this input")
 
 
-def _c5(case: Case, cfg: dict, generated: str | None = None) -> list[Check]:
+def _c5(case: Case, cfg: dict, run: dict, generated: str | None = None) -> list[Check]:
     """C5 on the round trip (a built run) or the file (`file`). Stability needs the clip the file should be:
     the corpus clip of a built run, or ``generated`` (`file --clip`, the generator's .npz); without one it is NOT RUN."""
     path = case.files.get("4_roundtrip") or case.files.get("file")
@@ -186,7 +186,7 @@ def _c5(case: Case, cfg: dict, generated: str | None = None) -> list[Check]:
         return [Check(f"C5-{k}", Status.NOT_RUN, None, note="needs a file under test") for k in (*C5, "joints", "stability")]
     if not (case.data_name and case.rig):
         return [Check(f"C5-{k}", Status.NOT_RUN, None, note="needs --rig and --data for the rig's vendor limits") for k in (*C5, "joints", "stability")]
-    out = c5_sanity(path, case.rig, rig_limits(case.data_name, case.rig, cfg))
+    out = c5_sanity(path, case.rig, rig_limits(case.data_name, case.rig, cfg), run)
     if "file" in case.files and generated is None:
         return out + [Check("C5-stability", Status.NOT_RUN, None, note="no clip to compare with: pass --clip CLIP.npz (the generator's output)")]
     data = compose_build([f"data={case.data_name}"]).data
@@ -227,10 +227,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     b = sub.add_parser("build")
-    b.add_argument("--data", default="truebones")
+    b.add_argument("--data")
     b.add_argument("--rig")
     b.add_argument("--clip")
-    b.add_argument("--smoke", action="store_true", help="the rigs of configs/verify/verify.yaml")
+    b.add_argument("--smoke", action="store_true", help="the rigs of configs/verify/verify.yaml (of --data only, if given)")
     b.add_argument("--all-frames", action="store_true")
     b.add_argument("--floor", action="store_true", help="the source clip alone on the rest asset, to measure the float floor")
     b.add_argument("--out", type=Path, default=Path("tmp/verify"))
@@ -241,14 +241,15 @@ def main() -> None:
     f.add_argument("--data")
     f.add_argument("--clip", type=Path, help="the generator's clip (.npz) the file should be, for C5-stability")
     f.add_argument("--out", type=Path, default=Path("tmp/verify"))
+    f.add_argument("--case-only", action="store_true", help="write the case and print its directory, judge nothing (verify_motion.sh judges after Blender)")
     j = sub.add_parser("judge")
     j.add_argument("dir", type=Path)
     args = parser.parse_args()
 
     if args.command == "build":
         smoke = load_config()["smoke"]
-        jobs = ([(d, r, c) for d in ("truebones", "unimate") for r in smoke[d] for c in [None, *smoke["extra"].get(r, [])]]
-                if args.smoke else [(args.data, args.rig, args.clip)])
+        jobs = ([(d, r, c) for d in ([args.data] if args.data else ["truebones", "unimate"]) for r in smoke[d] for c in [None, *smoke["extra"].get(r, [])]]
+                if args.smoke else [(args.data or "truebones", args.rig, args.clip)])
         failed = []
         for data, rig, clip in jobs:
             try:
@@ -260,6 +261,9 @@ def main() -> None:
     if args.command == "file" and not (args.reference or (args.rig and args.data)):
         parser.error("file needs --reference, or --rig and --data")
     run = file_case(args.file, args.reference, args.out, args.data or "", args.rig or "", args.clip) if args.command == "file" else args.dir
+    if args.command == "file" and args.case_only:
+        print(f"{run}: case", flush=True)
+        raise SystemExit(0)
     runs = [run] if (run / "case.json").is_file() else sorted(p.parent for p in run.glob("*/case.json"))
     if not runs:
         raise SystemExit(f"{run}: no case.json here or in a subdirectory")

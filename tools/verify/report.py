@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 
+import numpy as np
+
 
 class Status(Enum):
     PASS = "PASS"
@@ -58,8 +60,9 @@ class Report:
         lines = [f"verdict: {self.verdict.value}", *(f"{k}: {v}" for k, v in self.run.items() if k != "sha256")]
         for c in self.checks:
             measured = "" if c.value is None else f" value={c.value:.4g} limit={c.limit}"
+            where = {k: float(v) if isinstance(v, np.floating) else v for k, v in c.where.items()}
             label = "" if c.evidence is None else f" [{c.evidence.value}]"
-            lines.append(f"{c.status.value:8} {c.id}{label}{measured} {c.where or ''} {c.note}".rstrip())
+            lines.append(f"{c.status.value:8} {c.id}{label}{measured} {where or ''} {c.note}".rstrip())
         return "\n".join(lines) + "\n"
 
     def write(self, directory: str | Path) -> None:
@@ -71,15 +74,22 @@ class Report:
         (directory / "report.txt").write_text(self.text())
 
 
+def not_applicable(run: dict, text: str) -> None:
+    """List a check that cannot apply to this input, with its reason, in ``run["not_applicable"]``."""
+    run["not_applicable"] = f"{run['not_applicable']}; {text}" if "not_applicable" in run else text
+
+
 def apply_allowances(report: Report, table: dict) -> Report:
-    """Turn a FAIL inside the owner's budget into ALLOWED. ``table`` is `allowances.yaml`:
+    """Turn a FAIL inside the owner's budget into ALLOWED; an entry's ``joint`` and ``file`` must equal the
+    line's `where` values. ``table`` is `allowances.yaml`:
     ``{rig: {clip: [{check, joint, budget, reason}]}}``, empty today, so nothing changes."""
     entries = table.get(report.run.get("rig"), {}).get(report.run.get("action"), []) or []
     if any(e["check"] == "C2a" for e in entries):
         raise ValueError("C2a takes no allowances")
     for c in report.checks:
         if c.status is Status.FAIL and c.value is not None and any(
-            e["check"] == c.id and c.value <= e["budget"] for e in entries
+            e["check"] == c.id and c.value <= e["budget"]
+            and all(c.where.get(k) == e[k] for k in ("joint", "file") if e.get(k) is not None) for e in entries
         ):
             c.status = Status.ALLOWED
     return report

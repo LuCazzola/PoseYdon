@@ -28,17 +28,19 @@ All run on the host and call docker compose; nothing needs host Python.
 
 ```bash
 scripts/verify_motion.sh --rig Camel [--clip bite] [--data truebones]   # build, read in Blender, judge
-scripts/verify_motion.sh --smoke [--data unimate]                       # the smoke set in configs/verify/verify.yaml
+scripts/verify_motion.sh --smoke [--data unimate]                       # the smoke set in configs/verify/verify.yaml (--data: that dataset's rigs only)
 scripts/verify_motion.sh file OUT.fbx --rig Camel --data truebones [--clip GEN.npz]   # a file with no source (generated motion)
 scripts/verify_motion.sh file OUT.bvh --reference USER.bvh             # a BVH, with or without a mesh
 ```
+
+`file` paths must be inside the checkout, relative to its root (the containers mount only the checkout).
 
 The exit status is 0 only when every line is PASS or ALLOWED. Each run directory holds `report.txt`,
 `report.json` and `sheets/`.
 
 ## Reading a report
 
-- **Statuses:** `PASS`, `FAIL`, `ALLOWED` (an owner-set allowance covers it), `NOT RUN` (the check could not
+- **Statuses:** `PASS`, `FAIL`, `ALLOWED` (an owner-set allowance covers it; nothing else sets it), `NOT RUN` (the check could not
   run; the verdict is then not PASS). Checks that cannot apply to the input, such as mesh checks on a meshless
   BVH, are listed under `not_applicable` instead.
 - **Evidence**, strongest first: `independent` (vendor files, Blender), `derived` (vendor-calibrated limits, an

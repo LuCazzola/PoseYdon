@@ -23,6 +23,68 @@ that (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motio
 the whole sequence from the host: building in the `fbxsdk` container, reading in Blender
 (`fbx`), then judging.
 
+`build --data D --rig R [--clip C] [--smoke] [--all-frames] [--floor] [--out DIR]` writes `<out>/<Rig>__<clip>/`: the stage
+files, the `5_zero` file and `case.json` (paths, sampled frames, the vendor file's frame for each through the clip's recorded
+window, SHA-256 of each file, git commit, container). `--smoke` builds the rigs of `configs/verify/verify.yaml` (and its `extra`
+clips) for every dataset it lists, or for `--data D` alone. `--floor` replaces the stages by the source clip written onto the rest
+asset with no preparation, to measure the float floor (judged against the source itself, but for the writer's node scale and
+held joints). `judge` refuses a file whose hash changed since `build`. `file` takes paths inside the checkout, relative to its
+root (`--case-only` writes the case without judging; the shell script uses it so the judge runs after Blender). Settings and the
+smoke set are in `configs/verify/`; `allowances.yaml` and `limits.yaml` are the owner's. A verdict is `FAIL` over `NOT RUN` over
+`ALLOWED` over `PASS`; a check that cannot apply by construction is listed under `run.not_applicable` with its reason instead of
+`NOT RUN`, and information that is not a judgment (a vendor file disagreeing with the rig's reference, `run.vendor_disagreement`)
+is printed in `report.txt` and never changes the verdict. An allowance (`{check, joint, file, budget, reason}`) turns a `FAIL`
+inside its budget into `ALLOWED`, and only on lines whose `where` carries the same `joint` and `file`; C2a takes none.
+
+**C1, inventory.** Nodes, hierarchy, meshes, skin clusters, binds, materials, textures, units, up axis, fps and frame range of
+each file against the rig's reference skin (`inventory_tol`). A clip's frame count is held to its recorded window over the vendor
+keys. The `5_zero` file is one pose, so C1 reads it without timing. Features the reader does not support are `C1:unsupported`
+(`NOT RUN`). Blind spot: anything outside the inventory (a custom property, an animation curve's interpolation).
+
+**C2a, skin.** Each stage file's own skin against the reference skin, both driven by that file's joints (`skin_tol`, floor
+measured beside it). It takes no allowances. Blind spot: a wrong pose is not seen, both sides move together.
+
+**C2b, fidelity.** The returned `4_roundtrip` file against the source clip with each lossy stage's loss law applied
+(`tools/verify/laws.py`). `C2b-untraced`, file against that expected pose, is the verdict: vertices (else joints) and joint
+positions within `untraced_tol` of rig extent, joint world rotations within `untraced_rot_tol`, each reported apart.
+`C2b-traced`, source against expected, is the loss the laws explain; it is shown and never judged. `C2b-rest` holds the rest
+inputs the laws read (bone lengths, node scales) to the vendor file's bind, and runs even when a law is missing. A lossy stage
+with neither law nor lossless declaration makes `C2b-untraced` `NOT RUN`: the fix is a law, not a tolerance. The expected pose is
+computed from pipeline records (idea `s8ia`), so the evidence is `independent` only up to those inputs.
+
+**C3, canonical files.** The `2_prepared` and `3_model` files (written in canonical space) against the source with the same
+laws, the model stage adding the reduction's. ONE similarity is fitted for the whole clip from the expected skin vertices to the
+file's; `C3-shape` is the residual, judged like C2b-untraced. `C3-placement` (`pipeline`) compares the fit with the `space`
+`RigRecord.placement` recorded: scale ratio (`placement_scale_tol`), rotation in degrees (`placement_rotation_deg`), offset as a
+fraction of extent (`placement_offset_tol`). It checks that a file sits where the record says; a wrong record moves
+`4_roundtrip` off the source, which C2b catches.
+
+**C4, rest pose.** The `5_zero` file (identity rotations on the rig's offsets, placed by `RigRecord.placement`). `C4-mesh`
+(`pipeline`: the reference is `rest.npz:rest`, built from the manifest's rest pose): the file's skin under its joints against
+the same skin under that rest pose, one fitted similarity, judged like `C3-shape`. `C4-placement` (`pipeline`) compares that
+fit with the recorded placement. `C4-joints` is the independent leg: the zero file's joints against the manifest's `rest_pose`
+BVH, after one fitted similarity, within `untraced_tol` (`derived` for an authored BVH, `independent` for a vendor file kept
+unchanged; `NOT RUN` where the manifest has none); positions only, so a rotation that leaves every joint in place is unseen.
+`C4-pose` (`pipeline`): up +Y, facing +Z (within `zero_facing_deg`) and grounded (within `zero_ground_tol` of extent), per the
+manifest's own definition; a part the chain does not declare is named and left out. A chain without `rest_relative`
+(`data=unimate`) has no rest at identity: C4-mesh, C4-placement and C4-pose are listed under `run.not_applicable`, and
+C4-joints still runs. Symmetry lines are below.
+
+**C5, sanity without a reference** (the `4_roundtrip` file, or the `file` run's). The rig's reference skin driven by the file's
+joints, so limits and file share one bind. `C5-range` (how far a joint strays from the skeleton's centroid, as a fraction of
+rest extent, every key), `C5-stretch` (worst edge length ratio against the bind mesh), `C5-area` (same for triangle areas) and
+`C5-bone-distance` (change of a vertex's distance to its dominant bone, fraction of mesh extent), over `n_frames` sampled
+frames. The limit is the largest value across the rig's vendor clips times `stretch_margin` (`derived`), cached under
+`tmp/verify/limits/<data>/<rig>.json` and re-measured when its stamp changes. Blind spots: only gross faults; a 30 degree knee
+error or a 90 degree twist moves none of the four, a short edge a vendor clip stretches widens the limit, and a rigid subtree
+turned whole keeps `C5-bone-distance` (a flipped limb fails stretch and area, not that line). `C5-joints` (`derived`) judges only
+the degrees of freedom (swing, |twist|, speed) whose vendor maximum is below `joint_unused_deg`: `FAIL` when the file exceeds
+`joint_floor_deg`; the rest are reported in the note, never judged, so a bend on a degree of freedom the rig uses is unseen.
+A rig with no unused degree of freedom lists `C5-joints` under `run.not_applicable`. `C5-stability` (`pipeline`): the file read
+back like a vendor clip and prepared again with the rig's chain, against the generator's clip (`build`: the corpus clip;
+`file`: `--clip C.npz`, else `NOT RUN`) after one fitted similarity, within `stability_tol`. Joint positions only; bone lengths
+come back from the rest asset on reading, so a wrong one is unseen.
+
 **C6** reads each file the pipeline wrote in Blender (`tools/verify/blender_read.py`, `fbx` service, run by
 `scripts/verify_motion.sh`) and compares Blender's evaluated vertices with the SDK's, index to index (the importer keeps
 the control-point order), after one fitted similarity per file, within `blender_tol` of extent (`independent` evidence).
@@ -57,7 +119,7 @@ Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowan
 
 **BVH files** (`tools/verify/bvh.py`; `file FILE.bvh`, a BVH being a normal input, mesh or no mesh). A BVH carries no mesh, so
 the mesh checks (`C1`, `C2a`, `C6`, `C7-sheets`, `B3-mesh`) do not apply: they are left out of the report and named under
-`run.not_applicable` ("no mesh in this input"), never `NOT RUN`, and the verdict rests on the joints. `C5` reads FBX files only,
+`run.not_applicable` ("no mesh in this input"; `B3-mesh` reads "needs a pipeline BVH in the asset's frames"), never `NOT RUN`, and the verdict rests on the joints. `C5` reads FBX files only,
 so it is listed there too. The source is the BVH given with `--reference`, or, with `--rig` and `--data`, the rig's FBX clip of the
 same action name (`__DownLoop.bvh` against `Camel-DownLoop.fbx`; else the rig's reference skin). `B1-layout` compares the HIERARCHY text
 (joints, nesting, channels, End Sites; numbers left out) and the frame rate with a BVH source, and is not applicable with an FBX source:
