@@ -108,10 +108,11 @@ def load_config() -> dict:
     return yaml.safe_load((CONFIG / "verify.yaml").read_text())
 
 
-def judge(run: Path, accept_changed: bool = False) -> Report:
+def judge(run: Path, accept_changed: bool = False, sheets: bool = True) -> Report:
     """Run every check on a run directory and write its report. A file that changed since
     `build` raises unless ``accept_changed``: a report must not outlive the file it describes."""
     case = load_case(run)
+    case.draw_sheets = sheets
     recorded = json.loads((run / "case.json").read_text())["sha256"]
     named = {"clip_fbx": case.clip_fbx, "skin_fbx": case.skin_fbx, **case.files}
     now = {k: sha256(v) for k, v in named.items()}
@@ -150,10 +151,16 @@ def judge(run: Path, accept_changed: bool = False) -> Report:
 
 
 def _sheets(report: Report, case: Case, run: Path) -> None:
-    """Name the sheets C2a wrote; they are for reading and never change a verdict, bar their absence."""
+    """Name the sheets the checks wrote. They are for reading: only a run that should have written some
+    and wrote none is `NOT RUN`; a rig with no mesh has nothing to draw."""
     report.run["sheets"] = [str(p.relative_to(run)) for p in case.sheets]
-    if not case.sheets:
-        report.checks.append(Check("C7-sheets", Status.NOT_RUN, None, note="no sheet written (no skinned mesh compared)"))
+    if case.sheets or not case.draw_sheets:
+        return
+    if any(c.id == "C2a" for c in report.checks):
+        report.checks.append(Check("C7-sheets", Status.NOT_RUN, None, note="no sheet written"))
+    else:
+        none = "C7-sheets: no mesh in this input"
+        report.run["not_applicable"] = f"{report.run['not_applicable']}; {none}" if "not_applicable" in report.run else none
 
 
 def _c5(case: Case, cfg: dict, generated: str | None = None) -> list[Check]:

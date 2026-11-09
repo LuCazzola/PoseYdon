@@ -525,7 +525,8 @@ def test_verifier_goes_red(m, tmp_path):
     if not m.base_red:
         assert_green(base)
     sheets = base.run["sheets"]
-    assert len(sheets) >= 4 and not any(c.id == "C7-sheets" for c in base.checks)
+    assert {"3_model-vs-expected_first", "4_roundtrip-vs-expected_first", "5_zero-vs-rest_first"} <= {Path(x).stem for x in sheets}  # placement, not only skin
+    assert len(sheets) >= 8 and not any(c.id == "C7-sheets" for c in base.checks)
     assert all((run / s).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" for s in sheets)
     first = [(run / s).read_bytes() for s in sheets]
     again = judge(run)  # the same files give the same bytes
@@ -533,13 +534,14 @@ def test_verifier_goes_red(m, tmp_path):
     before = _world(run / "4_roundtrip.fbx") if m.keeps_joints else None
     if m.control:
         m.control(run / "4_roundtrip.fbx")
-        assert _status(judge(run, accept_changed=True), "C2b-untraced").status is Status.PASS
+        assert _status(judge(run, accept_changed=True, sheets=False), "C2b-untraced").status is Status.PASS
     m.mutate(run / "4_roundtrip.fbx")
     if before is not None:
         assert np.abs(before - _world(run / "4_roundtrip.fbx")).max() < 1e-4
     with pytest.raises(ValueError, match="changed"):
         judge(run)
-    after = judge(run, accept_changed=True)
+    after = judge(run, accept_changed=True, sheets=False)
+    assert not after.run["sheets"] and not any(c.id == "C7-sheets" for c in after.checks)
     for check, want in m.expected.items():
         assert_red(base, after, check, want, m.rise)
     assert verdict(after) is not Status.PASS

@@ -199,8 +199,7 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
         if not has_skin:
             skipped.append(f"mesh {mesh} has no skin deformer")
     out = []
-    if drawn and case.run is not None:
-        _sheets(case, name, drawn, sampled)
+    _sheets(case, name, drawn, sampled)
     if shown or notes:
         size = max(extent(np.concatenate([m[f] for m in shown])) for f in range(len(sampled))) if shown else 1.0
         value = worst[0] / size if shown and size > 0 else None
@@ -215,7 +214,11 @@ def _c2a_file(case: Case, name: str, path: Path, ref: tuple[list[SkinData], Inve
 
 
 def _sheets(case: Case, stage: str, drawn: list, sampled: np.ndarray) -> None:
-    """Sheets of ``stage`` (all its meshes together) at the first sampled frame and at the worst one."""
+    """Sheets of ``stage`` (all its meshes together) at the first sampled frame (standing in for the rest
+    pose) and at the worst one. ``drawn`` is ``(faces, want, got)`` per mesh; faces are passed in because
+    `sheet` takes the triangles with the vertices."""
+    if not drawn or not case.draw_sheets or case.run is None:
+        return
     base = np.cumsum([0] + [len(want[0]) for _, want, _ in drawn])
     tris = np.concatenate([faces + b for (faces, _, _), b in zip(drawn, base)])
     want, got = (np.concatenate(side, axis=1) for side in zip(*[(w, g) for _, w, g in drawn]))
@@ -442,6 +445,8 @@ def c2b_fidelity(case: Case, cfg: dict) -> list[Check]:
     rest = _rest(case, pose, file.parents, size, cfg["untraced_tol"], evidence)
     if isinstance(expected, laws.MissingLaw):
         return [*stop(Status.NOT_RUN, f"no loss law for stage `{expected.stage}`: declare it in tools/verify/laws.py"), rest]
+    _sheets(case, f"{path.stem}-vs-expected", [(k.faces, deform(k, {n: expected.world[:, j] for j, n in enumerate(names)}),
+                                              deform(k, {n: file.world[:, j] for j, n in enumerate(names)})) for k in usable], case.frames)
     inputs = "bone lengths from the " + ("rest asset" if record.bind_of is None else "vendor bind") \
         + " and node scales from the rest asset"
     out = []
@@ -504,6 +509,16 @@ def _fitted(path: Path, file: _Joints, skins: list[SkinData], compare: list[int]
     return (gap, *_judged(gap, cfg), scale, rotation, shift, size)
 
 
+def _placed_sheet(case: Case, label: str, path: Path, file: _Joints, skins: list, expected: np.ndarray,
+                  frames: np.ndarray, space: np.ndarray) -> None:
+    """Sheets of the file's skin against the reference skin under ``expected`` joints, put in the file's
+    frame by the *recorded* ``space`` (no fit), so a file written in the wrong place shows as error."""
+    mine = _skins_of(path) if case.draw_sheets else {}
+    pose = lambda skin, world: deform(skin, {n: world[:, j] for j, n in enumerate(file.names)})
+    _sheets(case, label, [(s.faces, pose(s, expected) @ space[:3, :3].T + space[:3, 3], pose(mine[s.mesh], file.world))
+                          for s in skins if s.mesh in mine], frames)
+
+
 def _placement(space: np.ndarray, scale: float, rotation: np.ndarray, shift: np.ndarray, size: float, cfg: dict,
                where: dict, check: str = "C3-placement") -> Check:
     """The fitted similarity against the recorded ``space``: scale ratio, whole rotation in degrees, offset
@@ -547,6 +562,7 @@ def _c3_stage(case: Case, cfg: dict, name: str, path: Path) -> list[Check]:
         space = recorded_space(case, name)
     except Exception as error:  # noqa: BLE001
         return [*out, Check("C3-placement", Status.NOT_RUN, Evidence.PIPELINE, where=where, note=f"unreadable record: {error}")]
+    _placed_sheet(case, f"{name}-vs-expected", path, file, run.skins, expected.world, case.frames, space)
     return [*out, _placement(space, scale, rotation, shift, size, cfg, where)]
 
 
@@ -715,6 +731,8 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
                          "after one fitted similarity; " + "; ".join([_summary(gap), *modelled[1]])
                          + (f"; {len(held)} joints held by structure not compared (`RigRecord.fixed`)" if held else ""))
             placement = _placement(rec.space, scale, rotation, shift, size, cfg, where, "C4-placement")
+            _placed_sheet(case, f"{ZERO}-vs-rest", path, file, usable, np.array([[rest[n] for n in file.names]]),
+                          np.zeros(1, dtype=int), rec.space)
     placement = placement or stop("C4-placement", Status.NOT_RUN, "C4-mesh did not complete")
     return [mesh, placement, _zero_joints(case, cfg, rec, file), _zero_pose(case, cfg, rec, file, usable, rotation), symmetry]
 

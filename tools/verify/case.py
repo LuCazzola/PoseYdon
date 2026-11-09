@@ -28,7 +28,8 @@ class Case:
     window: tuple[int, int, int] | None = None  # the clip's recorded (start, stop, step) over the vendor keys
     floor: bool = False  # the file is the source clip written with no preparation (`build --floor`)
     run: Path | None = None  # the run directory, where `blender_read.py` leaves its output and the sheets go
-    sheets: list[Path] = field(default_factory=list)  # written by C2a
+    sheets: list[Path] = field(default_factory=list)  # written by C2a, C2b and C4
+    draw_sheets: bool = True  # `judge(sheets=False)` turns them off
 
 
 @dataclass

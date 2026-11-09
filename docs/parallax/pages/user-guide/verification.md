@@ -42,12 +42,17 @@ same (5.8e-3), and Blender keeps the mesh rigid, so it poses the joints differen
 with `eInheritRrSs` on every node; the exact cause is not pinned. No allowance is set: allowances are the owner's.
 Proposed for the owner: a C6 `ALLOWED` entry for Crow in `configs/verify/allowances.yaml`, citing the BVH agreement.
 (`tmp/verify/findings.md`)
-**Sheets** (`tools/verify/sheet.py`, written by C2a into `<run>/sheets/`, named in `report.json` under `run.sheets`): for
-each file, the reference mesh above and the file's below, in front, side, top and 3/4 views, at the first sampled frame
-and at the frame of worst error. The camera is fixed from the reference's bounds, never the file's, so a mesh that
-sits in the wrong place looks it. Vertices are coloured by their distance from the reference as a fraction of extent on
-one fixed log scale (1e-6 blue to 1e-1 red, clipped beyond), printed on the sheet. Same files give the same bytes. They
-are for reading and never change a verdict, except that a run which wrote none gets `C7-sheets: NOT RUN`.
+**Sheets** (`tools/verify/sheet.py`, into `<run>/sheets/`, named in `report.json` under `run.sheets`): the reference mesh
+above and the file's below, in front, side, top and 3/4 views, at the first sampled frame (standing in for the rest
+pose) and at the frame of worst error. Four kinds: C2a draws each stage's own skin against the reference under the
+file's joints (`<stage>_*`: skin faults only); C2b draws `4_roundtrip` against the expected pose, no fit; C3 draws
+`2_prepared` and `3_model` against the expected pose put in place by the *recorded* placement; C4 draws `5_zero`
+against the rig at rest, likewise (`<stage>-vs-expected_*`, `5_zero-vs-rest_*`). So a file written in the wrong place
+looks it. The camera is fixed from the reference's bounds, never the file's. Vertices are coloured by their distance
+from the reference as a fraction of extent on one fixed log scale (1e-6 blue to 1e-1 red, clipped beyond), printed on
+the sheet. Same files give the same bytes. They are for reading and never change a verdict, except that a run which
+should have written some and wrote none gets `C7-sheets: NOT RUN`; a rig with no mesh is listed under
+`run.not_applicable`. `judge(run, sheets=False)` skips them (the mutation rows do).
 `scripts/verify_motion.sh --smoke` carries on past a rig that fails to build.
 
 The pipeline's own code cannot serve as the reference, because that would be circular:
