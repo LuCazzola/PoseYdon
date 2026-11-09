@@ -31,7 +31,7 @@ stages and reduce rules.
 ## A rig in an existing dataset
 
 1. Put the vendor files under `<paths.raw>/source/<Rig>/`, where `paths.raw` is set in the
-   dataset config (all three shipped configs use `data/_raw/truebones`). They are
+   dataset config (all three shipped configs set `raw: data/_raw/truebones`). They are
    licensed: never commit them.
 2. Write `data/<dataset>/rigs/<Rig>/manifest.yaml`. Name joints, never index them, and
    copy a similar rig's manifest for the keys (facing pairs, `foot_joints`, `rest_pose`,

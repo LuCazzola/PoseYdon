@@ -17,7 +17,7 @@ There is one test per clip, so `-k Rig/action` narrows a run.
 ## The motion verifier judges FBX output against the vendor rig
 
 `scripts/verify_motion.py` builds the stage files of one round trip (`build`), judges them
-(`judge`), or judges a single FBX (`file`). It writes `report.json` and `report.txt` and
+(`judge`), or judges a single FBX (`file`). It writes `<run>/report.json` and `<run>/report.txt` and
 exits non-zero unless every check is `PASS` or `ALLOWED`. A `NOT RUN` line counts against
 that, and `C4-symmetry` is always `NOT RUN` (not implemented), so a built run currently
 always exits 1 (`tools/verify/checks.py`, `tools/verify/report.py`). `scripts/verify_motion.sh` runs
