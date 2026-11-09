@@ -154,6 +154,17 @@ def zero_record(case: Case) -> ZeroRecord:
                       record.placement(zero_clip(record))[1], pose)
 
 
+def rig_skin(data, rig: str) -> Path:
+    """The vendor file the rig's rest asset was built from: its reference skin."""
+    from poseydon.build.sources import REST_CACHE, rig_cache  # noqa: PLC0415
+
+    rest = rig_cache(data.paths.root, rig) / REST_CACHE
+    with np.load(rest) as z:
+        if "source_fbx" not in z.files:
+            raise LookupError(f"{rest} records no source_fbx: rebuild it with tools/build_rest_fbx.py")
+        return Path(str(z["source_fbx"]))
+
+
 def sha256(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 

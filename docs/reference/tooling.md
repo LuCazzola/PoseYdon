@@ -208,10 +208,14 @@ motion and the vendor mesh are in two files, and nothing maps one onto the other
   faults only: on Goat a flipped calf (180 degrees) takes stretch from 13 to 86 against a limit of 25, but a 30 degree knee fault or a 90 degree twist
   leaves all four lines unchanged (task 7 review probe), and a short edge that a vendor clip stretches 47 times (Camel) widens the limit. `C5-joints` (joint space, `derived`): per joint, the swing (bend off the reference's rest rotation) and |twist| (about the bone axis, the mean direction to the
   children; a leaf's whole turn is swing) in degrees, and the angular speed in degrees per frame at 30 fps, over every key; the limit is the largest the rig's
-  vendor clips reach times `stretch_margin`, at least `joint_floor_deg` (1e-3: vendor joints that never move measure 0 to 2.4e-6, so a joint no clip moves cannot
-  fail on float noise but any real motion does). The value is the worst quantity over its limit, FAIL above 1, the joint and part are named. It sees what the mesh lines
-  miss: a calf turned 30 degrees about its bone axis (twist 30 against a vendor 0.01) is 2950 times its limit; it cannot see a bend that stays inside the
-  vendor's range (a 30 degree bend of a calf the vendor bends 95 degrees passes at 0.5). `C5-stability`
+  vendor clips reach times `joint_margin`, at least `joint_floor_deg`. Joints in `RigRecord.fixed` (held by structure) are not measured, and a joint whose parent
+  is held is measured against its nearest ancestor that is not, in the file and the vendor clips alike (else the held parent's motion lands on the child: Dog's pelvis,
+  Camel's `C_ctrl`). A clip with a non-finite joint is left out of the limits and a joint with no finite limit is counted, never given an infinite one.
+  The value is the worst quantity over its limit, FAIL above 1, joint and part named. `joint_margin` (1.1) and `joint_floor_deg` (1e-3) are placeholders:
+  leave-one-out over the 9 smoke rigs (each vendor clip against limits from the others) FAILs clips at every cell of floor {1, 2} deg x margin {1.1, 1.5, 2, 3}
+  (93, 58, 42, 23 of 218 clips at floor 1; 92, 57, 40, 23 at floor 2; the best cell still fails 1 to 3 clips on 7 rigs), so a value is the owner's call; a clean
+  round trip passes only because its clip is one of the limit clips. It sees what the mesh lines miss: a calf twisted 30 degrees about its bone axis (`twist_30`;
+  vendor 0.01 degrees) is 2950 times its limit; a bend that stays inside the vendor's range (30 degrees of a calf the vendor bends 95) is out of its reach. `C5-stability`
   (`pipeline`): the file read back like a vendor clip and prepared again with the rig's recorded chain, against the generator's clip
   (`build`: the corpus clip; `file`: `--clip C.npz`, without it `NOT RUN`) after ONE fitted similarity, within `stability_tol` of extent. It compares
   joint positions only, and bone lengths come back from the rest asset on reading, so a rotation that keeps positions and a wrong bone length are unseen.

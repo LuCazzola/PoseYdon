@@ -25,13 +25,13 @@ import numpy as np
 import yaml
 
 from poseydon.build.pipeline import compose_build
-from poseydon.build.sources import REST_CACHE, SOURCES, rig_cache
+from poseydon.build.sources import SOURCES
 from poseydon.core.skeleton import SkeletonManifest
 from poseydon.core.animation import RigidBodyAnimation
 from poseydon.export import RigRecord
 from poseydon.io.fbx import FBX
 from scripts.build_stage_samples import build as build_stages
-from tools.verify.case import Case, commit, load_case, sample_frames, sha256, zero_clip
+from tools.verify.case import Case, rig_skin, commit, load_case, sample_frames, sha256, zero_clip
 from tools.verify.checks import ZERO, c1_inventory, c2a_skin, c2b_fidelity, c3_canonical, c4_zero, c5_sanity, c5_stability, rig_limits
 from tools.verify.checks import C5
 from tools.verify.report import Check, Report, Status, apply_allowances
@@ -57,15 +57,6 @@ def _write_case(run: Path, case: Case, extra: dict) -> None:
         "sha256": {k: sha256(v) for k, v in named.items()},
         "commit": commit(), "container": os.environ.get("HOSTNAME", "unknown"), **extra,
     }, indent=2))
-
-
-def rig_skin(data, rig: str) -> Path:
-    """The vendor file the rig's rest asset was built from: its reference skin."""
-    rest = rig_cache(data.paths.root, rig) / REST_CACHE
-    with np.load(rest) as z:
-        if "source_fbx" not in z.files:
-            raise LookupError(f"{rest} records no source_fbx: rebuild it with tools/build_rest_fbx.py")
-        return Path(str(z["source_fbx"]))
 
 
 def build(data_name: str, rig: str, clip: str | None, out: Path, all_frames: bool = False,

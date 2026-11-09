@@ -16,7 +16,7 @@ from poseydon.build.prepare import similarity
 from poseydon.io.bvh import BVH
 from poseydon.io.fbx import FBX, Inventory, SkinData
 from tools.verify import laws
-from tools.verify.case import Case, LossRecord, sample_frames, ZeroRecord, loss_record, recorded_space, zero_record
+from tools.verify.case import Case, LossRecord, rig_skin, sample_frames, ZeroRecord, loss_record, recorded_space, zero_record
 from tools.verify.report import Check, Evidence, Status
 from tools.verify.skin import deform, extent
 
@@ -704,7 +704,7 @@ def c4_zero(case: Case, cfg: dict) -> list[Check]:
 
 C5 = ("range", "stretch", "area", "bone-distance")
 LIMITS = Path("tmp/verify/limits")
-LIMITS_VERSION = 3  # bump with any change to what `_measure` computes: it invalidates every cached limit
+LIMITS_VERSION = 4  # bump with any change to what `_measure` computes: it invalidates every cached limit
 
 
 def _frame_numbers(scene: FBX) -> np.ndarray:
@@ -757,7 +757,8 @@ class _Ref:
     skins: list[SkinData]
     why: list[str]
     size: float
-    rest: dict[str, tuple[np.ndarray, np.ndarray | None]]  # joint -> (rest local rotation, bone axis in its frame or None)
+    bind: dict[str, np.ndarray]  # joint -> its world matrix in the reference's bind pose
+    axis: dict[str, np.ndarray | None]  # joint -> bone axis in its own frame (towards its children), None for a leaf
 
 
 def _reference(path: Path) -> _Ref:
@@ -773,34 +774,40 @@ def _reference(path: Path) -> _Ref:
     why = [f"mesh {m} {_skipped(inventory, m)}" for m in {s.mesh for s in skins} if _skipped(inventory, m)]
     rest = [deform(s, {n: m[None] for n, m in zip(s.links, s.link_bind)})[0] for s in usable]
     size = extent(np.concatenate(rest)) if rest else extent(bind[skeleton])
-    local = np.array([np.linalg.inv(bind_world[p]) @ bind_world[j] if p >= 0 else bind_world[j] for j, p in enumerate(parents)])
-    rest = {}
+    axis = {}
     for j, n in enumerate(names):
         kids = [(np.linalg.inv(bind_world[j]) @ bind_world[c])[:3, 3] for c, p in enumerate(parents) if p == j]
         kids = [k / np.linalg.norm(k) for k in kids if np.linalg.norm(k) > 0]
-        axis = np.mean(kids, axis=0) if kids else None
-        rest[n] = (_unscaled(local[j, :3, :3]), None if axis is None or not np.linalg.norm(axis) > 1e-9 else axis / np.linalg.norm(axis))
-    return _Ref(usable, why, size, rest)
+        mean = np.mean(kids, axis=0) if kids else None
+        axis[n] = None if mean is None or not np.linalg.norm(mean) > 1e-9 else mean / np.linalg.norm(mean)
+    return _Ref(usable, why, size, {n: bind_world[j] for j, n in enumerate(names)}, axis)
 
 
 def _unscaled(m: np.ndarray) -> np.ndarray:
     return m / np.linalg.norm(m, axis=-2, keepdims=True)
 
 
-def _joint_motion(world: np.ndarray, names, parents, fps: float, ref: _Ref) -> dict[str, list[float]]:
+def _joint_motion(world: np.ndarray, names, parents, fps: float, ref: _Ref, held=frozenset()) -> dict[str, list[float]]:
     """Per joint of the reference, over every key: its largest swing (degrees of bend off its rest rotation, the part
     that is not a turn about the bone axis), largest |twist| (degrees about the bone axis, from the rest rotation) and
     largest angular speed (degrees per frame at 30 fps). A joint with no bone axis (a leaf) has its whole turn as swing.
-    A non-finite matrix is infinite."""
+    A joint the file holds by structure (``held``, `RigRecord.fixed`) is left out, and one whose parent is held is
+    measured against its nearest ancestor that is not, in the file and in the reference alike: a held joint's
+    motion would otherwise land on its child. A non-finite matrix is infinite."""
     out = {}
     for j, n in enumerate(names):
-        if n not in ref.rest:
+        if n not in ref.bind or n in held:
             continue
-        p = parents[j]
-        m = world[:, j] if p < 0 else np.linalg.inv(world[:, p]) @ world[:, j]
+        a = parents[j]
+        while a >= 0 and names[a] in held:
+            a = parents[a]
+        if a >= 0 and names[a] not in ref.bind:
+            continue
+        m = world[:, j] if a < 0 else np.linalg.inv(world[:, a]) @ world[:, j]
+        rest = _unscaled((ref.bind[n] if a < 0 else np.linalg.inv(ref.bind[names[a]]) @ ref.bind[n])[:3, :3])
         bad = ~np.isfinite(m).all(axis=(1, 2))
         local = _unscaled(np.where(bad[:, None, None], np.eye(4), m)[:, :3, :3])
-        rest, axis = ref.rest[n]
+        axis = ref.axis[n]
         delta = Rotation.from_matrix(rest.T @ local)
         if axis is None:
             swing, twist = delta.magnitude(), np.zeros(len(local))
@@ -815,7 +822,17 @@ def _joint_motion(world: np.ndarray, names, parents, fps: float, ref: _Ref) -> d
     return out
 
 
-def _measure(path: Path, n_frames: int, ref: _Ref) -> dict:
+def joint_limits(clip_joints: dict[str, dict[str, list[float]]], margin: float, floor: float) -> dict[str, list[float]]:
+    """Per joint, the largest swing, |twist| and speed over the clips, times ``margin``, at least ``floor`` degrees
+    (a joint no clip moves must not fail on float noise). A joint with a non-finite value has no limit."""
+    seen: dict[str, np.ndarray] = {}
+    for joints in clip_joints.values():
+        for n, v in joints.items():
+            seen[n] = np.maximum(seen.get(n, 0.0), v)
+    return {n: np.maximum(v * margin, floor).tolist() for n, v in seen.items() if np.isfinite(v).all()}
+
+
+def _measure(path: Path, n_frames: int, ref: _Ref, held=frozenset()) -> dict:
     """``range`` (every key: how far a skeleton joint strays from the skeleton's centroid, as a fraction of the
     reference's rest extent; infinite if any is not a number) and the worst ``stretch``, ``area`` and ``bone-distance``
     of the REFERENCE skin driven by the file's joints (as C2a does), over ``n_frames`` sampled frames. ``why`` says what is missing."""
@@ -828,7 +845,7 @@ def _measure(path: Path, n_frames: int, ref: _Ref) -> dict:
     joints = {n: world[:, j] for j, n in enumerate(names)}
     pos = world[:, skeleton][..., :3, 3]
     reach = np.nan_to_num(np.linalg.norm(pos - pos.mean(axis=1, keepdims=True), axis=-1), nan=np.inf, posinf=np.inf)
-    out = {"range": float(reach.max() / max(ref.size, 1e-12)), "joints": _joint_motion(world, names, parents, fps, ref)}
+    out = {"range": float(reach.max() / max(ref.size, 1e-12)), "joints": _joint_motion(world, names, parents, fps, ref, held)}
     sampled = {n: m[sample_frames(world, n_frames)] for n, m in joints.items()}
     why, rows = list(ref.why), []
     for skin in ref.skins:
@@ -862,49 +879,58 @@ def rig_limits(data_name: str, rig: str, cfg: dict) -> dict:
     A quantity no clip could measure is absent from ``limit``; a clip that cannot drive the skin is named in ``skipped``."""
     from poseydon.build.pipeline import compose_build  # noqa: PLC0415
     from poseydon.build.sources import fbx_index  # noqa: PLC0415
-    from scripts.verify_motion import rig_skin  # noqa: PLC0415
+    from poseydon.export import RigRecord  # noqa: PLC0415
 
     data = compose_build([f"data={data_name}"]).data
     reference = rig_skin(data, rig)
+    held = sorted(RigRecord.load(Path(data.paths.root), rig).fixed)
     clips = sorted((a, Path(data.paths.raw) / "source" / f) for r, a, f in fbx_index(data.source.index) if r == rig)
     stamp = {"version": LIMITS_VERSION, "n_frames": cfg["n_frames"], "margin": cfg["stretch_margin"],
-             "joint_floor": cfg["joint_floor_deg"], "reference": _stamp(reference), "clips": [_stamp(p) for _, p in clips]}
+             "held": held, "reference": _stamp(reference), "clips": [_stamp(p) for _, p in clips]}
     cache = LIMITS / data_name / f"{rig}.json"
     try:
         saved = json.loads(cache.read_text())
         if saved.get("stamp") == stamp:
-            return saved
+            return _with_joints(saved, cfg)
     except (OSError, ValueError):
         pass
     ref = _reference(reference)
     seen: dict[str, float] = {}
-    joints: dict[str, np.ndarray] = {}
+    clip_joints: dict[str, dict] = {}
     skipped: dict[str, str] = {}
     used = 0
     for action, path in clips:
         try:
-            got = _measure(path, cfg["n_frames"], ref)
+            got = _measure(path, cfg["n_frames"], ref, frozenset(held))
         except Exception as error:  # noqa: BLE001 - a clip that cannot be read gives no limit
             skipped[action] = f"unreadable: {error}"
             continue
         if not np.isfinite(got["range"]):
             skipped[action] = "has keys that are not numbers"
             continue
+        if not all(np.isfinite(v).all() for v in got["joints"].values()):
+            skipped[action] = "has joint keys that are not numbers"
+            continue
         used += 1
+        clip_joints[action] = got["joints"]
         if got["why"]:
             skipped[action] = "; ".join(got["why"])
         for k in C5:
             if k in got and np.isfinite(got[k]):
                 seen[k] = max(seen.get(k, 0.0), got[k])
-        for n, v in got["joints"].items():
-            joints[n] = np.maximum(joints.get(n, 0.0), v)
-    floor = cfg["joint_floor_deg"]  # a joint no clip moves must not fail on float noise
     out = {"stamp": stamp, "n_frames": cfg["n_frames"], "reference": str(reference), "used": used, "seen": seen,
            "limit": {k: v * cfg["stretch_margin"] for k, v in seen.items()}, "skipped": skipped,
-           "joints": {n: np.maximum(v * cfg["stretch_margin"], floor).tolist() for n, v in joints.items()}}
+           "held": held, "clip_joints": clip_joints}
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(out, indent=2))
-    return out
+    return _with_joints(out, cfg)
+
+
+def _with_joints(limits: dict, cfg: dict) -> dict:
+    """``limits`` with the joint limits for the current ``joint_margin`` and ``joint_floor_deg``: the cache holds each
+    clip's raw per-joint maxima, so these two can change without re-measuring."""
+    params = [cfg["joint_margin"], cfg["joint_floor_deg"]]
+    return limits | {"joint_params": params, "joints": joint_limits(limits["clip_joints"], *params)}
 
 
 def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
@@ -913,14 +939,14 @@ def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
     no limit, or that the reference cannot give (no mesh, nothing to measure), is NOT RUN, named; a value that is
     not a finite number within its limit is FAIL. The global worst values only catch gross faults (a flipped limb), not a
     30 degree joint error or a twist (docs/reference/tooling.md)."""
-    stamp = hashlib.sha256(json.dumps(limits.get("stamp"), sort_keys=True).encode()).hexdigest()[:12]
+    stamp = hashlib.sha256(json.dumps([limits.get("stamp"), limits.get("joint_params")], sort_keys=True).encode()).hexdigest()[:12]
     where = {"rig": rig, "file": file.name, "limits": stamp}
 
     def line(k: str, status: Status, note: str, value=None, limit=None, evidence=None) -> Check:
         return Check(f"C5-{k}", status, evidence, value, limit, where, note)
 
     try:
-        got = _measure(file, limits.get("n_frames", 8), _reference(Path(limits["reference"])))
+        got = _measure(file, limits.get("n_frames", 8), _reference(Path(limits["reference"])), frozenset(limits.get("held", ())))
     except Exception as error:  # noqa: BLE001 - an unreadable file is NOT RUN
         return [line(k, Status.NOT_RUN, f"unreadable: {error}") for k in (*C5, "joints")]
     out = [_c5_joints(got["joints"], limits, where)]
@@ -935,23 +961,28 @@ def c5_sanity(file: Path, rig: str, limits: dict) -> list[Check]:
         else:
             ok = got[k] <= limit
             out.append(line(k, Status.PASS if ok else Status.FAIL,
-                            f"limit: the largest of {limits['used']} vendor clips x margin" + ("" if np.isfinite(got[k]) else "; not a finite number"),
+                            f"limit: the largest of {limits['used']} vendor clips x margin" + ("" if np.isfinite(got[k]) else "; not a finite number")
+                            + (f"; left out: {'; '.join(got['why'])}" if got["why"] else ""),
                             got[k], limit, Evidence.DERIVED))
     return out
 
 
 def _c5_joints(found: dict, limits: dict, where: dict) -> Check:
     """``C5-joints``: each joint's swing, |twist| and angular speed over its vendor limit; the value is the worst ratio
-    (FAIL above 1), the joint and component are named. A joint with no limit is left out and counted."""
+    (FAIL above 1), the joint and component are named. Held joints are not measured (`_joint_motion`). A joint with no
+    finite limit is left out and counted, as are the reference's joints missing from the file."""
     bound = limits.get("joints", {})
     ratios = {(n, c): v[i] / bound[n][i] for n, v in found.items() if n in bound for i, c in enumerate(("swing", "twist", "speed"))}
     if not ratios:
         return Check("C5-joints", Status.NOT_RUN, None, where=where, note="no joint of the file has a vendor limit")
     (joint, part), worst = max(ratios.items(), key=lambda kv: np.inf if np.isnan(kv[1]) else kv[1])
-    left = len(found) - len({n for n, _ in ratios})
+    unbounded = len(found) - len({n for n, _ in ratios})
+    missing = len({n for joints in limits["clip_joints"].values() for n in joints} - found.keys())
+    margin, floor = limits["joint_params"]
     return Check("C5-joints", Status.PASS if worst <= 1 else Status.FAIL, Evidence.DERIVED, float(worst), 1.0, where | {"joint": joint, "part": part},
-                 f"worst of {len(ratios)} joint quantities over the largest of {limits['used']} vendor clips x margin (floor {limits['stamp']['joint_floor']} deg)"
-                 + (f"; {left} joints have no limit" if left else ""))
+                 f"worst of {len(ratios)} joint quantities over the largest of {limits['used']} vendor clips x {margin} (floor {floor} deg)"
+                 + (f"; {unbounded} joints have no finite limit" if unbounded else "")
+                 + (f"; {missing} reference joints are missing from the file" if missing else ""))
 
 
 def c5_stability(file: Path, record, prepared, data, cfg: dict) -> Check:

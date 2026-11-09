@@ -356,9 +356,10 @@ def fling_first_frame(path: Path) -> None:
     _mutate(path, edit)
 
 
-def hinge_calf_30deg(path: Path) -> None:
-    """The left calf and everything under it turned 30 degrees about the calf's local X, frame by frame: a joint fault
-    the global mesh lines do not move for (review probe, tmp Goat)."""
+def twist_calf_30deg(path: Path) -> None:
+    """The left calf and everything under it turned 30 degrees about the calf's local X, which is the bone axis of a
+    Biped calf: a TWIST, not a bend, frame by frame. The global mesh lines do not move for it. A bend that stays inside the
+    vendor's range is out of C5-joints' reach (tooling.md)."""
     def edit(scene):
         world = scene.world()
         j = next(k for k, n in enumerate(scene.names) if "Bip01_L_Calf" in n)
@@ -471,7 +472,7 @@ MUTATIONS = [
     Mutation("wrong_rest_cache", "Goat", None, zero_on_wrong_rest, {"C4-joints": "FAIL", "C4-mesh": "PASS"}),
     Mutation("turn_zero", "Goat", None, turn_zero_half_degree, {"C4-pose": "FAIL", "C4-placement": "FAIL", "C4-mesh": "PASS", "C4-joints": "PASS"}),
     Mutation("flip_limb", "Goat", None, turn_a_limb_180deg, {"C5-stretch": "FAIL"}),
-    Mutation("hinge_30", "Goat", None, hinge_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}),
+    Mutation("twist_30", "Goat", None, twist_calf_30deg, {"C5-joints": "FAIL", "C5-stretch": "PASS"}),
     Mutation("fling_frame0", "Goat", None, fling_first_frame, {"C5-range": "FAIL"}),
     Mutation("nan_key", "Goat", None, write_nan_rotation, {"C5-range": "FAIL"}),
     Mutation("wrong_scale", "Crow", None, write_placement_scaled_5, {"C3-placement": "FAIL", "C3-shape": "PASS"}),
@@ -605,8 +606,6 @@ def test_laws_hold_on_a_folded_and_a_still_rig(data, rig, tmp_path):
     params = laws_params(load_case(run))
     assert params["fold_into_root"]["names"] if rig == "Goat" else params["drop_still"]["names"]
     report = judge(run)
-    # Dog's clean round trip is red on C5-joints (pelvis swing 2.3x its vendor limit, tmp/verify/findings.md): a finding, not widened
-    report.checks = [c for c in report.checks if (rig, c.id) != ("Dog", "C5-joints")]
     assert_green(report)
     where = _status(report, "C2b-untraced").where
     assert {"vertex", "joint", "rotation"} <= where.keys()
